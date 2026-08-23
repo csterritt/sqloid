@@ -1,88 +1,90 @@
-### Sqloid
+# Sqloid
 
-This is a project to create a SQL editor that can connect to multiple types of database and execute queries. Note: v1 narrows the original 'SQL editor' vision to a structured query builder / data browser (guided fields instead of typed SQL); free-text SQL entry is planned as a post-v1 advanced mode.
+Sqloid is a keyboard-driven terminal application for exploring and modifying databases. The broader vision includes multiple database engines and free-text SQL, but v1 is deliberately limited to SQLite files and local Cloudflare D1 databases through a structured query builder and data browser.
 
-### Features
-- Connect to multiple types of database
-- Execute queries
-- View results
-- Save queries
-- Save results
+`Notes/PRD-sqloid.md` is authoritative. This file is a concise product summary; where it omits detail or differs from the PRD, follow the PRD.
 
-### Implementation ideas
+## V1 product
 
-- Uses golang for code
-- Uses mow.cli (https://github.com/jawher/mow.cli) for the command line interface using command-word/arguments style
-    - sqlite <file> - run the app with the given sqlite database file
-    - d1 - run the app with a local d1 database
-- Uses bubbletea (https://github.com/charmbracelet/bubbletea) for the UI and Lipgloss (https://github.com/charmbracelet/lipgloss) for styling, with (where appropriate) components from bubbles (https://github.com/charmbracelet/bubbles)
-- For the 'sqlite <file>' command, the user gives the path to a sqlite database on the command line, with an error if it's not given, does not exist, or is not a sqlite database
-- For the 'd1' command, the program should look in the '.wrangler/state/v3/d1/miniflare-D1DatabaseObject' directory for a single sqlite database file (that is not have 'metadata' in the name) and use that. If there is no such file, or if there are multiple such files, it should error.
-- The main idea is that the user can type in SQL commands.
+- Open an existing SQLite database with `sqloid sqlite <file>` or discover one local D1 database with `sqloid d1`.
+- Validate files without creating them, open read-write, and fail clearly for missing, invalid, unreadable, read-only, ambiguous, or locked startup inputs.
+- Build SELECT, UPDATE, DELETE, and INSERT statements from schema-backed fields rather than typing SQL.
+- Display SELECT output in a frozen-header grid with vertical paging, horizontal scrolling, an independently read count, and clear empty/error states.
+- Keep the 20 most recent query states and 20 most recent immutable result snapshots in memory for the current session.
+- Save generated queries as executable `.sql` and export result snapshots as CSV or JSON.
 
-### UI
+## Builder and SQL scope
 
-- There are fields at the bottom of the screen. There are results at the top. The results should take up most of the area, but the fields can grow to multiple lines as bits get added.
-- The fields are (list is not positional; flow order is Command → Table → Column(s) → Where → Group By → Order By → Limit):
-    - Command
-    - Column(s)
-    - Table
-    - Where
-    - Order By
-    - Limit
-    - Group By
-- The UI starts in the 'Command' field, and the user can hit:
-    - S - which expands to 'Select'
-    - U - which expands to 'Update'
-    - D - which expands to 'Delete'
-    - I - which expands to 'Insert'
-- After the command is selected, the UI moves to the 'Table' field
-- Then the UI pops up a list of all the tables in the given database, and the user can select a table from the list, either by scrolling or fuzzy search
-- After the table is selected, the UI moves to the 'Column(s)' field, again with a list of columns in that table, with '*' at the top, selected by default. selecting one with 'enter' should add it to the list of columns
-- After a column is selected, the user is given a pop-up list of 'Value/Count/Min/Max/Avg/Sum' to choose from. 'Value' is selected by default
-- After the user selects an option, the UI shows the pop-up column list again so they can select more than one column
-- After one or more columns are selected, the user can hit Enter to run the query, or tab/arrow keys to move to the next field
-- arrows and tab/shift-tab move between fields
-- Page up/down page through results 
-- Shift page up/down scroll results left/right 
-- Header shows result total row count, range currently displayed
-- Ctrl p/n to scroll through previous queries 
-- Ctrl shift p/n to scroll through previous results 
-- If the user modifies a query, it should be added to the history at the bottom
+The builder starts at Command and guides the user through the applicable fields: Table, Column(s), Where, Group By, Order By, Limit, SET assignments, or INSERT values.
 
-### Decisions (from PRD interview and critiques; see Notes/PRD-sqloid.md — authoritative)
+- Command uses S/U/D/I for SELECT, UPDATE, DELETE, or INSERT.
+- Tables, views, and columns come from refreshed main-schema metadata; views are SELECT-only and internal objects are excluded.
+- SELECT projection is either sole wildcard `*` or ordered `(column, aggregate)` entries.
+- In an empty Column(s) popup, `*` is selected by default and synthetic `COUNT(*)` appears directly below it. Named columns continue to Value/Count/Min/Max/Avg/Sum selection.
+- WHERE supports one assisted predicate with `=`, `!=`, `<`, `<=`, `>`, `>=`, `IS NULL`, `IS NOT NULL`, or `LIKE`.
+- GROUP BY is multi-select. Every nonaggregate projected column in a grouped query must be grouped; wildcard with GROUP BY and mixed aggregate/nonaggregate projection without GROUP BY are invalid. All-aggregate projection without GROUP BY is valid.
+- ORDER BY supports one valid column or selected aggregate and ASC/DESC. Limit is empty or a positive signed-64-bit integer.
+- UPDATE requires one or more completed SET assignments; DELETE has an optional WHERE.
+- INSERT offers Value, NULL, or Default/Omit for every insertable column. Omitting all prompted columns emits `DEFAULT VALUES`; a table with no insertable columns cannot run.
+- Joins, subqueries, expressions, multiple predicates, AND/OR, IN, HAVING, and free-text SQL are outside v1.
 
-- v1 supports only sqlite files and local d1; other databases are out of scope
-- Database connections are read-write; pure-Go sqlite driver (modernc.org/sqlite); startup opens with mode=rw (no create), runs a `PRAGMA schema_version` probe, and treats any failure (including read-only files and busy-timeout expiry at open) as exit-status-1 startup failure
-- Startup validation: existence → readable → 16-byte 'SQLite format 3\0' header check → read-write open → schema probe
-- d1 discovery: case-sensitive matching for `.sqlite` extension and lowercase 'metadata' substring exclusion; -shm/-wal ignored by extension; error if zero or multiple candidates; path relative to working dir
-- 5s busy timeout at open (the schema probe) and on every statement; mid-session lock errors are ordinary query errors
-- Query grammar: SELECT with projection entries — wildcard `*` (sole entry, no aggregate prompt, clears prior entries) OR (column, aggregate?) pairs from {Value, Count, Min, Max, Avg, Sum}; identity is the (column, aggregate) pair so Value(age)+AVG(age) coexist; special COUNT(*) offered only when no columns selected yet, may coexist with other aggregates; MIN/MAX/AVG/SUM never against '*'; single-predicate WHERE (SELECT/UPDATE/DELETE only); multi-select GROUP BY; single-column ORDER BY restricted in grouped queries to grouped columns + selected aggregates; LIMIT 1..int64max (zero/overflow rejected inline); UPDATE SET / DELETE / INSERT flows; INSERT with all Default/Omit emits DEFAULT VALUES; joins/subqueries/IN/HAVING/etc. out of scope
-- LIKE values bound verbatim: % and _ are wildcards, no escaping in v1 (documented limitation); SQLite default case behaviour
-- Numeric parse-and-bind: verbatim input, no trimming; `-?[0-9]+` within int64 → INTEGER; else strconv.ParseFloat within float64 range (`1.`/`.5`/exponents ok) → REAL; anything else TEXT (leading '+', whitespace, NaN/Inf/hex spellings); non-finite REALs from db data export as JSON quoted strings / CSV text
-- Schema metadata: objects carry kind {ordinary-table, virtual-table, view}, rowid capability {has-rowid, without-rowid, n/a}, and rowid-shadowing flag; columns carry name/type/insertability via table_xinfo; table/column lists refreshed on each popup open; refresh failure retains stale listing with notice + retry/cancel
-- Views selectable for SELECT only; command switch revalidates retained table (view + write command → clear Table, focus moves there); ordinary/virtual tables retained across switches; virtual tables listed as ordinary tables everywhere including INSERT (best-effort)
-- Execution lifecycle: one logical execution per Enter owning up to two concurrent requests (first page + count) with operation IDs; Enter ignored while in flight (hint shown); builder editable but changes don't affect the running execution; Ctrl+W cancels the whole execution at any phase; late responses discarded by ID; Ctrl+C during execution = quit confirmation modal
-- Exactly one history entry per ended execution: success snapshot; count-failure snapshot; mid-scan failure snapshot marked 'failed at row N'; cancelled-before-rows marker (not exportable); cancelled-after-rows snapshot marked Cancelled (exportable); first-page/write failure error entry (not exportable)
-- Paging: LIMIT/OFFSET pages sized to terminal height; implicit ORDER BY rowid only for ordinary unshadowed rowid tables — none for views/virtual/WITHOUT ROWID/shadowed/aggregated queries; stability claimed only where implicit unique rowid applies; tie instability and concurrent-write drift documented (separate autocommit reads, no held transaction)
-- Sliding-window result cache capped at 10k rows: Page Down past window evicts oldest pages; Page Up re-fetches evicted pages fresh; snapshot freezes when the execution ends (navigate away/error/cancel) containing ≤10k retained rows, marked truncated beyond; export = exactly the snapshot
-- Write safety: every user-visible write runs inside an application-controlled transaction (BEGIN; statement; COMMIT; ROLLBACK on error or cancellation) so failed/cancelled writes always leave the db untouched — autocommit alone is insufficient under FAIL conflict resolution / trigger RAISE(FAIL); multi-statement transactions remain out of scope
-- Destructive-write confirmation modal opens immediately ('Estimating affected rows…', confirm disabled until estimate completes); estimate via pre-flight COUNT(*) wrapper, labelled non-binding; estimate failure still allows confirm (SQL + warnings shown); Ctrl+W cancels estimate and closes modal; TOCTOU race between estimate and confirm accepted; post-write summary always shows driver RowsAffected()
-- Ctrl+S priority: current runnable builder state → last executed query; viewing a historical result saves its query; nothing available → inline message, no picker; terminal error state defaults to last executed query, Ctrl+P/N selectable
-- Saving is one-way export; .sql files serialize literals safely (quote-doubled strings, NULL keyword, X'hex' blobs, double-quoted identifiers, trailing semicolon); saves are atomic via temp-file-in-destination + rename (pre-existing file untouched on failure; edge-case permission failures an accepted v1 limitation); invalid filename = empty basename or containing '/' or NUL
-- Export formats: CSV RFC 4180 (deduped header names, minimal quoting, UTF-8, CRLF; NULL and empty string both empty — lossy); JSON array of objects with deduplicated keys, numbers as JSON numbers, NULL null, blobs base64, non-finite REALs quoted strings; duplicate output names deduplicated left-to-right with lowest non-colliding suffix (name_2, name_3, …), applied uniformly to grid headers, CSV headers, and JSON keys; SQL never altered
-- Popups: table/column/GROUP BY/ORDER BY searchable (case-insensitive subsequence fuzzy search); aggregate/operator deliberately scroll-only; Esc preserves selections in multi-select popups, cancels single-select without change
-- Key model: Left/Right + Tab/Shift+Tab navigate builder fields; Up/Down used only inside popups and to toggle Order By direction on the Order By field; Backspace/Delete removes last-added entry on Column(s), clears whole assisted fields elsewhere; Shift+Tab/arrows revisit UPDATE/INSERT prompts with prior choices pre-filled; full context/key matrix lives in the PRD itself (no external design doc)
-- Horizontal scroll: Shift+PageUp/Down plus `,`/`.` fallbacks (terminals often intercept Shift+Page keys)
-- Quitting: q quits from Command field only; Ctrl+C elsewhere (idle/executing/modal) shows quit confirmation except terminal error state where it exits immediately status 1
-- Terminal error state (db file deleted before execution): full-screen message; Ctrl+S/Ctrl+X export from memory (default last executed query/result; Ctrl+P/N/E/Y select another); ? help works; only q (normal) or Ctrl+C (immediate, status 1) quit; file replacement at same path not detected (accepted limitation)
-- History: in-memory per session; snapshots immutable once appended, ≤10k rows marked truncated; each list capped at 20 oldest-evicted; new query entries append only at execution when normalized state differs (typed value comparison significant)
-- Errors replace results view, Esc back to builder; count failure never blocks rows; export/path errors inline in save flow; only startup failures and detected file deletion end sessions; no timeouts, no logging (TUI corruption + sensitive-data rationale)
-- INSERT prompts cover insertable columns only ({Value, NULL, Default/Omit}); INTEGER PRIMARY KEY noted auto-assigned if omitted; generated/hidden never prompted; zero-insertable-column tables blocked inline; virtual-table inserts best-effort via visible columns
-- Responsiveness (~100ms first indexed page) is guidance under target envelope, excluded from definition of done; slow operations handled by cancellation
-- Testing: external-behaviour tests incl. required high-risk boundary coverage (async overlap/cancel phases, count-failure-with-rows, 10k paging boundary, write rollback incl. trigger FAIL, pre-flight estimate flow, view→write switch, COUNT(*) vs '*', numeric boundaries/non-finite export, rowid shadowing/grouped paging, schema refresh during built query); UI behavioural tests via bubbletea scripted keys; rendering manual-only
+All values use one deterministic parse-and-bind rule: verbatim signed int64 input becomes INTEGER, otherwise finite `strconv.ParseFloat` input becomes REAL, and everything else becomes TEXT. SQLite affinity may then coerce it. Identifiers always come from schema metadata and are double-quoted. V1 does not filter entry or operators by declared column type.
 
-### Future ideas, won't be implemented in version 1
+## UI and keys
 
-- Full screen for nested query or flat text entry 
-- Freeze column(s) for left/right scroll
+- Results, including their header, occupy at least half the supported terminal height. The builder uses at most one-third and scrolls to keep the focused field visible.
+- Minimum size is 80×24. A smaller terminal preserves application state and offers `q` without confirmation or Ctrl+C with confirmation; resizing back restores the exact context and focus.
+- Tab/Shift+Tab and arrows navigate fields; popup navigation and searchable-popup behavior are context-specific.
+- Page Up/Down navigates result pages. Shift+Page Up/Down and `,`/`.` scroll horizontally.
+- Ctrl+P/N navigates query history; Ctrl+E/Y enters immutable result history.
+- Ctrl+S saves the applicable query; Ctrl+X exports an idle result snapshot; Ctrl+W cancels cancellable database work.
+- `?` opens contextual help at base level and inserts literally in focused text/search input.
+- Ctrl+C opens quit confirmation from every nonterminal context and cancelling it restores the exact suspended state. `q` requests quit without confirmation only on Command or the too-small screen. Neither quit path abandons required request or transaction cleanup.
+- Popups, text entry, modals, save flows, pending requests, terminal states, and the too-small screen follow the precedence and context matrix in the PRD.
+
+## SELECT execution, paging, and snapshots
+
+- An active SELECT is separate from an in-flight request and remains pageable while idle.
+- The first page and count run concurrently as independent autocommit reads. They can observe different committed states; `Count: N` is informational and never clamps displayed rows.
+- At most one page request is pending. Page Up/Down is ignored with loading feedback until it settles. Request IDs and viewport generations reject cancelled, resized, deactivated, or otherwise stale responses.
+- Results use one contiguous cache of at most 10,000 absolute logical row positions. Forward traversal evicts the low end; backward traversal evicts the high end; overlap replaces by position; duplicate-valued rows remain separate.
+- Snapshot/export rows are ordered by logical position and carry retained-range, endpoint, count, eviction, completeness, terminal-outcome, and warning metadata.
+- An active SELECT finalizes exactly once when a new execution starts, result history is entered, cancellation/failure ends it, or quit is accepted. Builder edits, query-history browsing, overlays, resize, and export do not finalize it.
+
+## Write safety
+
+- UPDATE and DELETE first enter a pre-execution preparation workflow. It shows operation, table, rendered SQL, a prominent no-WHERE warning, and an independent estimate of matching target rows generated from the same target and WHERE predicate.
+- Confirmation is disabled while estimation runs, then enabled whether the estimate succeeds or fails. Dismissal or estimate cancellation creates no query or result history.
+- Confirmation starts the sole actual write execution. INSERT starts directly. Every actual write creates exactly one result entry.
+- Writes use an application-controlled transaction. Beginning and statement execution are cancellable; rollback cleanup and COMMIT are not.
+- Cancellation wins only before an atomic commit boundary. A write is described as untouched only after rollback is confirmed.
+- An unresolved commit or rollback becomes an outcome-unknown terminal state after driver/transaction work ends. Further database work is forbidden, but in-memory save/export and status-1 quit remain available.
+
+## History, saving, and data representation
+
+- Query history appends only when an actual execution starts and normalized state differs from the prior executed state. Opening write preparation does not append history.
+- Result history receives one immutable entry per finalized SELECT or actual write, with oldest-first eviction after 20 entries.
+- Ctrl+X is unavailable while a request runs. At idle it takes an immutable instant copy without finalizing the active SELECT; cancelling or completing the picker returns to that unchanged result.
+- Saving uses a directory picker, separate filename entry, overwrite confirmation, and temp-file-plus-rename replacement so pre-existing files survive pre-rename failures.
+- CSV is RFC 4180 UTF-8 with CRLF. JSON is an array of objects. Duplicate output names are deterministically suffixed across grid, CSV, and JSON.
+- NULL, BLOB, empty-string, embedded-control, and non-finite REAL behavior is format-specific as defined by the PRD.
+- Invalid UTF-8 SQLite TEXT is replaced consistently with U+FFFD in grid, CSV, and JSON, with a UI warning but no extra export records or fields.
+
+## Runtime and implementation
+
+- Go with [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite), [Bubble Tea](https://github.com/charmbracelet/bubbletea), [Lip Gloss](https://github.com/charmbracelet/lipgloss), Bubbles where useful, and [mow.cli](https://github.com/jawher/mow.cli).
+- Linux and macOS, pure Go/no cgo, standard xterm-compatible keyboard behavior, and at least 16 colors.
+- Five-second SQLite busy timeout. Mid-session lock failures are normal request errors.
+- No continuous filesystem watcher: check the original database path before each database request and recheck after request errors. Idle deletion or rename-away is detected on the next operation; same-path replacement is not detected.
+- No logging or query timeout in v1. Slow work remains cancellable where its phase permits.
+- Automated tests cover builder SQL, schema/discovery, exports, histories, asynchronous response ordering, paging/cache boundaries, key precedence, write preparation and commit boundaries, deletion classification, count drift, invalid UTF-8, and CLI/database integration. Rendering uses the PRD's manual 80×24, 100×30, and 160×50 matrix.
+
+## Post-v1 ideas
+
+- Additional database engines and remote connections.
+- Free-text SQL and a full-screen advanced editor for nested or arbitrary queries.
+- Frozen columns during horizontal scrolling.
+- Other grammar and editing capabilities explicitly deferred by the PRD.
+- Log to log file
+- 'd1-remote' queries against remote d1
+- Read-only file (or locked by another process) => read-only session

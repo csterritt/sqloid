@@ -8,289 +8,321 @@ Inspecting and querying a SQLite database currently means dropping down to the `
 
 Sqloid v1 is a terminal UI application (single user, single developer — meaning no authentication, collaboration, or server behaviour) that opens a SQLite database — either given explicitly on the command line, or discovered in a local wrangler D1 state directory — and presents a full-screen interface: results occupy most of the screen, and a query-builder bar sits at the bottom.
 
-The original project vision was a general SQL editor in which the user types SQL commands. For v1 this is deliberately narrowed to a structured query builder / data browser: the guided, field-by-field builder is what makes the tool valuable (no memorised schemas, type-aware entry, safe parameter binding), and free-text SQL entry is deferred to a post-v1 advanced mode.
+The original project vision was a general SQL editor in which the user types SQL commands. For v1 this is deliberately narrowed to a structured query builder / data browser: guided selection, deterministic value parsing, and safe parameter binding remove the need to memorise schemas while keeping free-text SQL entry deferred to a post-v1 advanced mode. No column-type filtering or type-specific input hints are required in v1.
 
-The user builds SELECT, UPDATE, DELETE, and INSERT queries by stepping through fields: command, table (chosen from a popup list of actual tables), column(s) (chosen from a popup list, with optional aggregates), where, group by, order by, and limit. Values are entered through a universal text entry with parse-and-bind coercion (see Value Entry below). Queries run with Enter; results are shown in a grid with a frozen header row, page up/down vertical paging and horizontal scrolling, a total row count in the header, and full history of past queries and results navigable by keybinding. Queries and results can be exported to files (`.sql` for queries; CSV or JSON for results). Errors replace the results view and are themselves navigable via result history.
+The user builds SELECT, UPDATE, DELETE, and INSERT queries by stepping through fields: command, table, column(s), where, group by, order by, and limit. Values use universal text entry with deterministic parse-and-bind coercion. Queries run with Enter. SELECT results appear in a frozen-header grid with serialized vertical paging, horizontal scrolling, and an independently read count. In-session query and result histories each retain the 20 most recent entries. Queries and results can be exported to `.sql`, CSV, or JSON files.
 
 ## Query Grammar (v1)
 
-Sqloid v1 is explicitly a **builder for a subset of SQL**, not a full query engine. The supported grammar is:
+Sqloid v1 is a **builder for a subset of SQL**, not a full query engine:
 
-- **SELECT**: `SELECT <projection> FROM <table> [WHERE <predicate>] [GROUP BY <column, ...>] [ORDER BY <column-or-aggregate> [ASC|DESC]] [LIMIT <n>]`
-  - The projection consists of **entries**, each being one of:
-    - a **wildcard projection** `*` — which must be the only projection entry (choosing it clears any prior entries); no aggregate popup is offered for it; or
-    - a **column entry**: `(column, aggregate?)` where aggregate is empty (`Value`) or from the fixed enum {Count, Min, Max, Avg, Sum}. Different aggregates on the same column may coexist (`Value(age)` + `AVG(age)`); re-selecting an identical pair adds nothing.
-  - When the projection contains no column entries, the aggregate popup additionally offers a special `COUNT(*)` entry (the only way to produce bare `COUNT(*)`). `COUNT(*)` is an ordinary column entry whose column is the sentinel `*` and may coexist with other aggregate entries. `MIN(*)`, `MAX(*)`, `AVG(*)`, and `SUM(*)` are never offered.
-  - Removing an entry removes the most recently added one. Reordering is not supported in v1.
-- **WHERE (SELECT/UPDATE/DELETE)**: exactly one predicate — `<column> <operator> <value>` — with operators from a fixed popup: `=`, `!=`, `<`, `<=`, `>`, `>=`, `IS NULL`, `IS NOT NULL`, `LIKE`. All operators are offered for all columns. `IS NULL` / `IS NOT NULL` take no value. No AND/OR, parentheses, or IN in v1.
-- **GROUP BY**: multi-select of the table's columns; duplicates prevented; empty means no GROUP BY.
-- **ORDER BY**: a single column with a toggleable direction (default ascending). In aggregate/grouped queries the popup offers only Group By columns and selected aggregate entries (emitted as their aggregate expression).
-- **LIMIT**: integers 1 to 9,223,372,036,854,775,807 only; zero and overflow rejected with an inline message; empty means unbounded (see Paging).
-- **UPDATE**: `UPDATE <table> SET <column> = <value>, ... [WHERE <predicate>]` — SET columns chosen by multi-select popup, one new value entered per column.
+- **SELECT**: `SELECT <projection> FROM <table> [WHERE <predicate>] [GROUP BY <column, ...>] [ORDER BY <column-or-aggregate> [ASC|DESC]] [LIMIT <n>]`.
+  - A projection is either the sole wildcard `*`, or an ordered list of entries `(column, aggregate?)`, where aggregate is empty (`Value`) or one of {Count, Min, Max, Avg, Sum}. Different aggregates on one column may coexist; an identical pair is not added twice.
+  - In an empty Column(s) popup, `*` is the default-selected first item and the synthetic `COUNT(*)` item is immediately below it. `COUNT(*)` appears only while the projection is empty. Selecting it adds the sentinel directly, without opening the named-column aggregate popup, and reopens Column(s). It can coexist with subsequently selected aggregate entries. Removing entries back to empty makes it reappear. Named columns always continue to the aggregate popup. `MIN(*)`, `MAX(*)`, `AVG(*)`, and `SUM(*)` are never offered.
+  - Selecting wildcard clears prior entries and makes it the sole entry. Removing an entry removes the most recently added one; reordering is unsupported.
+- **WHERE (SELECT/UPDATE/DELETE)**: zero or one predicate `<column> <operator> <value>`, with operator from {`=`, `!=`, `<`, `<=`, `>`, `>=`, `IS NULL`, `IS NOT NULL`, `LIKE`}. All operators are offered for all columns. Null operators take no value. AND/OR, parentheses, and IN are unsupported.
+- **GROUP BY**: assisted multi-select of table columns; duplicates are prevented and empty means no GROUP BY. In every query that has GROUP BY, every nonaggregate projected column must be grouped. Wildcard with GROUP BY is prohibited. Mixed aggregate/nonaggregate projection without GROUP BY is invalid. All-aggregate projection without GROUP BY is valid.
+- **ORDER BY**: one column/expression with direction defaulting to ASC. Aggregate/grouped queries offer only grouped columns and selected aggregate entries.
+- **LIMIT**: integer 1 through 9,223,372,036,854,775,807. Zero, malformed input, and overflow are invalid; empty means an unbounded logical result.
+- **UPDATE**: `UPDATE <table> SET <column> = <value>, ... [WHERE <predicate>]`; one or more unique SET columns and a completed value for each are required.
 - **DELETE**: `DELETE FROM <table> [WHERE <predicate>]`.
-- **INSERT**: `INSERT INTO <table> (<column>, ...) VALUES (<value>, ...)` — one value entry per non-skipped column; if every prompted column is Default/Omit, Sqloid emits `INSERT INTO "table" DEFAULT VALUES` instead. No WHERE/GROUP BY/ORDER BY/LIMIT fields are shown for INSERT.
+- **INSERT**: `INSERT INTO <table> (<column>, ...) VALUES (<value>, ...)`; each insertable column is Value, NULL, or Default/Omit. If all are omitted, emit `INSERT INTO "table" DEFAULT VALUES`. INSERT has no WHERE/GROUP BY/ORDER BY/LIMIT.
 
-Joins, subqueries, expressions, IN, HAVING, and multiple WHERE predicates are all outside the v1 grammar (see Out of Scope).
+LIKE values are bound verbatim: `%` and `_` retain SQLite wildcard meaning, with no v1 escape mechanism. Case behaviour is SQLite's default and unrelated to case-insensitive popup search. Joins, subqueries, expressions, IN, HAVING, and multiple predicates are out of scope.
 
-LIKE values are bound verbatim: `%` and `_` act as SQLite wildcards and there is no escaping mechanism in v1 (searching for a literal `%` is not possible — documented limitation). Case behaviour is SQLite's default; no custom collation is implied. This is unrelated to the case-insensitive *popup search* behaviour.
+## Runnable-State Contract
 
-## Execution Lifecycle
+QueryBuilder data validity and UI context gates are separate. A state is data-runnable only when the following authoritative prerequisites hold; Enter executes only when it is also in a base context with no overlay or focused text/search input, no request is in flight, and the screen is large enough.
 
-All executions (queries, counts, and writes) follow one observable lifecycle:
+| Command | Required data | Command-specific validity | Common gates |
+|---|---|---|---|
+| SELECT | Eligible table; nonempty projection | Valid WHERE and Limit; every grouped nonaggregate is grouped; wildcard not grouped; mixed aggregate/nonaggregate without GROUP BY invalid; all-aggregate without GROUP BY valid; valid grouped ORDER BY | Selected command; all identifiers still exist in refreshed schema; no incomplete value prompt |
+| UPDATE | Eligible table; at least one SET assignment; every SET value complete | Optional WHERE complete; SET columns unique | Same common gates; destructive pre-execution workflow required |
+| DELETE | Eligible table | Optional WHERE complete | Same common gates; destructive pre-execution workflow required |
+| INSERT | Eligible table with at least one insertable column; every prompted column complete | Each column has exactly one Value/NULL/Default choice; all-omit is valid and emits `DEFAULT VALUES`; a zero-insertable-column table is never runnable | Same common gates |
 
-1. **Start**: Enter triggers at most one logical execution, which owns up to two concurrent requests (first page + count) for SELECT, or one request for writes/counts. Each execution carries an operation ID.
-2. **While in flight**: Enter is ignored (the results header hints "running — Ctrl+W to cancel"). Builder fields remain editable but changes do not affect the running execution.
-3. **Cancellation**: Ctrl+W cancels the whole logical execution — both page and count requests together, at any phase (including rows-arrived-count-pending). Ctrl+W while the destructive-write pre-flight estimate runs cancels the estimate and closes the modal.
-4. **Late responses**: responses arriving after completion, cancellation, or supersession are discarded by operation ID.
-5. **End — exactly one history entry per ended execution**:
+When Enter is attempted on invalid data, execution does not start: focus moves to the first invalid field in visual order and a specific inline reason is shown. An invalid UI context consumes Enter according to that context instead.
 
-| Outcome | Entry contents | Exportable? |
-|---|---|---|
-| Full success | rows snapshot | yes |
-| Count failed, rows fine | rows snapshot (header showed count error) | yes |
-| Page failure mid-scan | snapshot of rows fetched so far, marked "failed at row N" | yes |
-| Cancelled before any rows | "Cancelled" marker entry | no |
-| Cancelled after rows arrived | rows snapshot marked "Cancelled" | yes |
-| First-page failure / write failure | error entry (message + query) | no |
+## Builder and Display Interaction
 
-All entries are reachable via Ctrl+E/Ctrl+Y; snapshots are immutable once appended.
+- Choosing S/U/D/I on the Command field immediately selects/replaces the command and advances to Table. A command change retains the table only if it remains eligible, clears all downstream command-specific state, and focuses the first newly required field; switching a selected view to a write command clears Table.
+- The refreshed Table popup and searchable column/GROUP BY/ORDER BY popups use case-insensitive subsequence matching: empty search shows all, no match keeps the popup open with `no matches`, and changing search resets its highlighted selection. Aggregate and operator popups are scroll-only. Single-select Enter accepts; multi-select Enter adds and reopens; Esc preserves only already completed multi-selections.
+- WHERE guides column → operator → value. UPDATE guides SET multi-selection → one value per selected column → optional WHERE. INSERT guides one {Value, NULL, Default/Omit} choice per insertable column. Shift+Tab/arrows can revisit UPDATE/INSERT prompts with prior values pre-filled.
+- Left/Right and Tab/Shift+Tab move builder focus. Up/Down only moves popup selection or toggles ORDER BY direction in its base field. Backspace/Delete removes the most recent projection entry or clears the focused whole-value field as appropriate.
+- The grid freezes its deduplicated header, shows the displayed absolute range and independent count status, and supports Shift+Page Up/Down plus `,`/`.` for horizontal movement. Empty SELECTs show an explicit `No rows` result rather than a blank grid. Query/write errors replace the result view but older results remain available after finalization.
+- Ctrl+P/N walks query history and restores complete builder state without mutating history. Ctrl+E/Y enters result history and views immutable snapshots without re-fetching. UPDATE/DELETE summaries show actual `RowsAffected()` and INSERT shows rows added, each with its executed query.
 
-6. **Active result cache vs snapshot**: while an execution's result is active, paging fetches new pages into a sliding-window cache capped at 10,000 rows; Page Down past the retained window evicts the oldest cached pages. Page Up re-fetches evicted pages as fresh autocommit reads (consistent with the no-held-transaction model; concurrent-write drift applies to re-fetches as documented below). The snapshot freezes when the execution ends — when the user navigates away to build or execute a new query, or on error/cancellation — containing whatever ≤10,000 distinct rows were retained, marked truncated if the logical total exceeded that. Export contains exactly the retained snapshot rows; to export a bounded subset deliberately, set a Limit first.
+## Execution and Result Lifecycle
 
-## Context / Key Matrix
+### Identities and state
 
-Every key's behaviour per focus context:
+An **active SELECT** is distinct from a **request in flight**. It can remain active between requests and own future page requests. Every actual SELECT or write execution has an execution ID. Each database request also has a request ID; page requests include a viewport generation. Resizing or deactivating/finalizing a SELECT advances the relevant generation. A response may mutate UI/cache only if its execution, request, and generation are current.
 
-### Builder fields (nothing modal/popup/text-entry open)
+Destructive estimation is a **pre-execution workflow**, not an execution. It has its own preparation identity and phases `estimating` and `awaiting-confirmation`. Opening it appends neither query nor result history. Esc, Ctrl+W while estimating, or any dismissal cancels preparation and creates no history. Confirming starts the sole actual write execution, appends query history subject to normalized deduplication, and ultimately creates exactly one result entry.
 
-| Context | Keys |
-|---|---|
-| Command field | `S/U/D/I` (case-insensitive) choose/replace command; other printable keys ignored; `q` quits immediately |
-| Column(s) field | Backspace/Delete removes the most recently added projection entry (one per press); nothing when empty |
-| Where / Order By / Limit / Group By / SET columns fields | Backspace/Delete clears the whole field |
-| Order By field | Up/Down toggles direction ASC↔DESC |
-| All fields | Left/Right and Tab/Shift+Tab move between fields |
-| Enter (state runnable) | run query |
+An **accepted quit** is either `q` from a context where it is enabled or confirmation in the quit modal. During preparation it cancels any estimate, waits for that request to settle, and exits without appending either history. During an active SELECT it cancels and settles pending requests, finalizes the SELECT once under its cancellation/success state, and exits; an idle active SELECT finalizes directly. During a write it follows the commit-boundary rules below. “Without confirmation” never means abandoning pending database or transaction cleanup.
 
-Up/Down are used only inside popups and on the Order By field; elsewhere in the builder they do nothing.
+### SELECT
 
-### Popups
+1. Enter on a runnable SELECT starts one execution and appends query history subject to deduplication. Its first page and count are concurrent, independent cancellable autocommit reads. They may observe different committed states.
+2. At most the count request and one page request may coexist. All page requests, including the first and later navigation, are serialized. Page Up/Down is ignored while a page request is pending, with visible loading feedback. Horizontal scrolling remains local.
+3. Ctrl+W cancels all active requests for the active SELECT, including a later page-only request. Late responses from a cancelled old execution are discarded even after a newer execution begins.
+4. Resize invalidates the pending page request's viewport generation. Its stale response is rejected; after cancellation/settlement, the required page for the new exact page size is fetched. Entering result history or otherwise finalizing/deactivating also rejects late page responses.
+5. Count failure does not end successful paging. The header changes from `Counting rows...` to `Count unavailable`; it never represents the count as an exact shared snapshot or clamps displayed/cached rows to an inconsistent count.
+6. A SELECT is finalized only by: starting an actual new execution (opening an estimate is not enough), entering result history, cancellation or failure that ends the SELECT, or an accepted quit. Builder editing/focus, popups, help, save flow, write estimation, query-history browsing/restoration, resize, result export/copy, and idle periods do not finalize it.
+7. Finalization creates exactly one immutable result-history entry for that execution. Success, count failure with rows, partial page failure, and cancellation after rows retain the captured rows and metadata. Cancellation before rows creates a non-tabular Cancelled entry; first-page failure creates an error entry. There is no additional entry for each page or count request.
 
-- **Single-select** (table, column, aggregate, operator): Up/Down move; printable characters fuzzy-search in searchable popups (table, column, GROUP BY, ORDER BY — case-insensitive subsequence match; empty query shows all; no matches shows "no matches" and keeps the popup open; selection resets on query change); aggregate/operator popups are deliberately scroll-only. Enter selects; Esc cancels without changing the field.
-- **Multi-select** (Column(s), GROUP BY, SET columns): Enter adds the selection and re-shows the popup; Esc closes while preserving selections made so far. Selections are visible in the field behind the popup.
+### Cache and snapshot invariant
 
-### Text entry (Where value, UPDATE values, INSERT Value choice, Limit, save filename)
+The active cache is one contiguous inclusive range of **absolute logical row positions**, capped at 10,000 positions. Duplicate-valued rows remain separate positions.
 
-Printable keys insert; Backspace/Delete delete; Enter submits; Esc cancels unchanged (restoring the prior value).
+- A forward adjacent page appends/replaces overlap and evicts the low end when over cap. A backward adjacent page prepends/replaces overlap and evicts the high end when over cap.
+- Overlap replaces the same logical positions and never duplicates them. A stale response whose requested range is nonadjacent to the current retained range after accounting for overlap is rejected rather than creating a gap.
+- Snapshot/export rows are ordered by ascending logical position, regardless of traversal order.
+- Metadata records retained start/end, optional known total, reached-low/reached-high endpoints, whether eviction occurred, a **completeness status**, and a separate **terminal outcome**. Completeness uses `complete`, `partial`, and `truncated` labels: `complete` is exclusive and requires both logical endpoints known plus the entire logical result retained; `truncated` means known or observed rows were evicted or exceed the retained range; `partial` means unseen rows may remain or count/page work did not finish. Incomplete snapshots retain both labels when truthful (for example, partial + truncated when rows were both unseen and evicted). Terminal outcome is independently `success`, `cancelled`, or `failed`, with cancellation/failure reason and last failure position where applicable.
+- If count failed or is unavailable, an observed short or empty final page establishes the high endpoint. Otherwise the total remains unknown and the snapshot is partial unless both endpoints are established by observation. Count/cache inconsistencies are not clamped.
 
-### Modals (quit confirm, destructive-write confirm, overwrite confirm)
+### Writes and commit boundary
 
-Enter/y confirm; Esc/n cancel; Ctrl+C confirms quit in the quit modal and cancels any other modal back to the builder. Modals never stack.
+INSERT starts its actual execution directly. UPDATE/DELETE follow `builder → estimating → awaiting-confirmation → beginning → executing → rollback-cleanup or committing → committed/failed/cancelled/outcome-unknown`.
 
-### Write-flow revision
+- `beginning` and `executing` are cancellable. An atomic cancellation check occurs after statement completion and immediately before beginning COMMIT. Cancellation or statement failure initiates rollback cleanup.
+- Rollback cleanup and `committing` are noncancellable. Ctrl+W after the commit boundary is ignored with `Commit in progress; cancellation is no longer available` feedback.
+- A cancellation or statement failure guarantees the database is untouched only after rollback is confirmed successful. A successful commit yields one write summary entry. Each actual write produces exactly one result entry.
+- If rollback or commit cannot be resolved, the result is **outcome unknown**. The application waits until no transaction or driver work remains pending, then enters the outcome-unknown terminal state. That state forbids further database work but preserves in-memory query/result save/export and immediate error-status quit controls.
+- An accepted quit while a write is cancellable requests cancellation and waits for rollback resolution. An accepted quit while committing waits for commit resolution. It never tears down the process while transaction/driver work remains pending; only after resolution, or after pending work has ended with an unknown outcome, does quit complete.
 
-Shift+Tab/arrows return freely to earlier UPDATE SET prompts and INSERT column prompts; previously entered choices/values are pre-filled for revision.
+## Global Key Precedence and Context/Action Matrix
 
-### Terminal error state (database file deleted)
+Precedence is: **terminal state → quit confirmation → top overlay → focused text/search input → request-in-flight restrictions → base context**. A higher level consumes the key before lower levels.
 
-Ctrl+S/Ctrl+X export from memory (initial selection: last executed query / last result snapshot; Ctrl+P/N and Ctrl+E/Y navigate history to select another entry); `?` lists the reduced key set; only `q` quits normally, or Ctrl+C which quits immediately with exit status 1 (no confirmation).
+- In every nonterminal context, Ctrl+C opens the quit confirmation, suspending the exact current context (focus, overlay, popup search, picker state, active SELECT, viewport). Ctrl+C in quit confirmation confirms quit. Esc/n cancels quit and restores that exact suspended context and focus.
+- In terminal states, terminal rules override all others. In ordinary UI, Esc cancels only the top overlay and restores its opener's exact focus/state. Modals do not stack, except that quit temporarily suspends one overlay.
+- `?` inserts a literal question mark in focused text or popup/file-picker search input. It opens contextual help only in base contexts. Help Esc returns exact prior focus.
+- Base actions are available only with no overlay and no focused input/search. Query/result history and Ctrl+S/Ctrl+X are disallowed while any database request is in flight, with explanatory feedback.
+- Ctrl+W applies only to cancellable active database requests/phases. Elsewhere it is ignored. It cancels active SELECT count/page requests and cancellable write phases; during commit/rollback cleanup it is ignored with boundary feedback.
+
+| Context | Enter / printable | Esc | Navigation | Ctrl+P/N, Ctrl+E/Y | Ctrl+S / Ctrl+X | Ctrl+W | `?` | `q` / Ctrl+C |
+|---|---|---|---|---|---|---|---|---|
+| Base builder/result | Enter runs valid state; Command accepts S/U/D/I | Clears displayed error or no-op | Tab/arrows fields; Page Up/Down serialized paging; Shift+Page or `,`/`.` horizontal | Query/result history when idle | Save/export when idle and target exists | Cancels active request only | Help | `q` requests quit without confirmation only on Command; Ctrl+C opens quit confirmation |
+| Popup | Select/add | Close unchanged or preserve completed multi-selections | Popup Up/Down; printable search where searchable | Disallowed | Disallowed | Cancels request, not popup, only if one exists | Inserts in searchable popup; otherwise no-op | `q` treated as input/search if applicable; Ctrl+C opens quit confirmation |
+| Text/search input | Submit value | Restore prior value and focus | Input editing | Disallowed | Disallowed | Cancels request only if one exists | Inserts `?` | `q` inserts; Ctrl+C opens quit confirmation |
+| Non-quit modal/overlay, including estimate/confirm/save/overwrite/help | Modal-specific | Cancel top overlay and restore opener | Modal-specific | Disallowed | Disallowed | Estimate/request cancellation only where stated | No-op unless focused search | Ctrl+C opens quit confirmation |
+| Quit confirmation | Enter/y/Ctrl+C confirms | Esc/n restores exact suspended context | No other action | Disallowed | Disallowed | Disallowed | No-op | `q` no-op |
+| Request pending in otherwise base context | Enter ignored with running hint | Base Esc behavior | Page Up/Down ignored while page pending; local horizontal allowed | Disallowed | Disallowed | Cancel if phase cancellable | Base help only if no input/overlay | `q` requests quit without confirmation only if Command has focus; Ctrl+C opens quit confirmation |
+| Terminal deletion/outcome-unknown | No DB action | No-op | History selection if available | Allowed for in-memory selection | Allowed from immutable memory; by definition no transaction/driver work remains pending | No-op | Reduced help | `q` and Ctrl+C exit immediately with status 1 |
+| Too-small screen (<80×24) | Other keys ignored | No-op | No-op | Disallowed | Disallowed | Active request cancellation remains available | No-op | `q` requests quit without confirmation; Ctrl+C opens quit confirmation |
+
+The too-small screen preserves all application state behind the message. Resize to at least 80×24 restores the exact prior context and focus. In both terminal deletion and outcome-unknown states, no transaction/driver work remains pending and `q` or Ctrl+C exits immediately with status 1. In nonterminal states, `q` on Command or the too-small screen skips only the confirmation modal: it remains an accepted quit and performs the preparation, SELECT, or write cleanup specified above.
 
 ## User Stories
 
-1. As a user, I want to run `sqloid sqlite <file>`, so that I can open a SQLite database file directly.
-2. As a user, I want an error when no file argument is given to the `sqlite` command, so that I know immediately what went wrong.
-3. As a user, I want an error when the given file does not exist, so that I don't end up in an empty session against a typo.
-4. As a user, I want an error when the given file is not a working SQLite database, so that I don't get cryptic failures later.
-5. As a user, I want to run `sqloid d1`, so that I can open the local D1 database created by wrangler without hunting for its path.
-6. As a user, I want the program to look in the `.wrangler/state/v3/d1/miniflare-D1DatabaseObject` directory for a single SQLite database file (ignoring files with `metadata` in the name, and `-shm`/`-wal` files), so that the right database is picked automatically.
-7. As a user, I want a clear error ("There is more than one SQLite database in .wrangler") when the d1 directory contains more than one candidate database, so that I can clean it up.
-8. As a user, I want an error when no candidate database exists in the d1 directory, so that I know there is nothing to open.
-9. As a user, I want the database opened read-write, so that UPDATE, DELETE, and INSERT statements actually persist.
-10. As a user, I want the connection monitored so that the program errors out if the database file is deleted mid-session, so that I don't silently work against a dead handle.
-11. As a user, I want to quit the program at any time, so that I'm never trapped in the UI.
-12. As a user, I want to hit `q` while on the Command field to quit immediately without confirmation, so that quitting is fast.
-13. As a user, I want Ctrl+C to show a "Quit?" confirmation modal (when idle or during execution), so that I don't lose in-progress work accidentally.
-14. As a user, I want Ctrl+W while a query or count is running to cancel the whole logical execution (page and count together), showing "Cancelled" in the results view, so that a slow query never traps me. Ctrl+C during execution instead shows the "Quit?" confirmation modal, matching its idle behaviour.
-15. As a user, I want the UI to stay interactive while a query runs, with "Running..."/"Counting rows..." shown, so that execution doesn't freeze the interface.
-16. As a user, I want Enter to be ignored while an execution is in flight (with a hint to cancel via Ctrl+W), so that heavy queries can't accidentally stack against the same file.
-17. As a user, I want the results to occupy the top majority of the screen and the field bar the bottom, so that I can see data while building queries.
-18. As a user, I want the field bar to grow to multiple lines as fields gain content, so that long WHERE clauses remain visible.
-19. As a user, I want to start in the Command field, so that building a query has an obvious entry point.
-20. As a user, I want a single keypress of `S`, `U`, `D`, or `I` in the Command field to expand immediately to Select, Update, Delete, or Insert, so that command choice is instant.
-21. As a user, I want to return to the Command field with arrows/tab and press a different letter to replace my command choice, so that changing command type is easy.
-22. As a user, I want switching to a write command to clear the Table field when the retained table is a view (focus moving to Table), while retaining eligible ordinary/virtual tables across switches, so that the builder never holds a table my command can't target.
-23. As a user, I want the UI to move to the Table field after the command is chosen, so that the flow proceeds naturally.
-24. As a user, I want a popup list of the database's tables and views (main schema only; `sqlite_%` and `_cf_METADATA` excluded), refreshed each time it opens, with scrolling and case-insensitive fuzzy search (subsequence match; empty query shows all; no matches shows "no matches" and keeps the popup open; selection resets on query change), so that I can pick a table quickly and see external changes.
-25. As a user, I want a popup list of the chosen table's columns after the table is picked, with `*` at the top selected by default, so that plain `SELECT *` is the fastest path.
-26. As a user, I want choosing `*` to mean plain wildcard projection — sole entry, no aggregate prompt — so that `SELECT *` stays unambiguous.
-27. As a user, I want Enter on a column to show the aggregate popup ({Value, Count, Min, Max, Avg, Sum}, Value default), then add the result to the column list and re-show the column popup, so that I can build multi-column and aggregate projections quickly.
-28. As a user, I want a special `COUNT(*)` choice offered when no columns are selected yet, so that bare total-count queries are reachable, coexisting with other aggregates like `MAX(age)`.
-29. As a user, I want Enter on the Column(s) field (after one or more entries are chosen) to run the query, so that running is fast.
-30. As a user, I want tab/arrow keys to move to the next field instead of running, so that I can refine Where/Order By/Limit first.
-31. As a user, I want the Where field to be assisted — column popup first, then an operator popup, then typed value entry — so that valid predicates are easy to write.
-32. As a user, I want the Group By field to be an assisted multi-select of columns, empty meaning no GROUP BY, so that aggregate queries are straightforward.
-33. As a user, I want the query to refuse to run when the column selection mixes aggregates and non-aggregated columns and not every non-aggregated column appears in Group By, so that I never run an ambiguous aggregate query.
-34. As a user, I want Order By to be a single column with a toggleable sort direction (ascending/descending), and Limit to accept positive integers only, so that sorting and capping results are simple and unambiguous.
-35. As a user, I want ORDER BY choices in aggregate/grouped queries restricted to grouped columns and selected aggregates, so that ordering never reintroduces ambiguous bare columns.
-36. As a user, I want the UPDATE flow to be: pick table, pick SET column(s), enter a new value per column, optional assisted WHERE, then confirmation before running, so that destructive writes are deliberate.
-37. As a user, I want the DELETE flow to be: pick table, assisted WHERE, then confirmation before running, so that I can't delete by accident.
-38. As a user, I want the INSERT flow to be: pick table, then one value prompt per non-skipped column, so that adding rows is guided.
-39. As a user, I want every typed value bound by a single rule — valid integer → INTEGER, valid decimal/exponent number → REAL, otherwise TEXT — with SQLite's column affinity coercing as needed, so no legitimate value is rejected.
-40. As a user, I want a confirmation modal before any UPDATE or DELETE runs, showing the operation type, table name, the rendered SQL with literal values, and a pre-flight estimated row count (non-binding) obtained by a `SELECT COUNT(*)` wrapper, so that destructive operations are always informed as well as deliberate.
-41. As a user, I want the estimate to appear as "Estimating affected rows…" with confirm disabled until it completes, and if the estimate fails to still allow confirmation (with SQL and warnings shown), so that a contended database never blocks a deliberate write outright.
-42. As a user, I want unqualified UPDATE/DELETE (no WHERE) to be allowed but loudly flagged in the confirmation modal with a warning that all rows in the table will be affected, so that legitimate bulk changes are possible but never accidental.
-43. As a user, I want confirmation modals confirmed with Enter/y and dismissed with Esc, so that modal interaction is consistent everywhere.
-44. As a user, I want each INSERT column prompt to offer a choice of {Value, NULL, Default/Omit} — Value opening text entry, NULL binding an explicit NULL, Default/Omit excluding the column — so that I can distinguish omitted/defaulted columns from empty strings and NULLs.
-45. As a user, I want Default/Omit on every column to produce `INSERT INTO ... DEFAULT VALUES`, so that fully-defaulted inserts work.
-46. As a user, I want to navigate back to earlier UPDATE SET or INSERT prompts with prior choices pre-filled, so that revising write values before running is easy.
-47. As a user, I want Enter to run the query, so that execution has one obvious trigger.
-48. As a user, I want Page Up/Page Down to page through results vertically, so that I can navigate large result sets.
-49. As a user, I want Shift+Page Up/Down (and `,`/`.`) to scroll results left/right, so that I can see wide tables even when the terminal intercepts Shift+Page keys.
-50. As a user, I want the column header row frozen when scrolling vertically, so that I always know what the columns are.
-51. As a user, I want the header to show the logical result row count (i.e., after any user Limit) and the range currently displayed, so that I know where I am in the data.
-52. As a user, I want the page size computed from the terminal height, so that paging always fills the screen.
-53. As a user, I want layout and paging recomputed on terminal resize, preserving the first visible row index where possible, so that resizing doesn't lose my place.
-54. As a user, I want to browse beyond 10,000 fetched rows via a sliding window (older cached pages evicted, Page Up re-fetching them fresh), so that unlimited browsing doesn't exhaust memory.
-55. As a user, I want Ctrl+P/Ctrl+N to scroll through previous queries, so that I can revisit earlier work.
-56. As a user, I want selecting a previous query to repopulate all builder fields exactly as if I had just entered it, so that I can tweak and re-run.
-57. As a user, I want only actual changes (different columns, changed WHERE, etc.) to add a new entry to the query history, so that history isn't polluted by identical re-runs.
-58. As a user, I want Ctrl+E/Ctrl+Y to scroll through previous results, so that I can refer back to earlier output.
-59. As a user, I want query errors to replace the current results view, so that I always see what happened.
-60. As a user, I want to navigate back to previous (successful) results via result history after an error, so that an error doesn't destroy my context.
-61. As a user, I want UPDATE/DELETE results to show the rows affected along with the query that produced the change, so that writes are auditable in the UI.
-62. As a user, I want INSERT results to show the row add count, so that I know the insert succeeded.
-63. As a user, I want write-statement results included in the result history, so that I can page back through them like query results.
-64. As a user, I want an empty SELECT result to show a message rather than an empty grid, so that "no rows" is unambiguous.
-65. As a user, I want Ctrl+S to save the current runnable query (or the last executed one, or a viewed historical result's query) as a plain `.sql` text file (with safely serialized literals — see Saving), so that I can keep useful queries.
-66. As a user, I want `?` to open a help modal listing all keybindings for the current context, so that the key set is discoverable.
-67. As a user, I want key behaviour documented per context (field focus, popup open, modal open, text entry), so that Enter/arrows/Escape behave predictably wherever I am.
-68. As a user, I want Ctrl+X to save the current result, prompting for a file name and a type (CSV or JSON), so that I can export data.
-69. As a user, I want saving to use a file picker for the directory and text entry for the file name, so that choosing a destination is easy.
-70. As a user, I want a confirmation prompt when saving over an existing file, so that I don't clobber files by accident.
-71. As a user, I want failed saves to leave any pre-existing destination file untouched, so that a mid-write failure never corrupts my files.
-72. As a user, I want all user-entered values passed as bound parameters, and all table/column identifiers taken only from the inspected schema and emitted double-quoted, so that injection is impossible.
-73. As a user, I want NULL values rendered as an empty cell in the grid and CSV, and as `null` in JSON, so that missing data is represented sensibly in each format.
-74. As a user, I want results fetched from the database in pages, so that large tables don't exhaust memory.
-75. As a user, I want the first page and the total row count fetched concurrently, with rows displayed as soon as they arrive, so that a slow count doesn't delay seeing data.
-76. As a user, I want an empty Limit to mean an unlimited logical result paged one terminal-page at a time, so that I can browse whole tables.
-77. As a user, I want the header to show "Counting rows..." until the total count arrives and an error message if counting fails, so that the header is never misleading.
-78. As a user, I want every failed or cancelled write to leave the database untouched, so that partial effects never persist from an aborted operation.
+1. As a user, I want `sqloid sqlite <file>` to open a SQLite database directly.
+2. As a user, I want a usage error when the `sqlite` command has no file argument.
+3. As a user, I want missing, unreadable, directory, non-SQLite, read-only, and failed-probe inputs rejected without creating a file.
+4. As a user, I want `sqloid d1` to discover my local wrangler database relative to the working directory.
+5. As a user, I want D1 discovery to inspect `.wrangler/state/v3/d1/miniflare-D1DatabaseObject`, use its exact case-sensitive candidate rules, and ignore metadata/sidecar files.
+6. As a user, I want exact, actionable errors for zero and multiple D1 candidates.
+7. As a user, I want successful startup silent and startup failures to name the path/reason and use the documented exit status.
+8. As a user, I want the database opened read-write so UPDATE, DELETE, and INSERT persist, with no silent read-only fallback.
+9. As a user, I want the original path checked before each database request so deletion or rename-away is detected on the next operation, without a false promise of continuous monitoring.
+10. As a user, I want to quit at any time: `q` without confirmation on Command and the too-small screen, Ctrl+C confirmation in all nonterminal contexts, and immediate status-1 quit in terminal states; any required request/transaction cleanup completes before a nonterminal exit.
+11. As a user, I want cancelling a quit confirmation to restore the exact suspended context, overlay, search, viewport, and focus.
+12. As a user, I want Ctrl+W to cancel only active SELECT requests, estimate work, or cancellable write phases, rather than conflict with quit.
+13. As a user, I want the UI to remain interactive with `Running…`, `Counting rows…`, page-loading, estimation, commit, and rollback feedback.
+14. As a user, I want Enter ignored while a request is in flight, with a Ctrl+W hint, so requests cannot stack.
+15. As a user, I want results including their header to occupy at least half the screen and the builder at most one-third, without overlap.
+16. As a user, I want a growing builder to scroll so the complete focused field remains visible.
+17. As a user, I want initial focus on Command and one S/U/D/I keypress to choose a command and advance to Table.
+18. As a user, I want returning to Command and choosing another command to replace it, retaining only an eligible table and clearing downstream fields.
+19. As a user, I want switching a selected view to a write command to clear Table and focus it, while eligible ordinary/virtual tables remain selected.
+20. As a user, I want the main-schema table popup refreshed whenever it opens and to list eligible tables/views while excluding `sqlite_%` and `_cf_METADATA`.
+21. As a user, I want searchable popups to scroll and use case-insensitive subsequence matching, with defined empty/no-match/reset behavior.
+22. As a user, I want refresh failures to retain a visibly stale list and offer retry/cancel, while deletion takes terminal precedence.
+23. As a SELECT user, I want Column(s) to open with `*` first and default-selected so plain `SELECT *` is fastest.
+24. As a SELECT user, I want `COUNT(*)` immediately below `*` only when Column(s) is empty; selecting it adds the sentinel directly and reopens Column(s).
+25. As a SELECT user, I want removing the final entry to make `COUNT(*)` reappear, and selecting a named column to continue through the Value/Count/Min/Max/Avg/Sum popup.
+26. As a SELECT user, I want wildcard to be the sole projection and named `(column, aggregate)` entries to preserve order, permit different aggregates, and reject exact duplicates.
+27. As a user, I want Backspace/Delete to remove the most recent projection or clear the appropriate whole field, with no effect when already empty.
+28. As a user, I want WHERE guided through column, operator, and value, including no-value NULL operators and verbatim LIKE wildcard semantics.
+29. As a user, I want GROUP BY as assisted multi-select, ORDER BY as one valid grouped/aggregate candidate with direction toggle, and Limit as bounded positive integer entry.
+30. As a user, I want every nonaggregate projected column grouped in every GROUP BY query, wildcard GROUP BY prohibited, and mixed aggregate/nonaggregate without GROUP BY rejected.
+31. As a user, I want all-aggregate projection without GROUP BY to remain valid.
+32. As a user, I want invalid Enter to focus the first invalid field and explain the exact command-specific prerequisite.
+33. As an UPDATE user, I want to choose one or more SET columns, enter one value for each, optionally add WHERE, inspect an estimate modal, and then confirm.
+34. As a DELETE user, I want an optional assisted WHERE followed by the same estimate/confirmation safety workflow.
+35. As an INSERT user, I want one {Value, NULL, Default/Omit} prompt for each insertable column, with empty Value distinct from NULL and omission.
+36. As an INSERT user, I want all prompted columns omitted to emit `DEFAULT VALUES`, while a table with zero insertable columns reports `table has no insertable columns` and cannot run.
+37. As a write user, I want to revisit prior UPDATE/INSERT prompts with choices and values pre-filled.
+38. As a user, I want deterministic verbatim integer/real/text parsing and SQLite affinity, without unsupported column-type filtering or hints.
+39. As a destructive-write user, I want the modal to show operation, table, rendered SQL with literal values, and a prominent no-WHERE all-rows warning.
+40. As a destructive-write user, I want `Estimating matching target rows…` with confirmation disabled until estimation succeeds or fails.
+41. As a destructive-write user, I want estimate failure displayed without hiding SQL/warnings and then to be allowed to confirm deliberately.
+42. As a destructive-write user, I want Enter/y to confirm and Esc/n to dismiss; dismissal or estimate cancellation creates no query/result history.
+43. As a destructive-write user, I want the estimate to count matching target rows from the identical WHERE predicate only, not UPDATE SET values, trigger effects, or guaranteed changed rows.
+44. As a user, I want confirmation to start the sole actual write execution and produce exactly one result-history entry.
+45. As a user, I want writes transactional, with cancellation before commit followed by rollback cleanup and no untouched claim until rollback is confirmed.
+46. As a user, I want Ctrl+W ignored with feedback after the commit boundary, and any accepted quit to wait for commit/rollback resolution.
+47. As a user, I want unresolved commit/rollback to end pending work before entering an outcome-unknown terminal state with in-memory save/export and status-1 quit.
+48. As a user, I want Page Up/Down to fetch vertical pages and Shift+Page Up/Down plus `,`/`.` to scroll horizontally.
+49. As a user, I want only one page request pending, repeated/opposite Page keys ignored with feedback, and count plus at most one page request concurrently.
+50. As a user, I want Ctrl+W to cancel first/later page and count requests together and stale old/generation responses discarded.
+51. As a user, I want a frozen deduplicated header, current absolute range, count status, and an explicit `No rows` message.
+52. As a user, I want the exact page size computed from complete visible data rows at the current terminal height.
+53. As a user, I want resize to preserve the exact first logical row when retained/valid, otherwise clamp to a known endpoint or fetch it, while stale old-size responses are rejected.
+54. As a user, I want to browse beyond 10,000 logical positions with one contiguous cache: forward evicts low, backward evicts high, overlap replaces, and duplicate-valued rows remain separate positions.
+55. As a user, I want snapshots/export in ascending logical-position order with truthful retained range, endpoints, known-total, eviction, completeness, and terminal-outcome metadata.
+56. As a user, I want a short/empty final page to establish the high endpoint after count failure; otherwise an unseen remainder stays partial/unknown.
+57. As a user, I want first-page rows and total count read concurrently and independently so slow counting does not delay rows.
+58. As a user, I want `Counting rows…` until count completion and a visible count error without losing successful rows or paging.
+59. As a user, I want help/header wording to disclose that `Count: N` is an independent autocommit read that can drift from pages and is never used to clamp them.
+60. As a user, I want active SELECT lifetime independent from request lifetime, so editing/focus/popups/help/save/estimate/query history/resize/export do not finalize it.
+61. As a user, I want only an actual new execution, entering result history, ending cancellation/failure, or an accepted quit to finalize an active SELECT into one immutable entry.
+62. As a user, I want Ctrl+P/N to navigate the 20 most recent in-session query states and restore every builder field without mutating history.
+63. As a user, I want normalized identical reruns deduplicated and actual state changes appended only when actual execution starts, not when estimation opens.
+64. As a user, I want Ctrl+E/Y to navigate the 20 most recent immutable result snapshots without re-fetching; rerun gets fresh data.
+65. As a user, I want query errors to replace the result view, Esc to dismiss them, and previous results to remain reachable.
+66. As a user, I want UPDATE/DELETE summaries to show actual `RowsAffected()` and INSERT summaries to show rows added, with the executed query.
+67. As a user, I want Ctrl+S to save a viewed result's query, otherwise the current runnable query, otherwise the last executed query, with a clear message if none exists.
+68. As a user, I want saved SQL to be one standalone statement with quoted identifiers, safely serialized literal values, and trailing semicolon.
+69. As a user, I want Ctrl+X unavailable during requests; when idle it takes an immutable instant copy without finalizing or changing the active SELECT.
+70. As a user, I want export picker cancel/complete to return to the unchanged active result and show complete/partial/truncated and UTF warnings outside CSV/JSON data.
+71. As a user, I want directory picking from the working directory, hidden directories and `..`, separate filename entry, extension appending, and inline validation/permission errors.
+72. As a user, I want overwrite confirmation and temp-file-plus-rename saves that preserve an existing destination and clean temporary files on pre-rename failure.
+73. As a user, I want RFC 4180 UTF-8 CSV and array-of-objects JSON using deterministic deduplicated output names.
+74. As a user, I want NULL, empty strings, BLOBs, embedded tabs/newlines, and non-finite pre-existing REALs represented by the documented format-specific rules.
+75. As a user, I want every maximal invalid UTF-8 TEXT sequence replaced by one U+FFFD consistently in grid/CSV/JSON, with metadata/UI warning but no extra export records; BLOBs remain unchanged.
+76. As a user, I want all typed values bound and all identifiers selected from schema and double-quoted, preventing injection.
+77. As a user, I want `?` to open context help only in a base context and to insert literally in focused text/search.
+78. As a user, I want Esc to cancel only the top overlay and every cancel/complete path to restore its exact opener focus.
+79. As a user, I want below-80×24 display to preserve hidden application state, allow `q`/Ctrl+C behavior, and restore exact context on resize.
+80. As a user, I want terminal deletion and outcome-unknown states to forbid database work but permit selection and save/export from immutable memory before immediate status-1 quit.
 
 ## Implementation Decisions
 
-- **Language and stack**: Go, with `modernc.org/sqlite` (pure Go, no cgo) as the SQLite driver, `bubbletea` for the TUI, `lipgloss` for styling, and `bubbles` components where appropriate. CLI parsing with `mow.cli` using command-word/arguments style (`sqlite <file>`, `d1`). CLI basics: `--help`/`-h` prints usage; `--version`/`-v` prints version; unexpected arguments print a usage error to stderr and exit 2; a directory passed to `sqlite` fails the SQLite header check ("not a SQLite database"), exit 1.
-- **Grid rendering**: cells truncate at the column's computed width with an ellipsis; embedded tabs/newlines render as visible symbols; Unicode cell widths measured with a runewidth approach; duplicate result column names are deduplicated deterministically over the full output-name set (see Export formats) in the header; terminals narrower than minimum column widths fall back to horizontal scrolling.
-- **Resize**: page size recomputed around the first currently visible row index, preserving position where possible.
-- **File picker**: starts in the working directory; shows directories (including hidden) with parent navigation via `..`; no directory creation in v1; Esc cancels; invalid filename means an empty basename or a basename containing `/` or NUL (directory selection is a separate picker step, so paths in the name field are rejected) and shows inline errors; missing extensions appended automatically (`.sql`/`.csv`/`.json`); write-permission failures surface as inline save-flow errors.
-- **Atomic saves**: exports and saved queries write to a temp file in the destination directory and rename over the target; any serialization/I/O failure before the rename leaves the pre-existing file untouched and the temp file cleaned up. Temp-file-and-rename can fail in edge cases (e.g., restrictive destination-directory permissions) but usually works — accepted v1 limitation; failures surface inline.
-- **Scope of databases**: v1 supports SQLite files and local D1 (miniflare) databases only. Other database types are explicitly out of scope.
-- **D1 discovery**: candidate files are `.sqlite` files (case-sensitive extension) in the miniflare D1 directory whose names do not contain a lowercase `metadata` substring; `-shm` and `-wal` files are ignored by extension. Matching is deliberately case-sensitive so candidate sets are identical on Linux and macOS. The path is resolved relative to the process working directory. Exactly one candidate must exist; multiple candidates produce the single message "There is more than one SQLite database in .wrangler"; an absent, unreadable, or candidate-free directory produces "no candidate database found in .wrangler".
-- **Startup validation and errors**: startup sequence: existence check → readable check → 16-byte `SQLite format 3\0` header check → open read-write without creating (`mode=rw`) → harmless schema probe (`PRAGMA schema_version`). Any failure — including inability to establish read-write mode (e.g., a read-only file) or busy-timeout expiry during the probe — is a startup failure printing one line to stderr (naming the file and OS reason) and exiting with status 1. Successful startup writes nothing to stdout/stderr. v1 assumes writable sessions; there is no degraded read-only mode.
-- **Busy handling**: a 5-second busy timeout applies at open (to the schema probe above) and to all statements. At open, expiry errors out and exits; mid-session it surfaces as a normal query error ("database is locked") in the results view.
-- **Session health**: before each statement execution (query, count, or write), the database file is checked for existence at its original path. If it is gone (deleted or renamed away — replacement at the same path is not detected, an accepted limitation), the session enters a terminal error state: a full-screen message "Database file no longer exists — session ended", where Ctrl+S and Ctrl+X still work to export queries/result snapshots from memory (defaulting to the last executed query/result, with Ctrl+P/N/E/Y available to select another entry), and `q` quits normally while Ctrl+C quits immediately with exit status 1 (no confirmation — the session has already ended). Other connection errors during execution are ordinary query errors and do not end the session.
-- **Query construction**: all queries are built from structured field state. User values are bound as parameters (no concatenation of values into SQL). Identifiers (table and column names) originate only from schema inspection — never free-typed — and are always emitted double-quoted with internal double-quotes doubled. Aggregate functions come from the fixed enum {COUNT, MIN, MAX, AVG, SUM} plus the sentinel `COUNT(*)`, and sort directions from {ASC, DESC}.
-- **Aggregate rule**: all-aggregate selections (e.g., `COUNT(*), MAX(age)`) run without a Group By. If the selection mixes aggregate and non-aggregate columns, every non-aggregate selected column must also be in Group By or execution is blocked with a clear message. Wildcard projection `*` must be the sole entry and cannot coexist with any aggregate. HAVING is explicitly unsupported in v1. Projection entry identity is the (column, aggregate) pair: different aggregates on the same column may coexist; identical pairs cannot be added twice.
-- **Numeric value parsing**: input is taken verbatim with no trimming — whitespace anywhere makes it TEXT. INTEGER if it matches `-?[0-9]+` and fits signed 64-bit (leading zeros fine; leading `+` falls through). Otherwise REAL if accepted by Go's `strconv.ParseFloat` within float64 range (`1.`, `.5`, exponent forms allowed; leading `+` or range overflow → TEXT). Everything else binds as TEXT verbatim (`NaN`, `Inf`, `0x1A`, padded strings). Non-finite REALs can arise only from pre-existing db data; JSON exports them as quoted strings (`"Inf"`, `"-Inf"`, `"NaN"`), CSV as their textual form.
-- **Paging**: results are fetched with LIMIT/OFFSET paging; page size derives from terminal height and is recomputed on resize. When a SELECT has no user ORDER BY, Sqloid appends `ORDER BY rowid` only if the queried object is an ordinary rowid table with no declared column shadowing `rowid`; for views, virtual tables, WITHOUT ROWID tables, rowid-shadowed tables, and aggregate/grouped queries no implicit order is added. Default paging is therefore stable only where the implicit unique rowid applies; otherwise page composition is not guaranteed stable — documented alongside tie instability from non-unique user ORDER BY columns and concurrent-write drift between pages (pages are separate autocommit reads — no read transaction is held, since one would block wrangler sharing the file). The first page and the total row count run concurrently (one logical execution; see Execution Lifecycle); the header shows "Counting rows..." until the count arrives, or an error message if counting fails. An empty Limit means the logical result is unbounded and navigated via the sliding-window cache (see Execution Lifecycle); a user-entered Limit caps the logical result, and the reported total count reflects that cap.
-- **History**: in-memory only, per session. Query history stores full field state (so it can repopulate the builder); result history follows the one-entry-per-execution outcome table in Execution Lifecycle. Revisiting a historical result shows exactly what was captured — no re-fetching or re-execution; re-running the query gets fresh data. Each result snapshot holds at most the 10,000 retained rows (marked truncated beyond); each history list is capped at 20 entries with oldest-first eviction. Snapshots are re-sliced to the current terminal height when viewed. New query-history entries append only at execution time, and only when the executed state differs from the last executed state under full normalized comparison: command, table, ordered projection (column + aggregate per entry, wildcard flag), where (column + operator + value + bound type), group by list, order by (column + direction), limit (empty vs number), and SET/INSERT choices for writes. Value type is significant (`'1'` text ≠ `1` integer) as is column order; typed values are compared as entered. Historical entries are never mutated.
-- **Saving**: one-way export only in v1 — no loading of saved queries or results. Ctrl+S saves the current builder state if it forms a runnable query; otherwise the last executed query from history; when viewing a historical result, that snapshot's associated query; if neither exists (incomplete builder, nothing ever run), an inline "no runnable query to save" message appears and no picker opens. In the terminal error state the last executed query is the default, selectable via Ctrl+P/N. Queries export as standalone executable `.sql`: literal values safely serialized into the text (strings escaped by quote-doubling, `NULL` keyword, `X'hex'` blobs) with identifiers double-quoted (internal double-quotes doubled) and a trailing semicolon; one statement per file.
-- **Export scope**: exporting a result exports its in-memory snapshot exactly as held (≤10,000 retained rows; see Execution Lifecycle for finalization and truncation marking). To export a bounded subset deliberately, set a Limit before running. Historical results export their snapshots identically. Error results, "Cancelled"-before-rows entries, and write summaries have nothing tabular to export — Ctrl+X is a no-op with a message for them.
-- **Export formats**: CSV is RFC 4180 — header row of deduplicated column names, minimal quoting, embedded newlines/tabs preserved inside quoted fields, UTF-8, CRLF line endings. NULL and empty string both render empty in CSV — an accepted, lossy limitation. JSON is an array of objects keyed by deduplicated column name; INTEGER/REAL export as JSON numbers (non-finite REALs as quoted strings), NULL as `null`, BLOBs as base64 strings. Computed/aggregate columns use the label SQLite assigns (e.g., `COUNT(*)`). Output-name deduplication walks columns left to right: the first occurrence keeps its name; each subsequent duplicate gets the lowest suffix (`name_2`, `name_3`, …) that does not collide with any name already in the final set (including originals). The same deduplicated set applies uniformly to grid headers, CSV headers, and JSON keys; generated SQL and driver metadata are never altered.
-- **Value entry and types**: one universal text entry for all columns; on submit the input is parsed and bound per Numeric value parsing above, letting SQLite's column affinity coerce. NULL is entered only via explicit popup/operator choices; empty string is just empty text. BLOBs cannot be entered via the v1 UI (explicit limitation); BLOB or binary result values display as `[BLOB n bytes]`, export to CSV as lowercase hex and to JSON as base64.
-- **INSERT column handling**: the INSERT flow prompts once per insertable column (see Schema). There is no AUTOINCREMENT-based skipping: any column can be excluded via its per-column {Value, NULL, Default/Omit} choice. INTEGER PRIMARY KEY columns are prompted like any other, with a "(auto-assigned if omitted)" note; choosing Default/Omit there yields auto-assignment. Choosing Default/Omit for every column emits `INSERT INTO "table" DEFAULT VALUES`, executed through the normal path with a rows-added summary. A table with zero insertable columns shows "table has no insertable columns" inline and never enters the value flow. Virtual tables are best-effort: only visible insertable columns are prompted, and module errors (e.g., modules requiring hidden-column inputs) surface as ordinary query errors — documented limitation.
-- **Schema scope**: the table list shows ordinary tables, virtual tables, and views from the `main` schema only, via `sqlite_master`, excluding internal `sqlite_%` objects and the D1 `_cf_METADATA` table. Views are selectable for SELECT; write commands (UPDATE/DELETE/INSERT) list only tables, not views. The table/column listing is refreshed from the database every time the table popup is opened (so tables created or dropped by another process are picked up on the next query); column metadata for a chosen table is likewise fetched fresh. Refresh failures (lock, corruption, external change) show an inline error ("could not refresh: …") and retain the stale listing with a notice, offering retry/cancel; a detected file deletion takes precedence as the terminal state.
-- **Destructive-write safety**: unqualified UPDATE/DELETE (no WHERE) are allowed but the confirmation modal shows a prominent warning that all rows in the table will be affected. The modal opens immediately showing operation type, table name, rendered SQL with literal values, and "Estimating affected rows…"; the pre-flight estimated row count (a `SELECT COUNT(*)` wrapper) is **non-binding** — confirm (Enter/y) stays disabled until the estimate completes. If the estimate fails (lock timeout, error), the modal says so and confirmation becomes allowed anyway (SQL and warnings still shown). Ctrl+W while estimating cancels the estimate and closes the modal. Esc cancels. Another process changing matching rows between estimate and confirmation is an accepted concurrency limitation (time-of-check/time-of-use); the post-write summary always shows the driver's actual `RowsAffected()` (triggers may make it differ from rows conceptually changed).
-- **Write atomicity**: every user-visible write (UPDATE/DELETE/INSERT) executes inside an application-controlled transaction: BEGIN; statement; COMMIT — with ROLLBACK on any statement error or cancellation. Failed or cancelled writes therefore always leave the database untouched, including under SQLite's FAIL conflict resolution and trigger `RAISE(FAIL)` (single-statement autocommit alone would not guarantee this). Transactions spanning multiple user operations remain out of scope.
-- **INSERT value entry**: each column prompt offers {Value, NULL, Default/Omit} — Value opens text entry (empty string = empty string), NULL binds an explicit NULL, Default/Omit excludes the column from the INSERT statement.
-- **Builder lifecycle**: changing the command (S/U/D/I) keeps the chosen table if it remains eligible for the new command (ordinary/virtual tables are eligible everywhere; views only for SELECT) and otherwise clears the Table field with focus moving to Table; downstream fields (columns, where, group by, order by, limit, SET/INSERT values) always clear. Shift+Tab/arrows allow returning to earlier UPDATE/INSERT prompts with prior choices pre-filled. Popups and modals are input-modal per the Context/Key Matrix. Enter runs whenever no popup/modal/text-entry is open and the current state is runnable per the grammar, aggregate rules, and ORDER BY restrictions. Restoring from history copies the state into the builder — historical entries are never mutated; a new entry is appended on run only if the state differs from the last executed state.
-- **Keybindings**: all bindings are single, terminal-distinguishable Ctrl chords or plain keys — query history `Ctrl+P`/`Ctrl+N`; result history `Ctrl+E`/`Ctrl+Y`; save query `Ctrl+S`; export result `Ctrl+X`; cancel running operation `Ctrl+W`; help modal `?`; horizontal scroll `,`/`.` as reachable fallbacks alongside Shift+PageUp/Down. No Alt-based or Ctrl+Shift-based bindings (indistinguishable in common terminals / bound by multiplexers like zellij). The complete per-context behaviour is the Context/Key Matrix section of this document — there is no external key-matrix design doc.
-- **Quitting**: `q` quits immediately from the Command field only; Ctrl+C anywhere else (idle, executing, or in another modal) shows the quit confirmation modal — except the terminal error state, where Ctrl+C quits immediately with status 1.
-- **Errors**: any query error replaces the results view and produces exactly one history entry per the Execution Lifecycle outcome table; previous results remain reachable. Esc dismisses an error back to the builder. A count failure does not prevent rows from displaying — the header shows the count error and paging continues without the total; a page-fetch failure mid-scan ends the execution with a "failed at row N" snapshot of what was fetched. Export/path errors appear inline in the save flow for retry or cancel. Only startup failures and detected file deletion end the session. There are no query timeouts in v1: operations run until done or cancelled.
-- **Logging**: none in v1 — no debug flag, no log file. All diagnostics surface in the UI; this avoids TUI display corruption and keeps potentially sensitive query values out of logs.
-- **Execution model**: queries and counts execute off the UI thread (bubbletea commands) as independent cancellable operations owned by one logical execution (see Execution Lifecycle). Enter is ignored while an execution is in flight.
+- **Language and stack**: Go with pure-Go/no-cgo `modernc.org/sqlite`; Bubble Tea for the TUI, Lip Gloss for styling, Bubbles components where appropriate, and `mow.cli` command-word/argument parsing for `sqlite <file>` and `d1`.
+- **CLI behavior**: `--help`/`-h` prints usage; `--version`/`-v` prints version; unexpected arguments print a usage error to stderr and exit 2. A directory passed to `sqlite` fails the header validation as `not a SQLite database` and exits 1. A missing sqlite argument is a usage error; validation never creates the target.
+- **D1 discovery**: resolve `.wrangler/state/v3/d1/miniflare-D1DatabaseObject` relative to process working directory. Candidates have case-sensitive `.sqlite` extension and no lowercase `metadata` substring; `-shm`/`-wal` sidecars are ignored. Case sensitivity is deliberate for identical Linux/macOS sets. Exactly one candidate is required. Multiple candidates produce exactly `There is more than one SQLite database in .wrangler`; an absent, unreadable, or candidate-free directory produces `no candidate database found in .wrangler`.
+- **Startup validation and errors**: existence check → readable check → exact 16-byte `SQLite format 3\0` header check → open read-write without creating (`mode=rw`) → harmless `PRAGMA schema_version` probe. Any failure, including read-only open or probe busy-timeout, prints one line to stderr naming the file and OS/driver reason and exits 1. Successful startup writes nothing to stdout/stderr. There is no degraded read-only mode.
+- **Busy handling**: a five-second busy timeout applies to the startup probe and every request. Startup expiry exits as above; mid-session expiry appears as ordinary `database is locked` request error unless the path recheck classifies deletion.
+- **Session health**: no watcher or continuous monitoring. Check the original path immediately before every database request: schema refresh, estimate, count, page, or an entire phased write transaction. The write transaction is one request, so there is one check before BEGIN and no path check between its statement and COMMIT. If the path is absent, including rename-away, enter the full-screen terminal deletion state `Database file no longer exists — session ended`. On any request error, recheck the path: absent means terminal deletion; present means ordinary request/transaction error or outcome-unknown handling as applicable. Idle deletion is discovered only on the next operation. Replacement at the same path is not detected.
+- **SQL safety**: user values are bound; identifiers come only from refreshed schema and are double-quoted with embedded quotes doubled. Aggregate and direction values are fixed choices.
+- **Numeric value parsing**: input is verbatim with no trimming; whitespace anywhere makes TEXT. INTEGER matches `-?[0-9]+` and must fit signed 64-bit (leading zeros allowed; leading `+` falls through). Otherwise REAL is any finite value accepted by `strconv.ParseFloat` within float64 (`1.`, `.5`, exponent forms allowed; leading `+` and overflow fall through). Everything else is TEXT verbatim, including `NaN`, `Inf`, `0x1A`, and padded strings. SQLite column affinity may coerce bound values. NULL is available only through explicit popup/operator choices; empty input is empty TEXT. BLOB input is unsupported.
+- **Estimate SQL and modal**: the estimate is exactly `SELECT COUNT(*) FROM <quoted target> [WHERE <identical predicate>]`. It binds only WHERE parameters in predicate order, never UPDATE SET parameters. It is an independent read labeled `estimated matching target rows`; it excludes trigger side effects and may differ from changed/no-op rows and `RowsAffected()`. The modal opens immediately and continuously displays operation type, table name, rendered write SQL with safely serialized literal values, and the prominent no-WHERE all-rows warning when applicable. It initially shows `Estimating matching target rows…`, with Enter/y confirmation disabled. When the estimate succeeds it shows the estimate and enables confirmation; when it fails it shows the failure while retaining SQL/warnings and also enables confirmation. Enter/y then confirms the sole actual write; Esc/n dismisses preparation without history. Ctrl+W while estimating cancels the estimate and dismisses preparation without history.
+- **Write transaction**: Connection explicitly implements beginning/executing, atomic pre-commit cancellation check, noncancellable rollback cleanup/committing, and outcome resolution. It must not report cancelled/failed-and-untouched before rollback is confirmed.
+- **Paging consistency**: LIMIT/OFFSET requests. The logical-result count is generated as `SELECT COUNT(*) FROM (<SELECT including the user's LIMIT>)` and therefore attempts to count the limited logical result. Without user ORDER BY, append `ORDER BY rowid` only for ordinary rowid tables without a declared rowid shadow; no implied stability for views, virtual/WITHOUT ROWID/shadowed, aggregate/grouped, ties, or concurrent writes. Count and page are separate concurrent autocommit reads with no shared snapshot and may drift. Header `Count: N` means the independent count response, not an exact total for displayed pages; never clamp inconsistencies. Help discloses this.
+- **Grid rendering/cache**: exact page size equals the number of complete grid data rows available after borders/header/status, excluding the frozen header. Cache and metadata follow the lifecycle invariant. Cells truncate at computed width with an ellipsis; tabs/newlines render as visible symbols; Unicode widths use a runewidth approach. Duplicate headers use the full-set deduplication rule. If the terminal is narrower than minimum column widths, horizontal scrolling is used rather than corrupting layout.
+- **Resize/layout**: results region including its header is at least half of terminal rows. Builder uses only needed lines up to one-third of terminal rows; overflow scrolls so the full focused field/prompt is visible. Regions and borders never overlap or render outside bounds. Resize recomputes exact page size and preserves exact first logical position if retained/valid, otherwise clamps to a known endpoint or requests the containing page.
+- **Invalid UTF-8 TEXT**: decode each maximal invalid byte sequence as exactly one U+FFFD consistently in grid, CSV, and JSON. BLOB handling is unchanged. Result metadata records that replacement occurred; the results header and export flow show a warning. Export succeeds, emits no extra warning records/fields, and retains row count/order.
+- **Export formats and values**: CSV is RFC 4180 UTF-8 with CRLF, a header row, minimal quoting, and embedded tabs/newlines preserved in quoted fields. NULL and empty string both become an empty CSV field, an accepted lossy limitation. JSON is an array of objects: INTEGER/REAL are numbers, NULL is `null`, and non-finite pre-existing REALs are quoted `"Inf"`, `"-Inf"`, or `"NaN"`; CSV uses their textual form. BLOB displays `[BLOB n bytes]`, exports as lowercase hex CSV and base64 JSON. Computed/aggregate columns retain SQLite labels such as `COUNT(*)` before deduplication.
+- **Output names**: walk left-to-right across the full original output-name set. First occurrence keeps its name; each duplicate gets the lowest `_2`, `_3`, etc. suffix not colliding with any already-final name, including original names. The same names appear in grid, CSV headers, and JSON keys; generated SQL and driver metadata are never altered.
+- **History**: in-memory and session-only. Each list retains 20 recent entries with oldest-first eviction. Query history stores complete field state; restore copies it into the builder and never mutates the entry. Append occurs only when an actual execution starts and only if normalized state differs from the last executed state: command, table, ordered projection (column/aggregate and wildcard), WHERE column/operator/value/bound type, GROUP BY order, ORDER BY/direction, Limit empty-vs-number, and UPDATE/INSERT values/choices. Entered representation, value type (`'1'` TEXT versus `1` INTEGER), and column order are significant. Result history stores immutable snapshots with retained positions and all cache completeness/terminal/UTF metadata. Historical results never re-fetch; rerun gets fresh data. Snapshots re-slice to current terminal height when viewed.
+- **Result export scope**: Ctrl+X is disabled during any request. At idle it captures an immutable instant copy of active rows and metadata before opening the picker, without finalizing the SELECT. Picker cancel or successful completion returns to the unchanged active result. Historical snapshots export identically. In a terminal state, the last result snapshot is the initial export target and Ctrl+E/Y selects another. Error results, cancelled-before-rows markers, and write summaries have no tabular target, so Ctrl+X reports that and opens no picker. To deliberately export a bounded subset, set Limit before execution.
+- **Export warnings**: before destination selection/confirmation, the UI identifies complete, partial, and/or truncated state plus cancelled/failed and invalid-UTF information where applicable. These metadata/warnings never become CSV rows, CSV columns, JSON objects, or JSON properties.
+- **Query save targeting**: one-way export only; loading is unsupported. Ctrl+S targets a viewed historical result's associated query; otherwise the current builder if runnable; otherwise the last actually executed query. If none exists, show inline `no runnable query to save` and do not open the picker. Terminal-state default is the last executed query, with Ctrl+P/N selection. Saved SQL is one standalone executable statement with identifiers double-quoted, strings quote-doubled, `NULL` keyword, BLOBs as `X'hex'`, and trailing semicolon.
+- **File picker**: starts in working directory; displays directories including hidden ones and supports parent `..`; directory creation is unsupported. Directory selection and filename text entry are separate. Empty basename or basename containing `/` or NUL is invalid and shows inline error. Missing `.sql`/`.csv`/`.json` extension is appended. Esc cancels to the exact opener; permission/path errors stay inline for retry/cancel. Existing files require overwrite confirmation.
+- **Atomic saves**: write a temporary file in the destination directory and rename it over the target. Serialization/I/O failure before rename preserves any existing destination and cleans the temp file. Temp-and-rename can itself fail under restrictive destination-directory permissions; this accepted limitation surfaces inline without claiming replacement occurred.
+- **Schema scope and refresh**: query `main.sqlite_master` only for ordinary tables, virtual tables, and views, excluding `sqlite_%` and `_cf_METADATA`. Views are SELECT-only; write command lists contain tables. Refresh object listing every time Table opens and refresh chosen-table columns fresh, so external create/drop/change appears on the next operation. Lock/corruption/change failures show inline `could not refresh: …`, retain stale data with a notice, and offer retry/cancel; path deletion overrides with terminal state.
+- **Schema metadata**: every object carries kind {ordinary-table, virtual-table, view}, rowid capability {has-rowid, without-rowid, not-applicable}, and declared-rowid-shadow flag. Columns carry name, declared type, and insertability from `PRAGMA table_xinfo`; hidden/generated columns are noninsertable. Declared type is metadata only and does not add type-specific v1 entry behavior.
+- **INSERT handling**: prompt every insertable column; there is no AUTOINCREMENT-based skip. Each prompt offers Value/NULL/Default/Omit; Value opens text entry and empty is empty TEXT, NULL binds explicit NULL, and Default/Omit excludes the column. INTEGER PRIMARY KEY is prompted with `(auto-assigned if omitted)`. All prompted columns omitted emits `INSERT INTO "table" DEFAULT VALUES` through the normal execution path. A table with zero insertable columns shows `table has no insertable columns`, never enters prompts, and is non-runnable. Virtual tables are best effort using visible insertable columns; module failures requiring hidden inputs are ordinary query errors.
+- **Builder lifecycle**: changing command retains only an eligible table, clears all downstream state, and focuses the first requirement. Restoring history copies state. Popups/modals/text entry remain input-modal under the precedence table. Enter starts execution only when the authoritative data table and UI gates both pass.
+- **Keybinding portability**: bindings use terminal-distinguishable plain keys or Ctrl chords. No Alt or Ctrl+Shift binding is required because common terminals/multiplexers cannot distinguish or reserve them. `,`/`.` are reachable horizontal-scroll fallbacks when Shift+Page is intercepted. This PRD's context/action table is authoritative; there is no external key matrix.
+- **Errors and timeouts**: query errors replace results and create the lifecycle-defined single entry; Esc dismisses to the builder and older results remain. Count failure leaves rows/paging active with count error. Mid-scan page failure finalizes a snapshot with failure position. Save/path errors remain in save flow. Only startup failure, detected deletion, and resolved outcome-unknown end database work. v1 has no query timeout: requests run until completion or accepted cancellation.
+- **Logging**: none in v1—no debug flag or log file. Diagnostics stay in the TUI to avoid display corruption and sensitive query-value logs.
 
 ## Module Design
 
 - **Connection**
-  - **Responsibility**: owns the database handle and everything about how a database is opened and queried.
-  - **Interface**: open-by-path (with the full startup validation sequence) and open-d1 (discovery rules); independent cancellable operations `ExecutePage(query, offset, limit) → (rows, error)` and `ExecuteCount(query) → (count, error)` — completing independently so the UI can show rows despite count failure — plus `ExecuteWrite(statement) → (rowsAffected, error)` wrapping the internal BEGIN/COMMIT/ROLLBACK transaction; liveness checking for mid-session file deletion. Operation identity and cancellation semantics live here so async behaviour never leaks into ad-hoc UI conventions. Hides the driver choice and all SQL plumbing from callers.
-  - **Tested**: yes (especially d1 discovery/validation logic).
-
+  - **Responsibility**: owns database discovery/opening, handle, health checks, async request cancellation/identity, SQL plumbing, and transaction outcome resolution while hiding the driver from callers.
+  - **Interface**: open-by-path with the full validation sequence; open-D1 with exact discovery errors; cancellable independent `ExecutePage(query, offset, limit) → rows/error`, `ExecuteCount(query) → count/error`, and `ExecuteEstimate(query, whereParams) → count/error`; phased transactional `ExecuteWrite(statement) → rowsAffected/definite-or-unknown outcome`. It checks the path once before each request (once before the entire write transaction), rechecks after errors, and exposes enough request identity for UI generation guards.
+  - **Tested**: unit tests with a controllable fake for ordering/cancellation/outcomes plus SQLite integration tests, especially discovery, validation, drift behavior, rollback, and commit boundaries.
 - **Schema**
-  - **Responsibility**: describes the database's structure — objects and their columns.
-  - **Interface**: list objects, each carrying kind ∈ {ordinary-table, virtual-table, view} and rowid capability ∈ {has-rowid, without-rowid, not-applicable} plus a flag for declared columns shadowing `rowid`; list columns (name, declared type, insertability) for a table. Insertability is computed from `PRAGMA table_xinfo`: hidden or generated columns are not insertable; all others are. These metadata let callers implement command eligibility (M1) and implicit-order decisions without raw catalog SQL. Backs all popups and the INSERT flow. Refresh failures are surfaced to the caller as errors (stale-listing retention is a UI decision).
-  - **Tested**: yes.
-
+  - **Responsibility**: describes main-schema objects and columns independently of UI.
+  - **Interface**: lists object kind, rowid capability, rowid shadowing, and columns with name/declared type/insertability; refresh failures are typed so UI can retain stale data and distinguish deletion.
+  - **Tested**: table-driven catalog fixtures and SQLite integration tests for views, virtual/WITHOUT ROWID tables, shadowing, hidden/generated columns, refresh/drop, and zero-insertable tables.
 - **QueryBuilder**
-  - **Responsibility**: holds the command-specific field state (SELECT: wildcard flag or ordered (column, aggregate) entries, where, group by, order by, limit; UPDATE: set assignments, where; DELETE: where; INSERT: ordered column/value pairs or DEFAULT VALUES) and turns it into SQL plus bound parameters, per the Query Grammar section.
-  - **Interface**: get/set each field; render SQL + params; report whether the current state is runnable (aggregate-without-group-by blocks; invalid ORDER BY in grouped queries blocks); detect whether state differs from a previous state (for history). Pure logic — no UI dependencies.
-  - **Tested**: yes (thoroughly).
-
+  - **Responsibility**: stores command-specific structured state (SELECT projection/WHERE/GROUP/ORDER/Limit, UPDATE assignments/WHERE, DELETE WHERE, INSERT ordered choices) and produces SQL plus bound params.
+  - **Interface**: immutable get/set transitions; execution and exact destructive-estimate rendering; authoritative runnable report with first invalid field/reason; grouping/order rules; normalized history comparison. No UI dependency.
+  - **Tested**: thorough pure tests, including identifier quoting, parsing/binding, exact parameter order, grouping matrix, DEFAULT VALUES, and every runnable prerequisite.
 - **UI**
-  - **Responsibility**: the bubbletea model — field bar, results grid with frozen header, popups (tables, columns, aggregates, quit/save modals), the Context/Key Matrix, execution-lifecycle handling (operation IDs, cancellation, sliding-window cache), and wiring user actions to QueryBuilder/Connection.
-  - **Interface**: bubbletea Init/Update/View. Composes all other modules.
-  - **Tested**: behaviourally — key-sequence tests cover critical flows (transitions, popups, modals, quit, history, errors, cancellation phases); visual rendering/layout is verified manually.
-
+  - **Responsibility**: Bubble Tea model for field bar, grid, popups, text entry, modals, file flow, global precedence/context table, focus restoration, preparation/execution state machines, request/generation guards, serialized paging, contiguous cache, metadata warnings, terminal states, and layout.
+  - **Interface**: Bubble Tea `Init`/`Update`/`View`, composing all other modules without embedding database behavior.
+  - **Tested**: scripted `(model, msg) → (model, cmd)` behavior with fake Connection for transitions, popups, modal/quit precedence, history, errors, export, cancellation and late responses. Pixel/terminal rendering remains the specified manual matrix.
 - **History**
-  - **Responsibility**: in-memory lists of past query states and past result snapshots, with position tracking, entry caps, eviction, and the one-entry-per-execution outcome rules.
-  - **Interface**: append query state / result snapshot (with outcome classification); step back/forward through each list; current item access; per-list cap of 20 entries (oldest evicted); snapshots capped at 10,000 rows and marked truncated/failed-at-N/cancelled as appropriate.
-  - **Tested**: yes.
-
+  - **Responsibility**: two in-memory 20-entry lists, navigation positions, oldest-first eviction, normalized query deduplication, and one immutable result snapshot per actual execution.
+  - **Interface**: append/query/step/current operations; no preparation append; snapshots capped at 10,000 contiguous positions with separate completeness and terminal outcome, endpoint/range/count/eviction/failure/cancellation/UTF metadata.
+  - **Tested**: yes, including caps, dedup, finalization events, non-finalization events, metadata combinations, and terminal entries.
 - **Export**
-  - **Responsibility**: writes a result set to CSV or JSON, and a query to a `.sql` file — atomically (temp file + rename).
-  - **Interface**: write result snapshot (rows + deduplicated column metadata) to a path in a chosen format (RFC 4180 CSV or array-of-objects JSON); write query (SQL text with safely serialized literals and quoted identifiers, trailing semicolon) to a path. NULL/non-finite/BLOB handling per format. Pre-existing files untouched on any failure.
-  - **Tested**: yes.
+  - **Responsibility**: serializes an already immutable result copy to CSV/JSON and a query to SQL, then saves atomically.
+  - **Interface**: result rows plus deduplicated columns and value policy; standalone query serialization; temp-and-rename path write. Completeness/outcome/UTF metadata drives UI warnings only and never alters data formats.
+  - **Tested**: exact bytes for RFC 4180/JSON/SQL, value/name/invalid-UTF cases, and injected serialization/I/O/rename failures proving destination preservation.
 
 ## Testing Decisions
 
-- Tests target external behaviour: given field state, QueryBuilder produces this SQL and these params; given rows, Export produces this CSV/JSON; given a directory layout, Connection's d1 discovery picks (or rejects) the right file. Implementation details stay untested.
-- **UI behavioural tests are required** for critical flows, using bubbletea's `(model, msg) → (model, cmd)` testability with scripted key sequences: builder flow transitions (command → table → columns → run) including popup cancel; history navigation and repopulation; confirmation modal accept/cancel including the unqualified-write warning and estimate-failure flow; quit paths (`q`, Ctrl+C incl. during execution, Ctrl+W cancel vs Ctrl+C quit); error display and dismissal. Pure visual rendering (View output/layout) stays untested and is verified manually — identified here as a deliberate manual-only area.
-- **High-risk boundary coverage is required** (external behaviour, not implementation):
-  1. Async overlap: superseded/late responses discarded; cancellation at each execution phase (before rows, after rows, count-pending)
-  2. First-page success with count failure — rows display, header shows the error
-  3. Paging/history at and beyond the 10,000-row cap: sliding-window eviction, Page Up re-fetch, snapshot truncation and finalization
-  4. Write rollback on constraint failure and on cancellation mid-write
-  5. Pre-flight estimate failure/cancellation in the destructive-write modal; unqualified-write confirmation flow
-  6. Command switch from a view to a write command clears the table
-  7. `COUNT(*)` versus wildcard projection builder behaviour
-  8. Numeric parser boundaries (whitespace, `+`, `1.`, `.5`, overflow) and non-finite export values
-  9. Rowid-shadowing and grouped-query paging order
-  10. Schema refresh failure/drop/change during a built query
-- **CLI + database integration tests**: startup validation cases (missing/missing-file/non-sqlite/read-only file), d1 discovery against temp-directory fixtures, and end-to-end query execution through Connection against fixture databases.
-- The project is greenfield, so there is no prior art in this codebase; standard Go table-driven tests with `testing` are the convention.
+Tests target external contracts rather than private structure: given builder state, assert SQL/params/runnable reason; given rows, assert exact CSV/JSON; given directory/catalog state, assert discovery/schema behavior. Use standard Go table-driven unit tests, Bubble Tea `(model, msg) → (model, cmd)` scripted behavior, a controllable fake Connection for deterministic request order/cancellation/transaction outcomes, and `modernc.org/sqlite` integration tests for actual SQL, lock, schema, and transaction behavior. The project is greenfield with no legacy test convention to preserve.
+
+Required baseline UI flows include command → table → columns → run; every popup accept/cancel/search path; history navigation/repopulation; save/export picker, overwrite, retry, and cancel; estimate modal success/failure/cancel/confirm including unqualified warning; `q`, Ctrl+C, Ctrl+W, and Esc precedence; error display/dismissal; and exact focus restoration. View layout is deliberately manual-only under the matrix below.
+
+Required high-risk coverage includes:
+
+1. Preparation identity and all estimate/confirmation/dismissal/query-history/result-history transitions; exactly one entry only after confirmed actual write.
+2. Cancelled old execution followed by a new execution, with every late count/page response rejected.
+3. Serialized paging: repeated/opposite Page keys while pending, count plus at most one page, loading feedback, resize generation invalidation, deactivation, and Ctrl+W on later page-only work.
+4. Bidirectional traversal beyond 10,000 positions: forward low eviction, backward high eviction, alternating directions, overlap replacement, nonadjacent stale rejection, duplicate-valued rows as separate positions, and ascending export.
+5. Metadata classification for known/unknown totals and observed short/empty endpoints after count failure; separate complete/partial/truncated (including truthful combinations) from success/cancelled/failed; never clamp inconsistencies.
+6. Every GROUP BY boundary: grouped nonaggregate-only projections, mixed projections with/without GROUP BY, all-aggregate without GROUP BY, wildcard rejection, and ORDER BY candidates.
+7. Global key precedence in every row of the context table, Ctrl+C from every modal/overlay/input and exact restoration, Esc top-overlay behavior, `?` insertion, accepted `q`/confirmed-quit cleanup during preparation and active SELECT, too-small controls, and focus restoration.
+8. Active SELECT finalization/non-finalization events; one history entry; Ctrl+X disabled during requests; idle immutable instant export; picker cancel/complete leaves active result unchanged; metadata warnings absent from data.
+9. Exact estimate SQL and parameters for UPDATE/DELETE with absent WHERE, NULL operators, LIKE, quoted identifiers, and proof that UPDATE SET params are excluded.
+10. Deletion before each request, including exactly one pre-check before the entire phased write transaction and no check between statement/COMMIT; rename-away; idle deletion discovered next operation; request-error post-check classification; and documented same-path replacement limitation.
+11. Controlled concurrent count/page drift proving `Count: N` is not clamped or described as a shared snapshot, plus help disclosure.
+12. Write cancellation while beginning/executing, atomic check immediately before commit, Ctrl+W after boundary, confirmed rollback guarantee, statement failure, unresolved rollback/commit terminal outcome, and quit waiting for resolution.
+13. Exact bare `COUNT(*)` sequence: position below default `*`, direct sentinel add, popup reopen, absence after first selection, reappearance after removal to empty, and named-column aggregate flow.
+14. Invalid UTF cases containing multiple maximal invalid byte sequences: one U+FFFD per sequence identically in grid/CSV/JSON, metadata/header/export warning, successful export with no extra records, and unchanged BLOB behavior.
+15. Existing boundaries: startup/D1 fixtures, count failure with rows, schema refresh/drop, rowid ordering limitations, numeric parser, output-name collisions, NULL/BLOB/non-finite export, atomic save failure, constraints/trigger rollback, view-to-write command switch, DEFAULT VALUES, and unqualified-write warnings.
+16. CLI/integration matrix: missing command argument, missing path, directory/non-SQLite/read-only file, header/probe/busy failure, silent successful startup, exact exit codes/messages, all D1 candidate cases, and end-to-end SELECT/write/export against fixture databases.
+17. INSERT edge cases: zero insertable columns is non-runnable and never prompts; one-or-more insertable columns all omitted executes DEFAULT VALUES; INTEGER PRIMARY KEY omission and virtual-table hidden-input failure.
+
+Pure rendering remains manual, but the required matrix is 80×24, 100×30, and 160×50. At each size verify: results including header are at least half-height; builder is at most one-third and scrolls the focused field into full view; exact complete-row page size; no border/region overlap; horizontal overflow; multiline long values; popups and modals at edges; first-row preservation and retained/clamp/fetch resize branches; active request resize; and transition below/above 80×24 with exact state/focus restoration.
 
 ## Out of Scope
 
-- Any database engine other than SQLite/local D1 (Postgres, MySQL, remote D1, etc.).
-- Loading or importing saved queries or results — saving is one-way in v1.
-- Frozen columns during horizontal scrolling (deferred to post-v1).
-- Full-screen text editing mode (for nested queries or free-text SQL entry), and free-text SQL entry itself (deferred to a post-v1 advanced mode). The main UI itself is a full-screen TUI; it is the editing mode that is excluded.
-- HAVING clauses.
-- Editing result cells directly in the grid (removed from scope by decision).
-- Multiple simultaneous database connections or switching databases within a session.
-- Query history or saved-file persistence across sessions.
-- Transactions spanning multiple user operations (the internal single-write transaction wrapper is in scope; see Write atomicity).
-- LIKE wildcard escaping (literal `%`/`_` search unsupported in v1).
-- Virtual-table INSERT flows requiring hidden-column inputs (best-effort via visible columns only).
-- Degraded read-only sessions on unwritable database files (startup fails instead).
-- Windows-specific terminal concerns.
+- Any engine other than SQLite files/local D1 in v1, including PostgreSQL, MySQL, remote D1, and other remote services.
+- Multiple simultaneous database connections or switching databases within one session.
+- Loading/importing saved queries or results; save/export is one-way.
+- Persistence of query/result history or saved-file indexes across sessions.
+- Free-text SQL entry and the post-v1 full-screen SQL editing mode; the application itself remains a full-screen TUI.
+- Joins, subqueries, arbitrary expressions, IN, HAVING, AND/OR, parentheses, or multiple WHERE predicates.
+- Frozen columns during horizontal scrolling; only the header row is frozen.
+- Direct result-cell editing.
+- Transactions spanning multiple user operations; the internal single-write transaction remains in scope.
+- LIKE wildcard escaping, so literal `%`/`_` search remains unsupported.
+- Full virtual-table INSERT support where a module requires hidden-column input; visible-column best effort remains in scope.
+- Degraded read-only sessions for unwritable databases.
+- Mouse support and Windows-specific terminal concerns.
+- Continuous filesystem monitoring and detection of replacement at the same original path.
 
 ## Acceptance Criteria and Supported Environment
 
-- **Supported environments**: Linux and macOS. Terminal requirements: standard xterm-compatible key/arrow sequences and at least 16 colors; no mouse support in v1. Note: some terminals intercept Shift+PageUp/Down for scrollback — the `,`/`.` fallbacks provide equivalent functionality everywhere.
-- **Minimum terminal size**: 80×24. Below that, display a "terminal too small" message instead of a broken layout.
-- **SQLite assumptions**: any database file openable by `modernc.org/sqlite` (SQLite 3 format); WAL-mode databases supported read-write.
-- **Target envelope** (guidance, not guarantees): tables up to ~100k rows navigated comfortably via paging; result snapshots capped at 10,000 rows (see History); the first page of a paged query ideally renders within ~100ms for indexed queries within this envelope. Responsiveness targets are explicitly excluded from the definition of done — slow operations are handled by cancellation.
-- **Definition of done**: all user stories implemented with their stated acceptance behaviour; test suite green per Testing Decisions (including the high-risk boundary coverage); a manual verification pass on rendering in an 80×24 terminal.
+- **Supported systems**: Linux and macOS; standard xterm-compatible key/arrow sequences; at least 16 colors; no mouse requirement. Some terminals intercept Shift+Page Up/Down, so `,`/`.` must provide equivalent horizontal scrolling.
+- **SQLite support**: any SQLite 3-format database openable read-write by `modernc.org/sqlite`, including WAL mode and local miniflare D1 files. Pure-Go/no-cgo builds are required.
+- **Minimum terminal**: 80×24. Below it, show `terminal too small` instead of malformed layout, preserve all application state, keep `q` available without confirmation and Ctrl+C confirmation functional, and restore exact context/focus when resized back.
+- **Automated definition of done**: all user stories and authoritative tables/lifecycles are implemented; unit, fake-Connection behavior, CLI, and SQLite integration suites pass, including every high-risk case.
+- **Manual definition of done**: complete the 80×24, 100×30, and 160×50 matrix and all listed resize/overlay/long-content scenarios, not only 80×24.
+- **Visual invariants**: at every supported tested size, results including header occupy at least half the height; builder uses at most one-third and scrolls the complete focused field into view; page size exactly equals complete visible data rows; bounds/borders never overlap or escape; resize follows exact retained/clamp/fetch behavior.
+- **Preparation/history invariant**: every preparation dismissal leaves both histories unchanged. Confirmation appends query history subject to dedup and each actual write produces exactly one result. Each finalized SELECT likewise produces exactly one result.
+- **Transaction invariant**: beginning/executing accept cancellation; rollback cleanup/commit do not. Any cancelled/failed write described as untouched has confirmed rollback. Outcome unknown is terminal only after pending driver/transaction work has ended.
+- **Cache/export invariant**: cache never exceeds 10,000 contiguous absolute logical positions, preserves duplicate-valued positions, handles overlap/eviction deterministically, and exports retained rows ascending with separate truthful completeness/outcome and UTF metadata reflected only in UI warnings.
+- **Target envelope**: tables around 100,000 rows should be comfortable through paging, snapshots remain capped at 10,000 positions, and indexed first pages ideally render near 100 ms. These are guidance rather than definition-of-done performance guarantees; slow requests remain cancellable.
 
 ## Open Questions
 
-None remaining. All questions from the original interview were resolved previously; this revision resolved the second critique in full — 6 blockers (wildcard/COUNT(\*) model, execution lifecycle and cancellation, sliding-window paging vs snapshots, write rollback transactions, in-document key matrix, pre-flight estimate flow), 15 majors (command-switch revalidation, stable-order honesty, projection identity and grouped ORDER BY, DEFAULT VALUES/virtual-table INSERT, numeric grammar, startup read-write probe, schema metadata, history outcome lifecycle, Ctrl+S target rules, horizontal-scroll fallbacks and terminal-state Ctrl+C, output-name dedup, atomic saves, Connection interface split, high-risk test coverage, responsiveness reclassified), and 7 minors (WHERE scoping, popup search scope, LIKE wildcards, Limit bounds, D1 case rule, terminal-state export selection, story renumbering) — each either incorporated as a requirement above or documented as an accepted limitation.
+None remaining. The original interviews and all findings in the first, second, and third critique are resolved by the requirements above. The third-critique decisions are incorporated explicitly in destructive preparation/history, serialized paging and cache invariants, grouping validity, key precedence, active-result finalization/export, exact estimate SQL, operation-time deletion detection, independent count/page reads, write commit outcomes, bare `COUNT(*)`, invalid UTF-8, runnable prerequisites, and measurable layout acceptance.
 
 ## Further Notes
 
-- The project vision ("connect to multiple types of database") is broader than v1; the Connection module is deliberately designed to hide driver details so additional engines can be added later without changing callers. The original "type in SQL commands" vision is likewise broader than v1; free-text SQL is deferred to a post-v1 advanced mode (see Solution).
-- The `d1` discovery rules mirror the real miniflare layout: one long-random-string `.sqlite` file plus a `metadata.sqlite` file to be ignored.
-- The aggregate + GROUP BY rule exists because SQLite silently permits bare non-aggregated columns in aggregate queries (returning an arbitrary row's value); blocking at the UI level prevents ambiguous rather than failing queries. The same rationale restricts ORDER BY candidates in grouped queries.
-- The total count is computed by wrapping the query in `SELECT COUNT(*) FROM (<inner query>)`; it counts the logical result after the user's Limit, and runs concurrently with the first page fetch so slow counts never block the first rows.
-- The internal transaction around writes exists because SQLite's autocommit is not sufficient for the untouched guarantee: the FAIL conflict algorithm (including trigger `RAISE(FAIL)`) aborts a statement without backing out changes already applied to earlier rows by that same statement.
+- The Connection abstraction preserves the broader multi-engine vision while v1 remains SQLite/local D1. Free-text SQL likewise remains deferred.
+- First-page and count requests deliberately use independent autocommit reads so wrangler sharing is not blocked. They can drift; `Count: N` is an informational independent result, not an exact snapshot total for the visible rows.
+- The aggregate/GROUP BY rule prevents SQLite's arbitrary bare-value behavior in every grouped query, including nonaggregate-only projections; wildcard GROUP BY is therefore prohibited.
+- The internal transaction provides an untouched guarantee only after rollback is confirmed. SQLite FAIL/trigger behavior motivates the wrapper, while the explicit commit boundary and outcome-unknown state avoid promises the driver cannot prove.
+- Destructive matching-row estimation is independent and non-binding: it counts the quoted target under the identical WHERE predicate, not trigger effects, actual changed rows, or no-op differences.
