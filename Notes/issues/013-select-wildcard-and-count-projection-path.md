@@ -19,7 +19,7 @@ Implement the empty SELECT Column(s) flow from **Query Grammar**: default-highli
 ### Acceptance criteria
 
 - [ ] Given an empty projection, then `*` is first and default-selected and `COUNT(*)` is immediately second.
-- [ ] Given `COUNT(*)` is selected, then it is added directly and Column(s) reopens without a named-column aggregate prompt.
+- [ ] Given `COUNT(*)` is selected, then it is added directly and Column(s) reopens without a named-column aggregate prompt; because the projection is now nonempty, the sentinel is hidden from the reopened popup.
 - [ ] Given the projection becomes empty again, then `COUNT(*)` reappears; named columns always continue to aggregate selection.
 
 ### User stories addressed

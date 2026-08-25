@@ -1,7 +1,7 @@
 ## Issue 42: SQL save targeting and standalone serialization
 
 **Type**: AFK
-**Blocked by**: Issue 31, Issue 32, Issue 38, Issue 40, Issue 40b
+**Blocked by**: Issue 12, Issue 31, Issue 32, Issue 38, Issue 40, Issue 40b
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Implement Ctrl+S target selection and SQL serialization from **Query save targeting**: a viewed historical result's associated query, otherwise the current runnable builder, otherwise the last actual execution. In deletion/replacement and outcome-unknown terminal states, use only immutable in-memory targets: the Ctrl+P/N-selected query when present, otherwise the last actual execution. Produce one executable statement with safe literals, quoted identifiers, and a semicolon.
+Implement Ctrl+S target selection and full-statement SQL assembly from **Query save targeting**: a viewed historical result's associated query, otherwise the current runnable builder, otherwise the last actual execution. In deletion/replacement and outcome-unknown terminal states, use only immutable in-memory targets: the Ctrl+P/N-selected query when present, otherwise the last actual execution. Produce one executable statement with Issue 12's canonical identifier/literal atoms and a semicolon; do not define a second literal serializer.
 
 ### How to verify
 

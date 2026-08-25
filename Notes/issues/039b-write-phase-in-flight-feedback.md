@@ -9,16 +9,16 @@
 
 ### What to build
 
-Add phase-specific in-flight feedback for write operations (estimate, commit, rollback) as the write-phase complement to Issue 23 (which covers SELECT/page/count feedback only). Surface `Estimating matching target rows…`, `Committing…`, `Rolling back…`, and `cancelling…` feedback during the relevant write phases, and enforce the request-in-flight restrictions from the **Global Key Precedence and Context/Action Matrix** for write-phase pending states: Enter ignored with a Ctrl+W hint, history/save/export rejected with explanatory feedback, and permitted local interaction preserved.
+Reuse Issue 23's generic request-in-flight gating contract and own all write-phase feedback integration without altering SELECT/page/count labels. Surface exact `Running…` feedback during beginning/executing and `Estimating matching target rows…`, `Committing…`, `Rolling back…`, and `cancelling…` feedback during the relevant phases, and enforce the request-in-flight restrictions from the **Global Key Precedence and Context/Action Matrix** for write-phase pending states: Enter ignored with a Ctrl+W hint, history/save/export rejected with explanatory feedback, and permitted local interaction preserved.
 
 ### How to verify
 
-- **Manual**: Hold fake estimate/commit/rollback phases and try Enter, history, save/export, quit, and cancellation keys.
-- **Automated**: Scripted model tests assert write-phase feedback labels, Enter hints, blocked actions, permitted local actions, and unchanged request count during write phases.
+- **Manual**: Hold fake beginning/executing/estimate/commit/rollback phases and try Enter, history, save/export, quit, and cancellation keys.
+- **Automated**: Scripted model tests assert the exact label for every beginning/executing/estimate/commit/rollback/cancelling phase, Enter hints, blocked actions, permitted local actions, and unchanged request count during write phases.
 
 ### Acceptance criteria
 
-- [ ] Given pending write work, then the relevant estimate/commit/rollback/cancelling feedback remains visible and the UI stays responsive.
+- [ ] Given beginning or executing write work, then exact `Running…` feedback remains visible; given estimate, commit, rollback, or cancellation, then its documented phase-specific feedback remains visible; throughout, the UI stays responsive.
 - [ ] Given Enter during a write request, then it is consumed with a Ctrl+W hint and starts no stacked request.
 - [ ] Given history/save/export during a write request, then it is rejected with explanatory feedback.
 

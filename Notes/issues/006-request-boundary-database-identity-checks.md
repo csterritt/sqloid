@@ -9,7 +9,7 @@
 
 ### What to build
 
-Record the startup device/inode and enforce the **Session health** contract before every request and newly opened connection. Distinguish deletion from same-path replacement while allowing same-inode mutation to follow ordinary SQLite behavior.
+Record the startup device/inode and enforce the **Session health** contract before every request and newly opened connection. Return typed deletion and same-path-replacement classifications while allowing same-inode mutation to follow ordinary SQLite behavior; do not embed terminal UI strings, which Issue 40b owns.
 
 ### How to verify
 

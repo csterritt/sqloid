@@ -14,7 +14,7 @@ Add LIMIT/OFFSET Page Up/Down navigation with exactly one pending page request a
 ### How to verify
 
 - **Manual**: Page forward/backward through a large fixture and press repeated/opposite Page keys while loading.
-- **Automated**: Fake-Connection tests assert offsets, page sizes at supported heights, request serialization, ignored keys with feedback, and at-most count-plus-one-page concurrency.
+- **Automated**: Fake-Connection tests assert offsets, page sizes at supported heights, request serialization, ignored keys with feedback, at-most count-plus-one-page concurrency, and selected-aggregate ORDER BY in both ASC/DESC preserving the user expression without appending `rowid`.
 
 ### Acceptance criteria
 

@@ -9,7 +9,7 @@
 
 ### What to build
 
-Add exact retained-payload accounting and the independent 64 MiB cache cap, including deterministic eviction, complete-leading-row retention, persistent truncation disclosure, and distinct page/value over-limit failures at one-based logical positions.
+Add exact retained-payload accounting and the independent 64 MiB cache cap, including deterministic eviction, complete-leading-row retention, persistent truncation disclosure, and distinct page/value over-limit failures at one-based logical positions. This issue is the definition site for the shared byte-cap presentation string `Result truncated: 64 MiB cache limit`; result headers and later export flows must reuse that definition rather than duplicate the literal.
 
 ### How to verify
 

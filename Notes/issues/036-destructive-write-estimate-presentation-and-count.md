@@ -9,16 +9,16 @@
 
 ### What to build
 
-Open destructive preparation before UPDATE/DELETE execution. Render operation, table, standalone literal SQL, prominent all-rows warning, and an independent matching-target estimate built from only the identical WHERE predicate.
+Open destructive preparation before UPDATE/DELETE execution. Render operation, table, standalone literal SQL through Issue 12's canonical identifier/literal atoms, prominent all-rows warning, and an independent matching-target estimate built from only the identical WHERE predicate. Do not define a modal-private SQL literal serializer.
 
 ### How to verify
 
 - **Manual**: Open qualified/unqualified UPDATE and DELETE preparations, including UPDATE with Value/NULL SET assignments.
-- **Automated**: QueryBuilder/Connection/model tests assert safe literal rendering, warning visibility, exact estimate SQL, WHERE-only params, loading text, and no history append.
+- **Automated**: QueryBuilder/Connection/model tests assert reuse of canonical safe literal rendering, warning visibility, exact estimate SQL, WHERE-only params, loading text, and no history append.
 
 ### Acceptance criteria
 
-- [ ] Given preparation opens, then operation, table, rendered SQL, and any no-WHERE warning remain continuously visible.
+- [ ] Given preparation opens, then operation, table, rendered SQL produced with Issue 12's shared atoms, and any no-WHERE warning remain continuously visible.
 - [ ] Given estimation is pending, then `Estimating matching target rows…` appears and confirmation is disabled.
 - [ ] Given UPDATE SET values, then they do not enter estimate SQL or params, which count only the identical target WHERE.
 

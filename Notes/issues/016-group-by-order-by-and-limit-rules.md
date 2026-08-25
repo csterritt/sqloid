@@ -22,7 +22,7 @@ Complete SELECT construction and validation for GROUP BY multi-selection, contex
 - [ ] Given mixed aggregate/nonaggregate projection without GROUP BY, then it is invalid; an all-aggregate projection remains valid.
 - [ ] Given ORDER BY, then only context-valid expressions are offered and ASC/DESC behavior follows the documented defaults and toggle rules.
 - [ ] Given empty LIMIT input, then the query is unbounded; given an integer from 1 through 9,223,372,036,854,775,807, then that LIMIT is accepted.
-- [ ] Given LIMIT input that is zero, negative, malformed, or above 9,223,372,036,854,775,807, then it is invalid and Issue 17 focuses Limit with the specific reason when execution is attempted.
+- [ ] Given nonempty LIMIT input that is zero, negative, malformed, or above 9,223,372,036,854,775,807, then it is invalid and Issue 17 focuses Limit with exactly `Limit must be an integer from 1 to 9223372036854775807` when execution is attempted.
 
 ### User stories addressed
 

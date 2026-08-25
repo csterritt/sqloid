@@ -1,7 +1,7 @@
 ## Issue 23: In-flight feedback and execution gating (SELECT/page/count)
 
 **Type**: AFK
-**Blocked by**: Issue 19
+**Blocked by**: Issue 20, Issue 21
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Surface responsive phase-specific request feedback and enforce the request-in-flight row of the **Global Key Precedence and Context/Action Matrix** for SELECT, page, and count requests. Show `Running…`, `Counting rows…`, and page-loading feedback; prevent execution/history/save/export stacking while retaining permitted local interaction. Write-phase feedback (estimate, commit, rollback) is handled separately in Issue 39b.
+Surface responsive phase-specific request feedback and enforce the request-in-flight row of the **Global Key Precedence and Context/Action Matrix** for SELECT, page, and count requests. This issue defines the generic gating behavior and owns only SELECT/page/count integration: show `Running…`, `Counting rows…`, and page-loading feedback; prevent execution/history/save/export stacking while retaining permitted local interaction. It excludes all write-phase labels and integration, which Issue 39b owns.
 
 ### How to verify
 

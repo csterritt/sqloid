@@ -14,12 +14,12 @@ Launch first-page and complete-limited-result count requests concurrently on dis
 ### How to verify
 
 - **Manual**: Review behavior in WAL and rollback-journal fixtures with a delayed count and an external writer.
-- **Automated**: Mandatory Linux/macOS barrier-based integration tests prove overlap, distinct leases, unchanged journal mode, drift handling, count SQL/Limit semantics, independent failures, and execution/request identity rejection of delayed superseded responses.
+- **Automated**: Mandatory Linux/macOS barrier-based integration tests prove overlap, distinct leases, unchanged journal mode, drift handling, count SQL/Limit semantics, exact `Result count: N` and `Result count: N (after Limit M)` variants, independent failures, and execution/request identity rejection of delayed superseded responses.
 
 ### Acceptance criteria
 
 - [ ] Given a SELECT starts, then first page and count launch concurrently on two distinct dedicated connections without hidden serialization.
-- [ ] Given count succeeds, then the exact limited-result header wording is shown without clamping independently read pages.
+- [ ] Given count succeeds without a user Limit, then the header is exactly `Result count: N`; given Limit M is present, then it is exactly `Result count: N (after Limit M)`; neither form clamps independently read pages.
 - [ ] Given count fails or drifts, then paging remains available and the UI changes to `Count unavailable` with documented help.
 - [ ] Given a first-page or count response, then it mutates state only when both its SELECT execution ID and distinct request ID are current; a delayed response from a superseded execution is discarded.
 

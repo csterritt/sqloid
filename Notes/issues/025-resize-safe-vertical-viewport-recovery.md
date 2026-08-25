@@ -1,7 +1,7 @@
 ## Issue 25: Resize-safe vertical viewport recovery
 
 **Type**: AFK
-**Blocked by**: Issue 21, Issue 22
+**Blocked by**: Issue 21, Issue 22, Issue 27, Issue 28
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Recompute page size on resize while preserving the exact first logical row when valid. Otherwise clamp to a known endpoint or fetch the containing page, invalidating stale old-size work through viewport generations.
+Recompute page size on resize while preserving the exact first logical row when valid within the post-eviction dual-cap contiguous retained range. Otherwise clamp to a known retained endpoint or fetch the containing page, invalidating stale old-size work through viewport generations and applying the row- and byte-cap cache invariants.
 
 ### How to verify
 

@@ -9,7 +9,7 @@
 
 ### What to build
 
-Model immutable snapshot metadata from **Cache and snapshot invariant** independently of rows: retained range, endpoints, known total, row/byte eviction, completeness labels, terminal outcome, failures, cancellation, and UTF status.
+Model immutable snapshot metadata from **Cache and snapshot invariant** independently of rows: retained range, endpoints, known total, row/byte eviction, completeness labels, terminal outcome, failures, cancellation, and UTF status. Store typed warning metadata such as `truncated-by-byte-cap`; do not duplicate presentation literals defined by Issue 28.
 
 ### How to verify
 

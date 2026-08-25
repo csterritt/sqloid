@@ -9,12 +9,12 @@
 
 ### What to build
 
-Deliver the first complete runnable tracer bullet: build a safe SELECT, validate schema, execute its first page, and render a bordered grid with deduplicated frozen headers, absolute range/status, and explicit empty-result treatment. Replace and remove the hardcoded Issue 8b production runtime path so only the builder → validation → execution lifecycle remains; reusable fixtures, helpers, and integration-test infrastructure may be retained. This issue also centralizes the result output-name deduplication and value rendering shared by the grid (and later by exporters per Issue 41): full-set collision-safe deduplication, exact finite REAL tokens (`strconv.FormatFloat(v, 'g', -1, 64)` with `.0` appended when needed), visible grid control characters (tabs/newlines as visible symbols), maximal invalid UTF-8 TEXT replacement (one U+FFFD per maximal invalid sequence with warning metadata), and `[BLOB n bytes]` display. Non-finite REAL grid rendering is handled separately in Issue 19b.
+Deliver the first complete runnable tracer bullet: build a safe SELECT, validate schema, execute its first page, and render a bordered grid with deduplicated frozen headers, absolute range/status, and explicit empty-result treatment. Replace and remove the hardcoded Issue 8b production runtime path so only the builder → validation → execution lifecycle remains; reusable fixtures, helpers, and integration-test infrastructure may be retained. Implement result output-name deduplication and typed value primitives behind a UI-independent package-shaped seam that the grid consumes immediately and exporters can extend through Issue 41; no grid-private copy is allowed. The seam includes full-set collision-safe deduplication, exact finite REAL tokens (`strconv.FormatFloat(v, 'g', -1, 64)` with `.0` appended when needed), visible grid control characters (tabs/newlines as visible symbols), maximal invalid UTF-8 TEXT replacement (one U+FFFD per maximal invalid sequence with warning metadata), and exact BLOB-byte preservation with `[BLOB n bytes]` grid display. Non-finite REAL grid rendering is handled separately in Issue 19b.
 
 ### How to verify
 
 - **Manual**: Open a fixture, run `SELECT *` and a duplicate-label projection, then run a SELECT returning no rows.
-- **Automated**: End-to-end fake/SQLite tests assert generated SQL and params, result values, header deduplication, status range, and `No rows` rendering; architecture/build checks confirm no hardcoded Issue 8b production execution path remains.
+- **Automated**: End-to-end fake/SQLite tests assert generated SQL and params, result values, header deduplication, status range, and `No rows` rendering; package-level tests exercise the UI-independent seam, and architecture/build checks confirm the grid has no private duplicate and no hardcoded Issue 8b production execution path remains.
 
 ### Acceptance criteria
 

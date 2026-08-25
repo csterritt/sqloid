@@ -1,7 +1,7 @@
 ## Issue 3: Local D1 candidate discovery
 
 **Type**: AFK
-**Blocked by**: Issue 1
+**Blocked by**: Issue 1, Issue 2
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Implement `sqloid d1` discovery exactly within the working-directory-relative Wrangler path defined in **D1 discovery**. Apply the case-sensitive candidate, metadata, and sidecar rules without recursive or alternate-layout searches.
+Implement `sqloid d1` discovery exactly within the working-directory-relative Wrangler path defined in **D1 discovery**. Apply the case-sensitive candidate, metadata, and sidecar rules without recursive or alternate-layout searches. Pass the sole candidate path to Issue 2's shared validation/read-write opening path; do not implement a separate D1-specific opener.
 
 ### How to verify
 

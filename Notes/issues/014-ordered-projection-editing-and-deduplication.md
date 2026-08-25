@@ -21,11 +21,11 @@ Complete SELECT projection state and UI editing. Preserve ordered `(column, aggr
 - [ ] Given distinct aggregate pairs, when selected, then their insertion order is preserved even on the same column.
 - [ ] Given an identical pair, then it is not added twice; given wildcard, then all prior entries are cleared and wildcard is sole.
 - [ ] Given Backspace/Delete on projection, then only the most recent entry is removed and empty state is unchanged.
-- [ ] Given the bare `COUNT(*)` sentinel and a subsequently selected named aggregate entry, then they coexist as distinct entries; the sentinel cannot be added twice and the dedup rule applies to all projection entries including the sentinel.
+- [ ] Given the bare `COUNT(*)` sentinel and a subsequently selected named aggregate entry, then they coexist as distinct entries; Issue 13 hides the sentinel from a nonempty popup, and the QueryBuilder defensively rejects an identical sentinel transition invoked outside that UI path.
 
 ### User stories addressed
 
 - User story 26: Preserve valid ordered projection entries
-- User story 27: Remove the latest projection or clear whole fields safely
+- User story 27 (projection-removal portion): Remove the latest projection safely
 
 ---

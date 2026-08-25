@@ -1,7 +1,7 @@
 ## Issue 43: Immutable result-export capture and warnings
 
 **Type**: AFK
-**Blocked by**: Issue 30, Issue 32, Issue 40, Issue 40b, Issue 41
+**Blocked by**: Issue 28, Issue 30, Issue 32, Issue 40, Issue 40b, Issue 41
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Implement Ctrl+X targeting and immutable instant capture for active or historical tabular results. In deletion/replacement and outcome-unknown terminal states, act only on the in-memory selected result: export a tabular snapshot without database work, or reject a non-tabular entry with the exact documented message and no picker. Gate export during requests, preserve active SELECT lifetime/state, and present truthful metadata warnings before destination selection without adding warning data.
+Implement Ctrl+X targeting and immutable instant capture for active or historical tabular results. In deletion/replacement and outcome-unknown terminal states, act only on the in-memory selected result: export a tabular snapshot without database work, or reject a non-tabular entry with the exact documented message and no picker. This issue is the definition site for `selected result has no tabular data to export`; terminal consumers reuse it. Gate export during requests, preserve active SELECT lifetime/state, and present truthful metadata warnings before destination selection without adding warning data, reusing Issue 28's byte-cap warning definition rather than duplicating it.
 
 ### How to verify
 
