@@ -40,14 +40,24 @@ esac
 # fi
 
 deleted_files=()
-while IFS= read -r line; do
-  deleted_files+=("$line")
-done < <(git status -sb | sed 1d | egrep '^D |^ D' | /home/chris/chz 1)
-
 files=()
-while IFS= read -r line; do
-  files+=("$line")
-done < <(git status -sb | sed 1d | egrep -v '^D |^ D' | /home/chris/chz 1)
+while IFS= read -r -d '' entry; do
+  status=${entry:0:2}
+  path=${entry:3}
+
+  if [[ "$status" == *D* ]]; then
+    deleted_files+=("$path")
+  else
+    files+=("$path")
+  fi
+
+  if [[ "$status" == *R* || "$status" == *C* ]]; then
+    IFS= read -r -d '' source_path
+    if [[ "$status" == *R* ]]; then
+      deleted_files+=("$source_path")
+    fi
+  fi
+done < <(git status --porcelain=v1 -z)
 
 printf '%s\n' "${deleted_files[@]}" > /tmp/deleted-files.txt
 
