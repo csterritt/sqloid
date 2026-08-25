@@ -1,7 +1,7 @@
 ## Issue 37: Estimate failure, confirmation, and dismissal
 
 **Type**: AFK
-**Blocked by**: Issue 36
+**Blocked by**: Issue 5b, Issue 36
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Complete destructive preparation state transitions for estimate success, failure, cancellation, confirmation, and dismissal. Preserve SQL/warnings on failure and ensure preparation itself never creates history or an execution.
+Complete destructive preparation state transitions for estimate success, failure, cancellation, confirmation, and dismissal. This issue owns applying the Issue 5b infrastructure to estimate Ctrl+W, visible `cancelling…` settlement, and late-success rejection. Preserve SQL/warnings on failure and ensure preparation itself never creates history or an execution.
 
 ### How to verify
 
@@ -21,6 +21,7 @@ Complete destructive preparation state transitions for estimate success, failure
 - [ ] Given estimate failure, then its error appears without hiding SQL/warnings and deliberate confirmation becomes available.
 - [ ] Given Esc, n, dismissal, or cancelled estimation, then preparation closes after settlement with both histories unchanged.
 - [ ] Given settled success or failure, then Enter/y confirms exactly one actual write and cannot confirm twice.
+- [ ] Given Ctrl+W during estimation, then `cancelling…` remains visible until settlement, late success is discarded as cancelled, and both histories remain unchanged.
 
 ### User stories addressed
 

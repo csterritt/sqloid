@@ -9,7 +9,7 @@
 
 ### What to build
 
-Insert the cancellable, no-history validation workflow between runnable Enter and execution as defined in **Execution and Result Lifecycle**. Reuse cached schema when unchanged; otherwise refresh and repair only dependent builder state.
+Insert the cancellable, no-history validation workflow between runnable Enter and execution as defined in **Execution and Result Lifecycle**. This issue owns applying the Issue 5b infrastructure to schema-validation Ctrl+W, visible `cancelling…` settlement, and late-success rejection. Reuse cached schema when unchanged; otherwise refresh and repair only dependent builder state.
 
 ### How to verify
 
@@ -21,6 +21,7 @@ Insert the cancellable, no-history validation workflow between runnable Enter an
 - [ ] Given unchanged `schema_version`, then cached metadata is used and execution may proceed without refresh.
 - [ ] Given relevant schema changes, then only dependent state is cleared and the first specific invalid reason is focused.
 - [ ] Given failed or cancelled validation, then execution and both history appends are blocked with retry/cancel as applicable.
+- [ ] Given Ctrl+W during validation, then `cancelling…` remains visible until settlement and any late success is discarded as cancelled.
 
 ### User stories addressed
 

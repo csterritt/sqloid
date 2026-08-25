@@ -9,7 +9,7 @@
 
 ### What to build
 
-Execute confirmed UPDATE/DELETE and runnable INSERT as sole actual writes on a leased connection. Implement beginning/executing, atomic pre-COMMIT cancellation check, confirmed rollback cleanup, commit, and exactly one non-tabular summary/history result.
+Execute confirmed UPDATE/DELETE and runnable INSERT as sole actual writes on a leased connection. This issue owns applying the Issue 5b infrastructure and scoped Ctrl+W to cancellable beginning/executing phases. Implement the atomic pre-COMMIT cancellation check, confirmed rollback cleanup, commit, and exactly one non-tabular summary/history result.
 
 ### How to verify
 

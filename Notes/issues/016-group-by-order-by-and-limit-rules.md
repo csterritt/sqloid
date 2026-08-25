@@ -14,13 +14,15 @@ Complete SELECT construction and validation for GROUP BY multi-selection, contex
 ### How to verify
 
 - **Manual**: Build grouped nonaggregate, mixed aggregate, all-aggregate, wildcard, invalid-limit, and valid grouped ordering examples.
-- **Automated**: Pure QueryBuilder matrix tests assert candidates, SQL/params, duplicate prevention, direction, bounds, and every valid/invalid grouping combination.
+- **Automated**: Pure QueryBuilder matrix tests assert candidates, SQL/params, duplicate prevention, direction, every valid/invalid grouping combination, and LIMIT cases for empty, one, max int64, zero, negative, malformed, and overflow input.
 
 ### Acceptance criteria
 
 - [ ] Given GROUP BY, then every nonaggregate projection is grouped and wildcard is rejected.
 - [ ] Given mixed aggregate/nonaggregate projection without GROUP BY, then it is invalid; an all-aggregate projection remains valid.
-- [ ] Given ORDER BY or LIMIT, then only context-valid expressions and integers 1 through 9,223,372,036,854,775,807 are accepted.
+- [ ] Given ORDER BY, then only context-valid expressions are offered and ASC/DESC behavior follows the documented defaults and toggle rules.
+- [ ] Given empty LIMIT input, then the query is unbounded; given an integer from 1 through 9,223,372,036,854,775,807, then that LIMIT is accepted.
+- [ ] Given LIMIT input that is zero, negative, malformed, or above 9,223,372,036,854,775,807, then it is invalid and Issue 17 focuses Limit with the specific reason when execution is attempted.
 
 ### User stories addressed
 

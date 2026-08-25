@@ -9,18 +9,18 @@
 
 ### What to build
 
-Implement context cancellation plus connection-scoped SQLite interrupt for cancellable schema, estimate, SELECT, and write phases. Show settlement, discard late success, never force-close, and establish the mandatory pinned-driver capability evidence on Linux and macOS.
+Apply the Issue 5b cancellation infrastructure to active SELECT first-page, count, and later page requests. Wire scoped Ctrl+W, visible settlement, independent page/count interruption, late-success rejection, no force-close, and the mandatory SELECT cancellation capability evidence on Linux and macOS. Issue 18 owns schema-validation integration, Issue 37 owns estimate integration, Issue 38 owns beginning/executing write integration, and Issue 39 owns post-commit-boundary behavior.
 
 ### How to verify
 
-- **Manual**: Review cancellation behavior for CPU work, lock waits, page/count isolation, and an unaffected subsequent request on both supported systems.
-- **Automated**: Release-blocking barrier tests assert independent interrupts, `cancelling…`, no replacement before settlement, one-second controlled CPU and five-second lock bounds, and late-success rejection.
+- **Manual**: Review SELECT cancellation behavior for CPU work, lock waits, page/count isolation, and an unaffected subsequent request on both supported systems.
+- **Automated**: Release-blocking barrier tests assert independent page/count interrupts, `cancelling…`, no replacement before settlement, one-second controlled CPU and five-second lock bounds, and late-success rejection.
 
 ### Acceptance criteria
 
-- [ ] Given cancellable work, when Ctrl+W is pressed, then only applicable active requests are interrupted and visible state remains `cancelling…` until settlement.
-- [ ] Given success after cancellation was requested, then it is classified as cancelled and discarded without force-closing the connection.
-- [ ] Given controlled CPU or lock-wait cases, then settlement satisfies the required cross-platform bounds and later work is unaffected.
+- [ ] Given active SELECT page and/or count work, when Ctrl+W is pressed, then only those active requests are interrupted independently and visible state remains `cancelling…` until all requested cancellations settle.
+- [ ] Given SELECT success after cancellation was requested, then it is classified as cancelled and discarded without force-closing the connection.
+- [ ] Given controlled SELECT CPU or lock-wait cases, then settlement satisfies the required cross-platform bounds and later work is unaffected.
 
 ### User stories addressed
 

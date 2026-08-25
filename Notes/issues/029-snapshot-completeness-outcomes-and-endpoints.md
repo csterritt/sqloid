@@ -21,6 +21,7 @@ Model immutable snapshot metadata from **Cache and snapshot invariant** independ
 - [ ] Given both logical endpoints and all limited-result rows retained, then completeness is exclusively `complete`.
 - [ ] Given eviction, unseen work, cancellation, or failure, then truthful `partial`/`truncated` labels coexist independently with terminal outcome.
 - [ ] Given count is unavailable, then only an observed short/empty page establishes the high endpoint; otherwise unseen remainder stays unknown.
+- [ ] Given byte-cap eviction occurred, then finalized snapshot metadata retains `truncated-by-byte-cap` independently of completeness and terminal outcome so later export can reproduce the exact warning.
 
 ### User stories addressed
 

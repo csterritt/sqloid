@@ -9,7 +9,7 @@
 
 ### What to build
 
-Track SELECT execution IDs, request IDs, and viewport generations so only current responses mutate the grid/cache. Cancellation, resize, deactivation, and newer executions must reject late results without starting replacement work before settlement.
+Extend the execution and first-page/count request identities introduced by Issue 20 to later page requests and viewport generations, so only current responses mutate the grid/cache. Cancellation, resize, deactivation, and newer executions must reject late results without starting replacement work before settlement.
 
 ### How to verify
 
@@ -21,7 +21,7 @@ Track SELECT execution IDs, request IDs, and viewport generations so only curren
 - [ ] Given a late response from an old execution or request, then it cannot mutate current UI or cache state.
 - [ ] Given resize or deactivation, then the old viewport generation is rejected even if its request succeeds.
 - [ ] Given cancellation, then no replacement request starts until every replaced request has settled.
-- [ ] Given concurrent SELECT executions, then execution IDs, request IDs, and viewport generations are tracked independently so that a response is accepted only when all three are current.
+- [ ] Given a later-page response, then the Issue 20 execution/request guards and its viewport generation are tracked independently so the response is accepted only when all three are current.
 - [ ] Given a newer execution begins after cancellation was requested, then late responses from the old execution are discarded and classified as cancelled even after the newer execution starts.
 
 ### User stories addressed

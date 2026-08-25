@@ -18,9 +18,9 @@ Add exact retained-payload accounting and the independent 64 MiB cache cap, incl
 
 ### Acceptance criteria
 
-- [ ] Given retained payload reaches 64 MiB, then standard opposite-end eviction occurs and the exact persistent truncation warning is recorded.
-- [ ] Given a fetched page cannot fit, then only complete leading rows are retained up to the first nonfitting logical position.
-- [ ] Given a page or connection-local value limit failure, then the correct distinct message identifies one-based row N and no partial row is retained.
+- [ ] Given byte-cap eviction, then standard opposite-end eviction occurs, metadata records `truncated-by-byte-cap`, and the result header shows exactly `Result truncated: 64 MiB cache limit` persistently.
+- [ ] Given the retained rows from one fetched page exceed 64 MiB, then only complete leading rows are retained up to the first nonfitting one-based logical position N, no partial row is retained, and the page shows exactly `result page exceeds the 64 MiB v1 limit at row N`.
+- [ ] Given one row or value exceeds the connection-local 64 MiB value limit at one-based logical position N, then no partial row is retained and the page shows exactly `result value exceeds the 64 MiB v1 limit at row N`.
 
 ### User stories addressed
 

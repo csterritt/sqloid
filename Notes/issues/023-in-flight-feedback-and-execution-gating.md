@@ -9,7 +9,7 @@
 
 ### What to build
 
-Surface responsive phase-specific request feedback and enforce the request-in-flight row of the **Global Key Precedence and Context/Action Matrix** for SELECT, page, and count requests. Show `Running…`, `Counting rows…`, and page-loading feedback; prevent execution/history/save/export stacking while retaining permitted local interaction. Write-phase feedback (estimate, commit, rollback) is handled separately in Issue 23b.
+Surface responsive phase-specific request feedback and enforce the request-in-flight row of the **Global Key Precedence and Context/Action Matrix** for SELECT, page, and count requests. Show `Running…`, `Counting rows…`, and page-loading feedback; prevent execution/history/save/export stacking while retaining permitted local interaction. Write-phase feedback (estimate, commit, rollback) is handled separately in Issue 39b.
 
 ### How to verify
 
