@@ -21,6 +21,8 @@ Track SELECT execution IDs, request IDs, and viewport generations so only curren
 - [ ] Given a late response from an old execution or request, then it cannot mutate current UI or cache state.
 - [ ] Given resize or deactivation, then the old viewport generation is rejected even if its request succeeds.
 - [ ] Given cancellation, then no replacement request starts until every replaced request has settled.
+- [ ] Given concurrent SELECT executions, then execution IDs, request IDs, and viewport generations are tracked independently so that a response is accepted only when all three are current.
+- [ ] Given a newer execution begins after cancellation was requested, then late responses from the old execution are discarded and classified as cancelled even after the newer execution starts.
 
 ### User stories addressed
 

@@ -21,6 +21,8 @@ Add LIMIT/OFFSET Page Up/Down navigation with exactly one pending page request a
 - [ ] Given an idle active SELECT, when Page Up/Down is pressed, then exactly the required adjacent page is requested.
 - [ ] Given a page is pending, then repeated or opposite Page keys start no request and show loading feedback.
 - [ ] Given terminal height changes fixed rows, then the next request uses the exact number of complete visible data rows.
+- [ ] Given a SELECT without user ORDER BY on an ordinary rowid table without a declared rowid shadow, then the page SQL appends `ORDER BY rowid` for stable paging.
+- [ ] Given a SELECT without user ORDER BY on a view, virtual table, WITHOUT ROWID table, shadowed table, or aggregate/grouped query, then no implicit ordering is appended and no stability is implied.
 
 ### User stories addressed
 

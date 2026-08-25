@@ -1,7 +1,7 @@
 ## Issue 48: Contextual help and overlay precedence
 
 **Type**: AFK
-**Blocked by**: Issue 7, Issue 10, Issue 46
+**Blocked by**: Issue 7, Issue 10
 
 ### Parent PRD
 

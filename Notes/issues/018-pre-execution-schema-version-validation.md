@@ -1,7 +1,7 @@
 ## Issue 18: Pre-execution schema-version validation
 
 **Type**: AFK
-**Blocked by**: Issue 11, Issue 17
+**Blocked by**: Issue 11, Issue 17, Issue 5b
 
 ### Parent PRD
 

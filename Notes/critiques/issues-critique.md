@@ -190,3 +190,62 @@ Issue 1 is the entry point but does not mention `go.mod`, module path, or build/
 ## Coverage note
 
 All 90 user stories are mapped. No user story is uncovered. The gaps above are about *how* the PRD requirements are distributed and ordered, not about missing user stories. The PRD "Module Design" per-module Tested requirements are distributed across issues but the integrated Connection release-capability suite (P1-4) is the only one with no clear owner.
+
+---
+
+## Resolutions (applied 2026-08-25)
+
+All critique items were reviewed with the user. The following changes were applied to the issue files.
+
+### New issues created (7)
+
+| File | Source | Blocked by | Blocks |
+|---|---|---|---|
+| `005b-cancellation-infrastructure.md` | P1-2 (split of 24 for dependency) | 5 | 18, 24 |
+| `008b-early-integration-tracer.md` | P1-8 (early tracer) | 5, 8 | — (optional before 19) |
+| `017b-minimal-query-history-append.md` | P0-2 (history append before first execution) | 17 | 19 |
+| `019b-non-finite-real-grid-rendering.md` | P2-2 (non-finite REAL grid) | 19 | — |
+| `023b-write-phase-in-flight-feedback.md` | P1-3 (split of 23) | 38, 39 | — |
+| `040b-deletion-replacement-terminal-workflow.md` | P0-5 (deletion/replacement terminal UI) | 6, 32 | 49 |
+| `050-release-capability-suite-and-modernc-pin.md` | P1-4 (integrated release suite + pin) | 5, 6, 20, 24, 38, 39 | — |
+
+### Issue split (1)
+
+- **Issue 24** split into `005b` (cancellation infrastructure: context + connection-scoped interrupt, blocked by 5) and `024` (application to SELECT/write + bounded settlement tests, blocked by 5b, 22, 23). This was necessitated by P1-2: making 18 depend on 24 would create a circular dependency (18→24→22→21→19→18). The infrastructure half (005b) can come before 18; the application half (24) stays in place. This is a scope split for dependency reasons, distinct from the P0-3 AFK/HITL split decision (declined).
+
+- **Issue 23** narrowed to SELECT/page/count feedback only. Write-phase feedback (estimate/commit/rollback) moved to `023b` (blocked by 38, 39).
+
+### Issue repurposed (1)
+
+- **Issue 41** repurposed from "centralize name-dedup + value rendering" to "extract and centralize rendering for exporters." The initial name-dedup + value rendering implementation was merged into Issue 19 (per P0-1 decision). Issue 41 now factors that logic into a reusable module for CSV/JSON exporters, blocked by 19 and 43.
+
+### Dependency changes (8)
+
+| Issue | Change | Reason |
+|---|---|---|
+| 5 | Dropped 4 from blockers | Pool doesn't depend on D1 diagnostics wording (P1-6) |
+| 18 | Added 5b as blocker | Validation cancellation needs cancellation infrastructure (P1-2) |
+| 19 | Added 17b as blocker | First execution must append query history (P0-2) |
+| 24 | Changed 5→5b in blockers | Infrastructure moved to 005b (P1-2 split) |
+| 33 | Added 15 as blocker | UPDATE reuses shared WHERE flow directly (P2-7) |
+| 42 | Added 32 as blocker | "Viewed historical result's query" targeting needs result history (P1-1) |
+| 48 | Dropped 46 from blockers | Precedence rules are generic, not picker-dependent (P1-7) |
+| 49 | Added 30, 38, 39, 40b as blockers | Quit cleanup invokes SELECT finalization + write settlement + deletion/replacement terminal UI (P0-4, P0-5) |
+
+### Acceptance criteria changes (9)
+
+| Issue | Change |
+|---|---|
+| 1 | Specified version string format (`sqloid <version>`); added `go build ./...` + `go vet` clean criterion (P2-4, P2-8) |
+| 6 | Added raced replacement + error (terminal immediately), raced replacement + success (next boundary), one precheck for entire write (P2-1) |
+| 9 | Clarified: table *selection* cleared, eligible table *list* remains populated on view-to-write switch (P2-5) |
+| 14 | Added COUNT(*) sentinel dedup interaction criterion (P2-3) |
+| 17 | Expanded scope to general framework (all 4 commands); added UPDATE/DELETE/INSERT prerequisite criteria (P2-1) |
+| 19 | Merged name-dedup + value rendering (REAL tokens, BLOB display, invalid-UTF-8, control chars, dedup) (P0-1) |
+| 21 | Added implicit `ORDER BY rowid` fallback criteria (P1-5) |
+| 22 | Added execution-ID vs request-ID vs generation distinction; newer-execution late discard (P2-1) |
+| 32 | Added `database is locked` ordinary-error criterion (P2-6) |
+
+### No change (1)
+
+- **P0-3**: Issues 7, 20, 24 remain HITL. The AFK/HITL split was declined; the large AFK-testable cores remain gated by human review.

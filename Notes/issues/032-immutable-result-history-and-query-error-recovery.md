@@ -21,6 +21,7 @@ Implement the 20-entry stable-ID result history and Ctrl+E/Y browsing without re
 - [ ] Given Ctrl+E/Y, then immutable snapshots are selected without database work; rerun remains the only fresh-data path.
 - [ ] Given a query error, then it replaces the result view, Esc dismisses it, and older results remain reachable.
 - [ ] Given selected-entry eviction, then no missing rows render and selection moves with the exact result notice or returns to base.
+- [ ] Given a request that exceeds the five-second busy timeout, then `database is locked` is displayed as an ordinary query error (not a terminal state) unless health classification overrides it.
 
 ### User stories addressed
 

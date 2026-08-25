@@ -1,7 +1,7 @@
 ## Issue 33: UPDATE assignment builder and prompt restoration
 
 **Type**: AFK
-**Blocked by**: Issue 12, Issue 17
+**Blocked by**: Issue 12, Issue 15, Issue 17
 
 ### Parent PRD
 

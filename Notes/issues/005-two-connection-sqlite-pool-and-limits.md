@@ -1,7 +1,7 @@
 ## Issue 5: Two-connection SQLite pool and limits
 
 **Type**: AFK
-**Blocked by**: Issue 2, Issue 4
+**Blocked by**: Issue 2
 
 ### Parent PRD
 

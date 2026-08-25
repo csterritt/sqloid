@@ -1,7 +1,7 @@
 ## Issue 49: Universal quit confirmation and exact restoration
 
 **Type**: AFK
-**Blocked by**: Issue 24, Issue 37, Issue 47, Issue 48
+**Blocked by**: Issue 24, Issue 30, Issue 37, Issue 38, Issue 39, Issue 40b, Issue 47, Issue 48
 
 ### Parent PRD
 

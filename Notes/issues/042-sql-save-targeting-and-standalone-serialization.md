@@ -1,7 +1,7 @@
 ## Issue 42: SQL save targeting and standalone serialization
 
 **Type**: AFK
-**Blocked by**: Issue 31, Issue 38
+**Blocked by**: Issue 31, Issue 32, Issue 38
 
 ### Parent PRD
 

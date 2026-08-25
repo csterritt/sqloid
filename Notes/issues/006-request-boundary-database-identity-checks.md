@@ -21,6 +21,9 @@ Record the startup device/inode and enforce the **Session health** contract befo
 - [ ] Given the original path is absent at a request boundary, then the deletion terminal state appears before database work starts.
 - [ ] Given the path has a different device/inode, then the distinct replacement terminal state appears.
 - [ ] Given an in-place same-inode mutation, then it is handled as ordinary SQLite behavior rather than a replacement.
+- [ ] Given a raced replacement followed by a request error, then the error is classified terminal immediately rather than as an ordinary request error.
+- [ ] Given a raced replacement followed by a request success, then the success stands for that request and the replacement is detected at the next request boundary before more work begins.
+- [ ] Given a phased write transaction, then there is exactly one identity precheck before BEGIN and none between statement execution and COMMIT.
 
 ### User stories addressed
 

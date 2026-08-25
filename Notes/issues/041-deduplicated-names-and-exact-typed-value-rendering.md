@@ -1,7 +1,7 @@
-## Issue 41: Deduplicated names and exact typed-value rendering
+## Issue 41: Centralize rendering for exporters (extraction from grid)
 
 **Type**: AFK
-**Blocked by**: Issue 19
+**Blocked by**: Issue 19, Issue 43
 
 ### Parent PRD
 
@@ -9,7 +9,9 @@
 
 ### What to build
 
-Centralize result output names and value representation shared by grid and exporters. Apply full-set collision-safe deduplication, exact finite REAL tokens, visible grid control characters, maximal invalid UTF-8 replacement, and unchanged bounded BLOB bytes.
+Extract and centralize the result output-name deduplication and value-rendering logic that Issue 19 implements for the grid, so that CSV and JSON exporters (Issues 44, 45) reuse the identical shared module. Issue 19 owns the initial implementation of full-set collision-safe deduplication, exact finite REAL tokens, visible grid control characters, maximal invalid UTF-8 replacement, and `[BLOB n bytes]` display. This issue ensures that logic is factored into a reusable module (not duplicated) and that exporters consume the same deduplicated names and value representations.
+
+Non-finite REAL grid rendering is handled in Issue 19b. Non-finite REAL CSV/JSON rendering remains in Issues 44/45 per their format-specific policies.
 
 ### How to verify
 
@@ -18,9 +20,10 @@ Centralize result output names and value representation shared by grid and expor
 
 ### Acceptance criteria
 
-- [ ] Given colliding output labels, then deterministic final names are shared by grid, CSV, and JSON without altering driver metadata or SQL.
-- [ ] Given finite REAL values, then one exact shortest-round-trip REAL-preserving token is used everywhere.
-- [ ] Given invalid UTF-8 TEXT, then each maximal invalid sequence becomes one U+FFFD with warning metadata while BLOB bytes remain unchanged.
+- [ ] Given the rendering logic from Issue 19, then it is factored into a reusable module that the grid and exporters both consume without duplication.
+- [ ] Given colliding output labels, then the shared deduplication module produces deterministic final names used identically by grid, CSV, and JSON without altering driver metadata or SQL.
+- [ ] Given finite REAL values, then the shared token logic produces one exact shortest-round-trip REAL-preserving token used everywhere.
+- [ ] Given invalid UTF-8 TEXT, then the shared replacement logic produces one U+FFFD per maximal invalid sequence with warning metadata, while BLOB bytes remain unchanged.
 
 ### User stories addressed
 

@@ -1,7 +1,7 @@
 ## Issue 24: Scoped Ctrl+W cancellation and bounded settlement
 
 **Type**: HITL
-**Blocked by**: Issue 5, Issue 22, Issue 23
+**Blocked by**: Issue 5b, Issue 22, Issue 23
 
 ### Parent PRD
 

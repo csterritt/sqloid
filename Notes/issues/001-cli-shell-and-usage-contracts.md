@@ -19,8 +19,9 @@ Create the Go application entry point and command surface described in **Impleme
 ### Acceptance criteria
 
 - [ ] Given `sqloid sqlite` without a file, when invoked, then usage is written to stderr and the process exits 2.
-- [ ] Given help or version flags, when invoked, then the documented information is printed successfully.
+- [ ] Given help or version flags, when invoked, then the documented information is printed successfully. Version output is exactly `sqloid <version>` followed by a newline, where `<version>` is the build version string.
 - [ ] Given a valid command that reaches startup, then the CLI adds no success message of its own.
+- [ ] Given the Go module, then `go build ./...` succeeds and `go vet ./...` is clean.
 
 ### User stories addressed
 

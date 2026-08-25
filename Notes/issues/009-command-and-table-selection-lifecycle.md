@@ -20,7 +20,7 @@ Deliver the initial builder path from Command through Table. Apply the command-c
 
 - [ ] Given initial startup, then Command is focused and one S/U/D/I key selects the command and advances to Table.
 - [ ] Given a command replacement, then downstream command-specific state is cleared and only an eligible table is retained.
-- [ ] Given a selected view and a switch to a write command, then Table is cleared and focused.
+- [ ] Given a selected view and a switch to a write command, then the table selection is cleared and Table is focused, while the eligible table list remains populated with eligible ordinary and virtual tables.
 
 ### User stories addressed
 

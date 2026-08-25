@@ -1,4 +1,4 @@
-## Issue 23: In-flight feedback and execution gating
+## Issue 23: In-flight feedback and execution gating (SELECT/page/count)
 
 **Type**: AFK
 **Blocked by**: Issue 19
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Surface responsive phase-specific request feedback and enforce the request-in-flight row of the **Global Key Precedence and Context/Action Matrix**, preventing execution/history/save/export stacking while retaining permitted local interaction.
+Surface responsive phase-specific request feedback and enforce the request-in-flight row of the **Global Key Precedence and Context/Action Matrix** for SELECT, page, and count requests. Show `Running…`, `Counting rows…`, and page-loading feedback; prevent execution/history/save/export stacking while retaining permitted local interaction. Write-phase feedback (estimate, commit, rollback) is handled separately in Issue 23b.
 
 ### How to verify
 
@@ -18,9 +18,9 @@ Surface responsive phase-specific request feedback and enforce the request-in-fl
 
 ### Acceptance criteria
 
-- [ ] Given pending work, then the relevant running/count/page/estimate/commit/rollback feedback remains visible and the UI stays responsive.
-- [ ] Given Enter during a request, then it is consumed with a Ctrl+W hint and starts no stacked request.
-- [ ] Given history/save/export during a request, then it is rejected with explanatory feedback.
+- [ ] Given pending SELECT/page/count work, then the relevant running/count/page-loading feedback remains visible and the UI stays responsive.
+- [ ] Given Enter during a SELECT/page/count request, then it is consumed with a Ctrl+W hint and starts no stacked request.
+- [ ] Given history/save/export during a SELECT/page/count request, then it is rejected with explanatory feedback.
 
 ### User stories addressed
 

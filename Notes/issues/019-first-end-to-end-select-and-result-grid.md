@@ -1,7 +1,7 @@
 ## Issue 19: First end-to-end SELECT and result grid
 
 **Type**: AFK
-**Blocked by**: Issue 18
+**Blocked by**: Issue 18, Issue 17b
 
 ### Parent PRD
 
@@ -9,7 +9,7 @@
 
 ### What to build
 
-Deliver the first complete runnable tracer bullet: build a safe SELECT, validate schema, execute its first page, and render a bordered grid with deduplicated frozen headers, absolute range/status, and explicit empty-result treatment.
+Deliver the first complete runnable tracer bullet: build a safe SELECT, validate schema, execute its first page, and render a bordered grid with deduplicated frozen headers, absolute range/status, and explicit empty-result treatment. This issue also centralizes the result output-name deduplication and value rendering shared by the grid (and later by exporters per Issue 41): full-set collision-safe deduplication, exact finite REAL tokens (`strconv.FormatFloat(v, 'g', -1, 64)` with `.0` appended when needed), visible grid control characters (tabs/newlines as visible symbols), maximal invalid UTF-8 TEXT replacement (one U+FFFD per maximal invalid sequence with warning metadata), and `[BLOB n bytes]` display. Non-finite REAL grid rendering is handled separately in Issue 19b.
 
 ### How to verify
 
@@ -19,8 +19,11 @@ Deliver the first complete runnable tracer bullet: build a safe SELECT, validate
 ### Acceptance criteria
 
 - [ ] Given a runnable SELECT, when Enter validation succeeds, then its first rows render in the result grid.
-- [ ] Given duplicate output labels, then deterministic deduplicated names appear in the frozen header.
+- [ ] Given duplicate output labels, then deterministic full-set collision-safe deduplicated names appear in the frozen header, shared by grid and (later) CSV/JSON without altering driver metadata or SQL.
 - [ ] Given zero rows, then the result view says `No rows` rather than appearing blank.
+- [ ] Given finite REAL values, then one exact shortest-round-trip REAL-preserving token is used in the grid (e.g. `1.0`, `-0.0`, `1e+20`).
+- [ ] Given invalid UTF-8 TEXT, then each maximal invalid sequence becomes one U+FFFD with warning metadata while BLOB bytes remain unchanged and display as `[BLOB n bytes]`.
+- [ ] Given tabs or newlines in TEXT values, then they render as visible symbols in the grid.
 
 ### User stories addressed
 
