@@ -1,0 +1,41 @@
+# CLI Contract
+
+The complete command-line contract implemented by `internal/cli` on top of the PRD-mandated [mow.cli](https://github.com/jawher/mow.cli) command structure (Issue #1, `Notes/PRD-sqloid.md` §CLI behavior).
+
+## Commands
+
+| Command | Spec | Behavior |
+| --- | --- | --- |
+| `sqloid sqlite <file>` | `FILE` (exactly one string argument) | Opens the SQLite database at `<file>`. The handler is invoked only after successful routing. |
+| `sqloid d1` | no arguments | Discovers and opens the local D1 database under `.wrangler/state/v3/d1/miniflare-D1DatabaseObject`. |
+
+## Flags
+
+| Flag | Forms | Behavior |
+| --- | --- | --- |
+| Help | `--help`, `-h` | Prints the long usage message; exits 0. |
+| Version | `--version`, `-v` | Prints exactly `sqloid <version>` plus a newline to **stdout**; exits 0. `<version>` is the build version string (currently `dev`, overridable at link time via `internal/cli.Version`). |
+
+## Stream ownership
+
+- **stdout** — only version output (`sqloid <version>\n`). Successful `sqlite`/`d1` dispatch adds nothing; the CLI has no success message.
+- **stderr** — help/usage text, usage-error messages (`Error: incorrect usage` and the usage block), and future startup diagnostics.
+
+## Exit statuses
+
+| Situation | Status |
+| --- | --- |
+| Help or version request | 0 |
+| Successful `sqlite <file>` or `d1` dispatch | 0 |
+| Usage failure: missing argument, unexpected argument, unknown command, illegal option | 2 |
+
+Startup/database-validation failures (status 1) are defined by Issue #2 and are not yet wired.
+
+## Roles of `internal/cli` and `cmd/sqloid`
+
+- `internal/cli` owns the entire shell: it builds the mow.cli app (`sqlite` command with `FILE` argument, `d1` command, `--version`/`-v` flag, root action), sets `flag.ContinueOnError` so mow.cli never calls `os.Exit` directly, and exposes `Main(args, handlers) int` returning the process status. Database startup is behind the injectable `Handlers` struct so `internal/connection` and `internal/d1` can be connected later without replacing the shell.
+- `cmd/sqloid` is a thin process boundary: `os.Exit(cli.Main(os.Args, cli.Handlers{}))` and nothing else.
+
+## Verification
+
+`go build ./...` and `go vet ./...` must pass. Exact streams and exit statuses are asserted by re-executing the test binary as the CLI (see [unit-tests.md](unit-tests.md)).
