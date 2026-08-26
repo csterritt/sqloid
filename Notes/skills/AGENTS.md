@@ -1,5 +1,5 @@
 ---
-name: Notes/AGENTS.md
+name: Notes/skills/AGENTS.md
 description: As an agent, how to use skills for the project.
 ---
 ## Available Skills
@@ -9,13 +9,13 @@ description: As an agent, how to use skills for the project.
 - `issue-to-tasks` - You must read this when it is time to convert an issue to a list of tasks
 - `code-review` - You must read this when it is time to review code
 - `final-audit` - You must read this when it is time to perform a final audit of the implementation
-- `code-writing/always-do-red-green` - You must read this when it is time to write code, describes the red-green-refactor cycle
-- `code-writing/comment-writing` - You must read this when it is time to write code, describes appropriate comment strategies
-- `code-writing/database-access` - You must read this when it is time to write code to access the database
-- `code-writing/production-code-control-comments` - You must read this when it is time to write production code, and our comment system for keeping testing code out of production
-- `code-writing/reference-the-wiki` - You must read this when it is time to write code, describes how to reference the wiki
-- `code-writing/running-tests` - You must read this when it is time to run tests
-- `code-writing/running-the-server` - You must read this when it is time to run the server
-- `code-writing/styling-html-and-tsx` - You must read this when it is time to style HTML and TSX
-- `code-writing/typescript-rules` - You must read this when it is time to write typescript
-- `code-writing/web-behavior` - You must read this when it is time to write web code
+- `code-writing/always-do-red-green` - You must read this when it is time to change Go behavior; describes the red-green-refactor cycle and Go verification
+- `code-writing/comment-writing` - You must read this when it is time to write Go code; describes doc comments and explanatory comments
+- `code-writing/database-access` - You must read this when it is time to access SQLite through Go's `database/sql` and `modernc.org/sqlite`
+- `code-writing/go-rules` - You must read this for all Go implementation and refactoring work
+- `code-writing/production-code-and-build-constraints` - You must read this when separating test/development code or using Go build constraints
+- `code-writing/reference-the-wiki` - You must read this when it is time to reference the wiki
+- `code-writing/running-tests` - You must read this when it is time to run or diagnose Go tests and verification
+- `code-writing/running-the-cli` - You must read this when it is time to build or run Sqloid
+- `code-writing/styling-tui` - You must read this when implementing terminal layout or Lip Gloss styling
+- `code-writing/tui-behavior` - You must read this when implementing Bubble Tea state, commands, input, resize, or asynchronous behavior
