@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/010-06/code-walkthrough`. Demonstrate one Schema-selected fixture table flowing through `internal/schema/tracer.go`, `internal/connection/tracer.go`, and `internal/ui/tracer.go` into a minimal bordered grid with headers and rows, then demonstrate a basic query error rendering without a crash. Show that identifiers are handled safely and that UI files contain no database behavior. Call out the tracer's disposable scope, all unsupported production features, and mandatory replacement by Issue #22; reference Issue #10 and `Notes/PRD-sqloid.md`, and keep every generated artifact in the approved directory.
 
 ---
-
-### 7. Review the tracer boundary
-
-**Type**: REVIEW
-**Output**: Human confirms rows/errors render and no production builder, validation, paging, or history behavior is implied.
-**Depends on**: 6
-
-Review `internal/connection/tracer.go`, `internal/schema/tracer.go`, `internal/ui/tracer.go`, their integration points, tests, wiki updates, and walkthrough against Issue #10. Run the tracer against a fixture table and a controlled basic failure, confirming typed rows and headers render in the bordered results area, errors do not crash, identifiers are safe, and Connection, Schema, and UI responsibilities remain separate. Confirm the implementation neither promises nor partially establishes production builder, schema validation, paging, count, cancellation, history, write, or recovery behavior, and that its mandatory replacement by Issue #22 is unambiguous before approving the issue.
-
----

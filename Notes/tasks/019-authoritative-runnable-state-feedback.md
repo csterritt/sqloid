@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/019-08/code-walkthrough`. Demonstrate table-driven authoritative reports for every SELECT/UPDATE/DELETE/INSERT prerequisite and common gate, including multiple simultaneous failures returning the first visual field and one specific reason. Clear completed WHERE and Limit values with both Backspace and Delete, show empty no-ops and resulting incomplete/unbounded validity, and exercise the shared future UPDATE/INSERT Value transition without claiming those end-to-end flows are complete. In scripted model evidence, press Enter on representative invalid SELECT states, including exact invalid Limit feedback, and show focus movement plus absence of validation/execution/history commands. Contrast runnable data in base context with popup, text/search, overlay, pending-request, and too-small contexts, showing UI precedence and only the next pre-execution seam. Reference Issue #19 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review runnable feedback
-
-**Type**: REVIEW
-**Output**: Human confirms clearing, empty no-ops, invalid SELECT states, focus, reasons, and blocked execution.
-**Depends on**: 8
-
-Review runnable evaluation and whole-value transitions in `internal/querybuilder`, Enter/focus/reason integration in `internal/ui`, wiki updates, and `Notes/walkthroughs/019-08/code-walkthrough` against Issue #19. Clear completed and already-empty WHERE and Limit fields with Backspace/Delete, inspect submitted empty TEXT behavior, and verify shared UPDATE/INSERT Value choices become incomplete without losing their structural choice. Attempt Enter across missing projection, incomplete WHERE, invalid grouping/order, and invalid Limit SELECT states, including multiple failures, and confirm exact first visual focus, specific reason, and no execution command. Inspect representative UPDATE, DELETE, and INSERT reports, including duplicate SET columns, incomplete choices, optional WHERE, all-omit, and zero insertable columns. Finally try otherwise runnable data from base and every invalid UI context, confirming context consumption, no direct execution, and exact data/UI separation before approving the issue.
-
----

@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/018-08/code-walkthrough`. Demonstrate GROUP BY multi-selection order and duplicate no-op behavior across grouped nonaggregate-only, valid and invalid mixed, all-aggregate without GROUP BY, bare `COUNT(*)`, and wildcard rejection cases, with exact validity and SQL evidence. Show ORDER BY candidates changing with context so only grouped columns and selected aggregate expressions remain for aggregate/grouped queries, then select one expression, verify ASC default, toggle to DESC with Up/Down in the base field, replace and clear it, and inspect SQL. Exercise empty Limit, `1`, `9223372036854775807`, zero, negative, malformed, whitespace, and overflow input, including exact invalid feedback and preserved text. Reference Issue #18 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review SELECT rule combinations
-
-**Type**: REVIEW
-**Output**: Human confirms grouped, mixed, aggregate-only, wildcard, ordering, and invalid/valid Limit examples.
-**Depends on**: 8
-
-Review GROUP BY, ORDER BY, and LIMIT state and tests in `internal/querybuilder`, related popup/input behavior in `internal/ui`, wiki updates, and `Notes/walkthroughs/018-08/code-walkthrough` against Issue #18. Build grouped nonaggregate-only and mixed projections, deliberately omit required groups, add duplicate and extra groups, run all-aggregate projection without GROUP BY, and attempt wildcard grouping; confirm exact validity, ordering, and generated SQL. Inspect ORDER BY candidates in ordinary, grouped, and aggregate contexts, verify exclusions, single selection, ASC default, and repeated direction toggling. Enter empty, minimum, maximum, zero, negative, malformed, whitespace, and overflowing Limit values and compare the exact reason and preserved correction state. Confirm no UI path bypasses QueryBuilder rules before approving the issue.
-
----

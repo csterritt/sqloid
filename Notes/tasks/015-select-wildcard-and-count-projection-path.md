@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/015-06/code-walkthrough`. Demonstrate an empty Column(s) popup with `*` first and highlighted, bare `COUNT(*)` second, and named columns after both. Show wildcard acceptance, reset to empty, direct `COUNT(*)` acceptance and immediate reopen with the sentinel hidden, named-column selection entering the Value/Count/Min/Max/Avg/Sum aggregate popup, aggregate completion reopening Column(s), and removal back to empty restoring the sentinel. Include evidence that real columns with sentinel-like names retain distinct identity and that `MIN(*)`, `MAX(*)`, `AVG(*)`, and `SUM(*)` are never offered. Reference Issue #15 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review the empty projection flow
-
-**Type**: REVIEW
-**Output**: Human confirms wildcard, sentinel, named-column, removal, and reopen behavior.
-**Depends on**: 6
-
-Review `internal/querybuilder/projection.go`, the related builder state, `internal/ui/projection_popup.go`, model/view integration, tests, wiki updates, and `Notes/walkthroughs/015-06/code-walkthrough` against Issue #15. In an empty SELECT, open Column(s) and confirm exact ordering and wildcard default focus; accept wildcard, then clear the projection and accept bare `COUNT(*)`, confirming direct addition, exact reopen focus, and hidden sentinel. Add named columns before and after existing entries, inspect aggregate-popup routing and choices, cancel and complete from filtered/scrolled states, and repeatedly remove until empty to confirm sentinel reappearance. Verify unsupported wildcard aggregates never appear and sentinel-like real column names remain independently selectable before approving the issue.
-
----

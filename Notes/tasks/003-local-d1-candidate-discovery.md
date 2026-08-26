@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/003-06/code-walkthrough`. Demonstrate `internal/d1` filtering and the successful `internal/cli` to `internal/connection` handoff with one exact `.sqlite` candidate plus lowercase metadata, sidecar, wrong-case, nested, and alternate-layout files that must be ignored, referencing Issue #3 and `Notes/PRD-sqloid.md`.
 
 ---
-
-### 7. Review D1 discovery
-
-**Type**: REVIEW  
-**Output**: Human confirms one-candidate behavior and exclusion rules.  
-**Depends on**: 6
-
-Review the completed `internal/d1`, `internal/cli`, `internal/connection`, and `cmd/sqloid` integration, tests, wiki updates, and walkthrough against Issue #3 and the D1 discovery section of `Notes/PRD-sqloid.md`. Confirm the exact relative path, case-sensitive `.sqlite` extension, every exclusion, no recursive or alternate search, sole-candidate behavior, typed cardinality outcomes, silent success, and reuse of the shared opener before approving the issue.
-
----

@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/027-06/code-walkthrough`. Hold SELECT first-page, count, and later-page requests independently and demonstrate `Running…`, `Counting rows…`, page-loading state, Ctrl+W hints, `cancelling…`, and the settled/count-unavailable transitions. During each phase, exercise Enter, both histories, save/export, horizontal movement, quit, and cancellation; capture explanatory rejection, unchanged request counts, preserved local interaction, and correct context precedence. Include evidence that generic gates do not inspect labels and that no write-phase feedback was changed, identifying Issue #44 as that integration boundary. Reference Issue #27 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review request gating
-
-**Type**: REVIEW
-**Output**: Human confirms SELECT/page/count pending behavior across all relevant keys.
-**Depends on**: 6
-
-Review generic gates and read-phase rendering in `internal/ui`, request state from `internal/connection`, QueryBuilder execution boundaries, wiki updates, and `Notes/walkthroughs/027-06/code-walkthrough` against Issue #27 and the authoritative key matrix. Hold SELECT first-page, count, and later-page work pending in turn and together; press Enter, history, save/export, horizontal, quit, cancellation, help, and Page keys in base, popup/input, overlay, and quit-confirmation contexts. Confirm exact phase feedback and Ctrl+W guidance, no stacked database requests, explanatory blocked-action messages, permitted local movement, and correct higher-context consumption. Verify no write-phase label or ownership from Issue #44 was introduced before approving the issue.
-
----

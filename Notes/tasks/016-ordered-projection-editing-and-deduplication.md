@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/016-06/code-walkthrough`. Demonstrate multiple named projection entries retaining insertion order, the same column with distinct aggregates, exact duplicate rejection without visible reordering, bare `COUNT(*)` coexisting with a named aggregate, and a direct duplicate-sentinel transition being safely ignored. Select wildcard after populated state and show atomic clearing and sole-entry exclusivity. Then use Backspace and Delete repeatedly from the base Column(s) field to remove one latest entry per press through wildcard, named, and sentinel states, including empty no-op and restoration of the wildcard/`COUNT(*)` empty popup sequence. Include evidence that the same keys in focused search or aggregate-popup contexts preserve the popup contract. Reference Issue #16 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review projection editing
-
-**Type**: REVIEW
-**Output**: Human confirms repeated columns/aggregates, duplicates, wildcard clearing, and repeated removal.
-**Depends on**: 6
-
-Review `internal/querybuilder/projection.go`, related builder state, `internal/ui` editing and popup integration, pure and scripted tests, wiki updates, and `Notes/walkthroughs/016-06/code-walkthrough` against Issue #16. Add one column with multiple distinct aggregates and several columns with repeated aggregate choices, confirming exact insertion order; attempt exact named and sentinel duplicates and verify no state or focus change. Add bare `COUNT(*)` followed by named entries, then select wildcard and confirm every prior entry is cleared and no coexistence is possible. Exercise Backspace and Delete repeatedly from Column(s), including sole wildcard, final sentinel/named entry, and already empty state, and verify popup-focused keys do not accidentally remove committed projections. Confirm returning to empty restores Issue #15's candidates before approving the issue.
-
----

@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/012-06/code-walkthrough`. Demonstrate the Table searchable popup with empty search, case-insensitive subsequence matches, `no matches`, a list longer than the viewport, scrolling, changed search while scrolled, accepted selection, and cancellation with exact Table focus restoration. Include test-backed evidence for reusable single-select, multi-select add/reopen and Esc preservation, and scroll-only variants without presenting later builder fields as implemented. Reference Issue #12 and `Notes/PRD-sqloid.md`, and place every generated showboat artifact under the approved directory.
 
 ---
-
-### 7. Review popup behavior
-
-**Type**: REVIEW
-**Output**: Human confirms empty, matching, nonmatching, scrolled, accepted, and cancelled Table-popup flows.
-**Depends on**: 6
-
-Review `internal/ui/popup.go`, `internal/ui/popup_view.go`, `internal/ui/table_popup.go`, related model and QueryBuilder integration, tests, wiki updates, and walkthrough against Issue #12. Open Table with empty and populated candidates, type matching and nonmatching searches with case variation, navigate beyond one viewport, change search while scrolled, accept a selection, and cancel from multiple positions. Confirm deterministic highlight reset, exact `no matches`, candidate eligibility, accepted Table state, unchanged completed state on cancellation, and exact opener focus restoration; also inspect the reusable tests for single-select, multi-select, and scroll-only semantics before approving the issue.
-
----

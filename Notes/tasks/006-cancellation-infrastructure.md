@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/006-06/code-walkthrough`. Demonstrate the fake-backed cancellation lifecycle and the pinned-modernc capability evidence for controlled CPU work, lock waiting, independent lease isolation, late-success rejection, settlement before lease reuse, no force-close, and successful subsequent work on the same connection. Capture the one-second and five-second bound results on the available supported platform, explain the Linux/macOS release requirement, reference Issue #6, Issue #28's deferred application scope, and `Notes/PRD-sqloid.md`, and keep all generated artifacts in the approved directory.
 
 ---
-
-### 7. Review driver cancellation capability
-
-**Type**: REVIEW
-**Output**: Human confirms the pinned driver behavior and capability evidence on Linux and macOS.
-**Depends on**: 6
-
-Review the completed `internal/connection` lifecycle, pinned-driver integration, release-blocking tests, wiki updates, and walkthrough against Issue #6 and the cancellation requirements in `Notes/PRD-sqloid.md`. Confirm on Linux and macOS that cancellation targets only the leased physical connection, CPU work settles within one second, lock waits settle within five seconds, independent work is unaffected, late success is discarded as cancelled, no connection is force-closed, no replacement starts before settlement, and subsequent work remains healthy. Verify the documented modernc assumptions match the exact pinned dependency before approving the capability or requiring a driver-version or implementation change.
-
----

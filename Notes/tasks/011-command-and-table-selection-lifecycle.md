@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/011-06/code-walkthrough`. Demonstrate the exact startup idle results prompt with no result-only headers, initial Command focus, each S/U/D/I one-key selection, Table focus advancement, and Command revisiting. Use Schema fixtures to show eligible ordinary and virtual tables, a SELECT-eligible view, retention across compatible command changes, downstream clearing, and view clearing plus Table focus when switching to a write command; contrast the idle state with executed `No rows`. Reference Issue #11 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review command and table selection
-
-**Type**: REVIEW
-**Output**: Human confirms startup, S/U/D/I selection, table/view behavior, and command switching.
-**Depends on**: 6
-
-Review `internal/querybuilder/builder.go`, `internal/querybuilder/command_table.go`, `internal/ui/command_table.go`, related model/view changes, tests, wiki updates, and walkthrough against Issue #11. Start the TUI and confirm the exact idle prompt, absent result-only metadata, normal responsive layout, initial Command focus, each one-key selection, and advancement to Table. Select ordinary tables, virtual tables, and views, revisit Command, switch among read and write commands, and confirm eligible retention, complete downstream clearing, view-to-write clearing, populated write candidates, and exact focus results; also verify idle remains distinct from executed `No rows` before approving the issue.
-
----

@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/042-06/code-walkthrough`. Exercise runnable INSERT and confirmed qualified/unqualified UPDATE and DELETE through leased BEGIN, sole statement execution, atomic pre-COMMIT cancellation check, rollback cleanup, commit, and settlement. Use deterministic barriers to show cancellation before/during execution and after statement success winning before COMMIT, plus constraint and trigger success/failure with persisted rows inspected after resolution. Capture query history appending only at actual execution start, exactly one result per write, executed SQL, actual UPDATE/DELETE rows-affected and INSERT rows-added summaries, and the absence of an untouched claim until rollback confirmation. Include duplicate/late-message idempotence and healthy lease reuse, reference Issue #42 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review write execution
-
-**Type**: REVIEW
-**Output**: Human confirms INSERT and qualified/unqualified UPDATE/DELETE success, cancellation, failure, persistence, and summaries.
-**Depends on**: 6
-
-Review phased execution in `internal/connection`, query/result history ownership in `internal/history`, write lifecycle presentation in `internal/ui`, wiki updates, and `Notes/walkthroughs/042-06/code-walkthrough` against Issue #42. Manually run INSERT and confirmed qualified and unqualified UPDATE/DELETE cases that succeed, are cancelled before COMMIT, and fail through constraints or triggers; inspect the database after rollback/commit to verify persistence and side effects. Confirm one actual statement and one execution-start query append, no preparation append, exactly one immutable non-tabular result, executed SQL, actual rows-affected or rows-added wording, and no premature untouched guarantee while rollback is held. Verify duplicate outcomes do not add results and the leased connection is reusable only after settlement before approving the issue.
-
----

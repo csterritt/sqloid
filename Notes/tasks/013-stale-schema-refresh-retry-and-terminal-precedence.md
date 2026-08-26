@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/013-06/code-walkthrough`. Demonstrate refresh occurring before a Table popup presents candidates, then use controlled schema change and lock/failure scenarios to show unchanged stale candidates, the exact persistent status and inline cause, blocked selection/continuation, repeated failure, successful retry with both indicators cleared, and cancel with exact opener restoration. Include test-backed deletion and same-path replacement cases that visibly replace the stale workflow with their terminal states and reject late refresh completion. Reference Issue #13 and the relevant contracts in `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review stale refresh behavior
-
-**Type**: REVIEW
-**Output**: Human confirms changed/locked schema, retry, cancel, and deletion/replacement paths.
-**Depends on**: 6
-
-Review the Issue #13 changes in `internal/schema`, `internal/querybuilder`, and `internal/ui`, their fake-Connection and model/rendering tests, wiki updates, and `Notes/walkthroughs/013-06/code-walkthrough`. Open Table against unchanged and changed schemas and confirm refresh completes before candidates appear. Force a lock or ordinary refresh failure and verify the prior list is byte-for-byte and identity-for-identity unchanged, both exact stale indicators persist, and selection, downstream movement, and execution are blocked. Exercise repeated failure, successful retry, and cancel from filtered/scrolled popup state, checking indicator clearing and exact focus/state restoration. Finally delete and replace the database during the workflow and confirm the correct typed terminal state overrides stale controls and late responses before approving the issue.
-
----

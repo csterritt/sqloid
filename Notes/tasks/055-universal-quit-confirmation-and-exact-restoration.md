@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/055-08/code-walkthrough`. Open the shared confirmation with q and Ctrl+C from base, focused input/search, popup, help/overlay, validation, estimate, active SELECT, write phases, picker/save/overwrite, pending cleanup, and too-small contexts, noting focused-search q's literal behavior and immediate terminal status-1 exceptions. Cancel with Esc and n and compare exact focus, overlay/search/highlight, viewport, builder/history, request phase, and immutable save state; settle an estimate behind quit and show latest-state restoration, then restore and cancel an overwrite while retaining destination/format/copy/selection/path and parent flow. Accept quit during schema validation, estimation, idle and pending SELECT, beginning/executing write, rollback cleanup, commit, and unresolved outcomes; use barriers to show cancellation/finalization/rollback-or-commit resolution, no histories where required, exactly-once outcomes, and no exit until all work settles. Reference Issue #55 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review quit across all contexts
-
-**Type**: REVIEW
-**Output**: Human opens, cancels, and confirms quit from every specified context and verifies cleanup/restoration.
-**Depends on**: 8
-
-Review quit dispatch and suspension in `internal/ui`, lifecycle cleanup in `internal/connection`, finalization in `internal/history`, the wiki updates, and `Notes/walkthroughs/055-08/code-walkthrough` against Issue #55. Manually open q/Ctrl+C confirmation from every nonterminal matrix context, including focused text/search, every overlay, validation, estimate, active SELECT, each write phase, picker/save/overwrite, too-small, and pending cleanup; verify terminal states alone exit immediately with status 1. Cancel with Esc and n and compare exact focus, overlay/search/highlight, viewport, selection, request/preparation phase, and save destination/format/copy/path, including estimate settlement behind quit and a subsequent overwrite cancellation. Accept quit in every lifecycle category, inspect no-history preparation cancellation, active SELECT request settlement and exactly-once finalization, pre-boundary rollback, post-boundary commit/cleanup, and outcome-unknown handling. Approve only when no key leaks, no connection/lease/transaction/goroutine is abandoned, no exit occurs before settlement, and statuses match the documented terminal and nonterminal rules.
-
----

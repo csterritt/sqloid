@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/033-06/code-walkthrough`. Demonstrate immutable metadata independently of row storage, then exercise complete, partial, truncated, and partial-plus-truncated snapshots across known totals, count failure, limited results, row/byte eviction, short and empty final-page observations, and unknown remainder. Show ascending positions after forward and backward traversal, preserve contradictory count/cache evidence without clamping, and vary terminal success, cancellation, and failure independently with reasons and one-based failure positions. Capture persistent `truncated-by-byte-cap` metadata while showing that its presentation warning remains the shared Issue #31 definition rather than snapshot-model text. Reference Issue #33 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review snapshot classifications
-
-**Type**: REVIEW
-**Output**: Human confirms complete, partial, truncated, count-failed, cancelled, and failed snapshots after bidirectional traversal.
-**Depends on**: 6
-
-Review snapshot metadata and classification in `internal/history`, retained facts in `internal/resultcache`, lifecycle inputs in `internal/ui`, wiki updates, and `Notes/walkthroughs/033-06/code-walkthrough` against Issue #33. Finalize SELECTs after forward, backward, and alternating traversal with full retention, row-cap eviction, byte-cap eviction, known and unavailable counts, short/empty ending pages, full pages with unknown remainder, and limiting below the source's remaining rows. Confirm ascending positions, exact range/endpoint/known-total facts, complete exclusivity, truthful partial/truncated coexistence, no inconsistency clamping, persistent typed byte truncation, and independent success/cancelled/failed outcomes with exact reason and failure position before approving the issue.
-
----

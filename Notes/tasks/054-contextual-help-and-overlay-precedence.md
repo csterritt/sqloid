@@ -120,13 +120,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/054-10/code-walkthrough`. Drive representative and overlapping keys through terminal, overlay, focused text/search, request-pending, base, and too-small contexts, showing one ordered dispatch, key consumption, and no leakage. Insert literal `?` in builder text, searchable popup, and picker search; show no-op overlay cases; then open base help and capture exact focus/search/highlight/viewport restoration. Display and verify the full WHERE SQL-NULL guidance, independent complete-limited-result count semantics, and each reduced terminal help view with no database suggestions. Open and Esc-cancel help, popups, validation, estimate, confirmation, picker, overwrite, and save-error states; demonstrate one top overlay, nonstacking, completed multi-selection retention, exact opener restoration, and no action beneath the dismissed overlay. Reference Issue #54 and `Notes/PRD-sqloid.md`, distinguish Issue #55 quit suspension, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 11. Review help and precedence
-
-**Type**: REVIEW
-**Output**: Human exercises all contexts and confirms routing, content, Esc restoration, and no leakage.
-**Depends on**: 10
-
-Review centralized dispatch and help/overlay state in `internal/ui`, the wiki updates, and `Notes/walkthroughs/054-10/code-walkthrough` against Issue #54. Manually exercise Enter/printable, Esc, navigation, histories, Ctrl+S/Ctrl+X, Ctrl+W, and `?` across terminal, every top overlay, builder input, searchable/scroll-only popup, picker search, request-pending base, ordinary builder/result, and too-small contexts. Confirm one precedence layer consumes each key, literal `?` remains editable input, base help opens contextually, and no disallowed command or lower mutation leaks through. Read WHERE, result-count, and all three reduced terminal help views for every required disclosure and no database suggestion. Esc-cancel every overlay from representative opener states, including completed multi-selection and save/validation/estimate paths, and compare exact focus, cursor, search, highlight, viewport, immutable state, and parent flow before approving.
-
----

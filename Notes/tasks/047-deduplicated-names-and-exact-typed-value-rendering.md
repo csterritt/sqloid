@@ -82,13 +82,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/047-07/code-walkthrough`. Exercise recursive full-set label collisions and show identical grid/exporter-facing names without changing driver metadata or SQL. Demonstrate finite REAL identity and exact locale-independent tokens across integral, negative-zero, exponent, subnormal, and precision-edge values alongside non-finite and identical-looking typed values. Cover SQL NULL, empty TEXT/BLOB, controls, maximal invalid UTF-8 replacement and warning metadata, and byte-for-byte BLOB preservation. Include package-level evidence that `internal/result` owns each shared policy, `internal/ui` remains a consumer, `internal/export` receives format-policy inputs, and no consumer-private copies or CSV/JSON serialization were introduced. Reference Issue #47 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 8. Review typed rendering
-
-**Type**: REVIEW
-**Output**: Human verifies duplicate labels, finite/non-finite values, NULL/empty, controls, invalid UTF-8, and BLOB identity.
-**Depends on**: 7
-
-Review the shared representation and definition sites in `internal/result`, grid consumption in `internal/ui`, exporter-facing contracts in `internal/export`, the wiki updates, and `Notes/walkthroughs/047-07/code-walkthrough` against Issue #47. Manually inspect recursive duplicate labels, finite REAL precision/locale edges, non-finite REALs, identical-looking typed values, SQL NULL versus empty TEXT/BLOB, controls, maximal invalid UTF-8 sequences and warning metadata, and exact BLOB bytes. Confirm grid behavior remains unchanged, exporter-facing consumers receive the same names/tokens and complete typed policy inputs, driver metadata and SQL are untouched, and no duplicate name, REAL, or UTF implementation exists before approving the issue.
-
----

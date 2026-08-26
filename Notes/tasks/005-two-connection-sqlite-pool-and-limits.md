@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/005-06/code-walkthrough`. Demonstrate the `internal/connection` exact-two pool and dedicated lease lifecycle with harmless concurrent requests in both WAL and rollback-journal fixtures, show evidence that the leases are distinct and each physical connection has the five-second busy timeout and exact 64 MiB length limit, and verify journal mode remains unchanged. Include the relevant automated test results and references to Issue #5 and `Notes/PRD-sqloid.md`, and place every generated walkthrough artifact under the approved directory.
 
 ---
-
-### 7. Review pool behavior
-
-**Type**: REVIEW
-**Output**: Human confirms harmless requests in WAL and rollback-journal modes use correctly configured leases.
-**Depends on**: 6
-
-Review the completed `internal/connection` behavior, integration tests, wiki updates, and walkthrough against Issue #5 and the Connection pool, limits, busy handling, SELECT, Module Design, and high-risk testing requirements in `Notes/PRD-sqloid.md`. Open representative explicit and discovered database targets, run harmless concurrent requests in WAL and rollback-journal modes, and confirm exact-two pool ownership, distinct dedicated leases, five-second busy handling, exact 64 MiB length limits on every connection, safe lease release, and unchanged journal mode before approving the issue.
-
----

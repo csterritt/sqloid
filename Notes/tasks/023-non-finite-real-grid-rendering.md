@@ -48,13 +48,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/023-04/code-walkthrough`. Demonstrate a controlled typed-result fixture containing REAL positive infinity, REAL negative infinity, multiple REAL NaN representations, representative finite REALs, and TEXT values containing the same visible strings. Show the production grid rendering exact `Inf`, `-Inf`, and `NaN` tokens, finite values continuing to use their Issue #22 tokens, and test evidence that underlying REAL versus TEXT identities remain distinct despite identical-looking cells. Include package-level evidence that token selection lives in the shared `internal/result` seam and that no CSV/JSON policy was changed. Reference Issue #23 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 5. Review non-finite values
-
-**Type**: REVIEW
-**Output**: Human confirms exact tokens in a fixture alongside finite REAL and TEXT values.
-**Depends on**: 4
-
-Review the Issue #23 changes and tests in `internal/result` and `internal/ui`, the wiki updates, and `Notes/walkthroughs/023-04/code-walkthrough`. Load or inject a controlled fixture containing positive infinity, negative infinity, NaN, finite REALs, and TEXT literals with identical visible spellings; confirm the grid shows exact `Inf`, `-Inf`, and `NaN`, finite REAL formatting remains unchanged, and type inspection/test evidence proves no REAL was converted to TEXT. Verify multiple NaN payloads share the exact token, no invalid-UTF or other warning is introduced, and exporter policies remain untouched before approving the issue.
-
----

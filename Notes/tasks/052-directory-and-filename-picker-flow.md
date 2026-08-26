@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/052-08/code-walkthrough`. From query save and active, historical, and terminal CSV/JSON export openers, show working-directory start; navigate nested visible, hidden, and parent directories; and capture `..` first plus mixed-case, punctuation, Unicode-byte, and numeric-looking children in exact bytewise non-natural order under differing locale settings. Demonstrate separate filename entry, literal `?`/`q`, valid and empty/slash/NUL names, `.sql`/`.csv`/`.json` appending, and existing required extensions. Inject path and permission failures, retain selection/input/format/immutable capture through correction and repeated retry, then cancel from each focus/error state and complete representative flows to prove exact opener focus/state restoration and zero database work. Reference Issue #52 and `Notes/PRD-sqloid.md`, distinguish overwrite/atomic-save ownership, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review picker flows
-
-**Type**: REVIEW
-**Output**: Human confirms nested/hidden/parent navigation, ordering, valid/invalid names, extensions, errors, and cancel.
-**Depends on**: 8
-
-Review directory/filename logic in `internal/filepicker`, query-save/export composition and restoration in `internal/ui`, opaque captured data in `internal/export`, wiki updates, and `Notes/walkthroughs/052-08/code-walkthrough` against Issue #52. Manually open each save/export format from representative active, historical, and terminal contexts; verify working-directory start, nested/hidden/parent navigation, no creation, and exact `..`-first case-sensitive bytewise order with mixed-case/numeric names and locale changes. Enter valid, empty, slash, NUL, dotted, Unicode, and already-extended names; check literal focused-input keys and exact extension completion. Trigger permission and path failures, retry after correction while confirming retained selection/input/format/capture, then Esc and complete from each state and verify exact opener focus/model restoration with no refetch or database work before approving the issue.
-
----

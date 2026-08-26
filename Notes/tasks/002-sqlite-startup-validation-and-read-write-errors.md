@@ -82,13 +82,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/002-07/code-walkthrough`. Demonstrate representative `internal/connection`, `internal/cli`, and `cmd/sqloid` verification for valid, missing, unreadable, directory, invalid-header, and read-only fixtures, including validation order, `mode=rw`, probing, exact one-line diagnostics, status 1, and non-creation or modification, with references to Issue #2 and `Notes/PRD-sqloid.md`.
 
 ---
-
-### 8. Review startup validation
-
-**Type**: REVIEW  
-**Output**: Human confirms valid, missing, unreadable, directory, invalid-header, and read-only cases.  
-**Depends on**: 7
-
-Review the completed `internal/connection`, `internal/cli`, and `cmd/sqloid` behavior, tests, wiki updates, and walkthrough against Issue #2 and the Startup validation and errors section of `Notes/PRD-sqloid.md`. Confirm the vetted driver pin, validation order, exact one-line failures, cause classification, no target creation or modification, read-write-only opening, successful schema probe, unchanged journal mode, and status 1 for every required rejected case before approving the issue.
-
----

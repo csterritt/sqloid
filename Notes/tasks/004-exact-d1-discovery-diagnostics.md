@@ -48,13 +48,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/004-04/code-walkthrough`. Capture missing, unreadable, empty, candidate-free, and multiple-candidate fixtures; demonstrate the exact zero-candidate two-line output, the exact multiple-candidate single-line output, stderr, hint presence and absence, exit status 1, no shared-opener invocation, and non-creation with references to Issue #4 and `Notes/PRD-sqloid.md`.
 
 ---
-
-### 5. Review D1 diagnostics
-
-**Type**: REVIEW  
-**Output**: Human approves exact spelling, line count, hint presence, streams, and statuses.  
-**Depends on**: 4
-
-Review the completed `internal/d1`, `internal/cli`, `internal/connection`, and `cmd/sqloid` behavior, golden tests, wiki updates, and walkthrough against Issue #4 and the D1 discovery section of `Notes/PRD-sqloid.md`. Confirm exact spelling, line count, stderr ownership, status 1, expected-path and explicit-open hint presence for zero candidates, hint absence for multiple candidates, no opening after discovery failure, and no database creation before approving the issue.
-
----

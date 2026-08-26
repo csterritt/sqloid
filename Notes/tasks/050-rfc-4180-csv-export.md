@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/050-06/code-walkthrough`. Serialize a deterministic fixture with duplicate/colliding labels, out-of-order logical positions, commas, quotes, CR/LF/CRLF, tabs, controls, SQL NULL, empty TEXT, signed INTEGER edges, finite and non-finite REALs, empty/nonempty BLOBs, Unicode, and multiple invalid UTF-8 sequences. Show exact bytes for one header, ascending rows, CRLF endings, minimal quoting, doubled quotes, shared numeric tokens, identical NULL/empty fields, lowercase BLOB hex, and normalized text. Repeat with every Issue #49 warning combination and prove byte-for-byte identical CSV with no metadata rows or columns. Reference Issue #50 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review CSV bytes
-
-**Type**: REVIEW
-**Output**: Human exports all special-value fixtures and verifies exact structure and representations.
-**Depends on**: 6
-
-Review record/value serialization in `internal/export`, shared names and typed result primitives in `internal/result`, wiki updates, and `Notes/walkthroughs/050-06/code-walkthrough` against Issue #50. Manually export fixtures containing duplicate labels, reversed traversal order, empty and multiline records, commas, quotes, tabs, controls, NULL, empty TEXT, INTEGER boundaries, finite/non-finite REALs, BLOBs, valid Unicode, and invalid UTF-8. Inspect raw bytes rather than spreadsheet rendering to confirm one deduplicated header, ascending rows, CRLF, minimal quoting, exact numeric tokens, identical NULL/empty fields, lowercase BLOB hex, and U+FFFD normalization. Repeat warned exports and verify no warning row/column or byte change before approving the issue.
-
----

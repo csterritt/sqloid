@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/051-06/code-walkthrough`. Serialize deterministic fixtures with duplicate/colliding labels, deliberately out-of-order positions, JSON metacharacters and controls, SQL NULL, empty TEXT, INTEGER boundaries, finite and non-finite REALs, empty/nonempty BLOBs, Unicode, and multiple invalid UTF-8 sequences. Capture exact bytes and parsed types for the top-level array, stable object/key order, ascending rows, raw numeric tokens, quoted non-finite tokens, `null`, escaped strings, standard base64, and replacement runes; repeat serialization to prove map-order independence. Add every Issue #49 warning combination and show identical output with no warning objects or properties. Reference Issue #51 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review JSON output
-
-**Type**: REVIEW
-**Output**: Human verifies duplicate labels, all value types, invalid UTF, row order, and absent warning properties.
-**Depends on**: 6
-
-Review deterministic structure/value writing in `internal/export`, shared output names and typed result primitives in `internal/result`, wiki updates, and `Notes/walkthroughs/051-06/code-walkthrough` against Issue #51. Manually export empty, one-row, and multirow fixtures with duplicate labels, reversed traversal, every SQLite value type, numeric edges, non-finite REALs, empty and control-bearing TEXT, BLOBs, valid Unicode, and invalid UTF-8. Compare raw bytes across repeated runs and parse the result to confirm array/object shape, stable keys and order, ascending rows, exact raw-versus-quoted/null/string/base64 types, and normalization. Repeat warned exports and verify no warning wrapper, object, property, or key before approving the issue.
-
----

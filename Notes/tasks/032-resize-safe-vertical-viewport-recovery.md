@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/032-06/code-walkthrough`. Resize at first, middle, and end logical positions with targets retained and unretained after row-cap and byte-cap eviction; capture exact first-row preservation, low/high endpoint clamps, containing-page calculation, and exact new page size. Demonstrate idle local recovery, idle fetch, resize with a pending page and independent count, old-generation cancellation/invalidation, late success and failure rejection, settlement before the sole replacement request, and repeated resize resolving to the latest generation. Include inactive/history controls that issue no fetch and show cache contiguity and both caps after recovery. Reference Issue #32 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review viewport resize behavior
-
-**Type**: REVIEW
-**Output**: Human verifies first/middle/end positions, retained/unretained rows, and idle/pending resize.
-**Depends on**: 6
-
-Review resize decisions and orchestration in `internal/ui`, retained metadata and merge invariants in `internal/resultcache`, page cancellation/settlement in `internal/connection`, wiki updates, and `Notes/walkthroughs/032-06/code-walkthrough` against Issue #32. At the required terminal sizes, resize from first, middle, and end positions with prior first rows retained, evicted by each cap, below a known low endpoint, above a known high endpoint, and unretained with unknown boundaries. Confirm exact page-size arithmetic, preserve/clamp/fetch choices, containing-page requests, idle and pending branches, count independence, repeated-resize behavior, old-generation late-response rejection, no replacement before settlement, and intact row/byte cache invariants before approving the issue.
-
----

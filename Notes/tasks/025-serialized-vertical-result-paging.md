@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/025-06/code-walkthrough`. Demonstrate forward and backward adjacent paging over a large fixture, exact offsets and page sizes at multiple supported terminal heights, and no additional request when repeated or opposite Page keys arrive while a page is held pending. Show the maximum count-plus-one-page overlap, visible loading feedback, and unaffected local horizontal navigation. Include QueryBuilder evidence for eligible ordinary-rowid fallback ordering, every excluded object/query category, and explicit aggregate/grouped ORDER BY in ASC and DESC without an appended rowid. Reference Issue #25 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review vertical paging
-
-**Type**: REVIEW
-**Output**: Human confirms forward/backward traversal and repeated/opposite keys during loading.
-**Depends on**: 6
-
-Review the completed page SQL in `internal/querybuilder`, request integration through `internal/connection`, orchestration and layout arithmetic in `internal/ui`, wiki updates, and `Notes/walkthroughs/025-06/code-walkthrough` against Issue #25. Traverse a large fixture forward and backward, resize across supported heights, and confirm each request uses the adjacent offset and exact number of complete visible rows. Hold a page request pending while pressing repeated and opposite Page keys and horizontal bindings; verify no page stacking, count-plus-one-page as the maximum concurrency, visible loading feedback, and local horizontal responsiveness. Inspect ordinary-rowid fallback and all documented exclusions, including explicit aggregate ORDER BY ASC/DESC, before approving the issue.
-
----

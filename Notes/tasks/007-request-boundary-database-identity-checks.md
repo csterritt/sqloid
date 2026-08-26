@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/007-06/code-walkthrough`. Demonstrate `internal/connection` startup identity recording and the next-request behavior for deletion, rename-away, same-path replacement, and in-place same-inode mutation, along with controlled replacement races followed by request error and success. Include evidence for checks on newly opened pooled connections, post-error terminal classification, and exactly one pre-BEGIN check for an entire phased write, reference Issue #7 and the Session health requirements in `Notes/PRD-sqloid.md`, and place every generated artifact under the approved directory.
 
 ---
-
-### 7. Review identity behavior
-
-**Type**: REVIEW
-**Output**: Human confirms deletion, rename-away, replacement, and same-inode mutation behavior.
-**Depends on**: 6
-
-Review the completed `internal/connection` behavior, Linux/macOS integration tests, wiki updates, and walkthrough against Issue #7 and the Session health, Connection module, and high-risk testing requirements in `Notes/PRD-sqloid.md`. During a session, delete the target, rename it away, replace the same path with a different file, and mutate it in place while retaining its inode, then trigger the next operation and confirm the correct typed behavior. Also confirm race precedence after errors, successful-current-request handling, checks before new pooled connections, one pre-BEGIN write check, no embedded UI strings, and no continuous watcher before approving the issue.
-
----

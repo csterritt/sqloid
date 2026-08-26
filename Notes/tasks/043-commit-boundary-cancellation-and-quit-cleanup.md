@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/043-06/code-walkthrough`. Hold one write in each beginning, executing, atomic pre-COMMIT, rollback-cleanup, and committing phase. Demonstrate Ctrl+W issuing a scoped interrupt before the boundary, cancellation winning after statement success, and no interrupt after the boundary with exact `Commit in progress; cancellation is no longer available` feedback. From cancellable and noncancellable phases, open and accept quit, then hold rollback, commit, and unresolved outcomes to prove no exit occurs while transaction/driver work remains and exit follows settlement only. Capture no replacement/lease release, no abandoned work, exactly-once finalization, duplicate/stale-message resistance, and declined-quit restoration. Reference Issue #43 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review boundary behavior
-
-**Type**: REVIEW
-**Output**: Human confirms Ctrl+W and accepted quit before/after the boundary and final database outcomes.
-**Depends on**: 6
-
-Review commit-boundary orchestration in `internal/connection`, finalization state in `internal/history`, Ctrl+W/quit behavior in `internal/ui`, wiki updates, and `Notes/walkthroughs/043-06/code-walkthrough` against Issue #43. Manually hold beginning, executing, pre-COMMIT, rollback-cleanup, and committing writes; press Ctrl+W before and after the boundary and verify scoped interrupt versus exact boundary feedback, then inspect final database state after rollback or commit. Accept quit in each phase and in controlled unresolved rollback/commit cases, confirming no process exit, replacement work, lease release, or abandoned driver operation before settlement and exactly one final outcome afterward. Cancel quit once per phase to verify exact restoration, then approve only when pre/post-boundary behavior and persisted outcomes match the documented rules.
-
----

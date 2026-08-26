@@ -82,13 +82,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough under `Notes/walkthroughs/001-07/code-walkthrough`. Demonstrate the relevant `internal/cli` and `cmd/sqloid` tests and commands, including routing, help, exact version output, usage failures and status 2, stream selection, silent successful dispatch, and successful `go build ./...` and `go vet ./...`, with references to Issue #1 and `Notes/PRD-sqloid.md`.
 
 ---
-
-### 8. Review CLI behavior
-
-**Type**: REVIEW  
-**Output**: Human confirms help, version, usage failures, routing, and silent startup.  
-**Depends on**: 7
-
-Review the completed `internal/cli` and `cmd/sqloid` implementation, tests, wiki updates, and walkthrough against Issue #1 and the CLI behavior and Language and stack sections of `Notes/PRD-sqloid.md`. Confirm the PRD-mandated `mow.cli` structure, command routing, exact help and version behavior, stdout and stderr ownership, status 2 usage failures, silent successful startup, and clean `go build ./...` and `go vet ./...` results before approving the issue.
-
----

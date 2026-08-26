@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/014-08/code-walkthrough`. Demonstrate table-driven evidence for signed-int64 boundaries, decimal and hexadecimal finite REALs, malformed and overflow fallbacks, signs, leading zeros, whitespace, empty text, typed `NULL`, and injection-looking input with exact bound types. Show schema-derived identifier quoting with embedded quotes, exhaustive fixed operator/aggregate/direction tokens, and the absence of user values in executable SQL text. Demonstrate exact canonical literals for INTEGER, REAL identity including integral and negative-zero values, quote-doubled TEXT, NULL, and empty/nonempty BLOB, identifying the shared renderer as the future dependency for Issues #40 and #48. Reference Issue #14 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review parsing and SQL safety
-
-**Type**: REVIEW
-**Output**: Human confirms numeric edges, whitespace, typed NULL, injection-looking text, bindings, and rendered literals.
-**Depends on**: 8
-
-Review `internal/querybuilder/value.go`, `internal/querybuilder/sql_atoms.go`, `internal/querybuilder/sql_literal.go`, their table-driven tests, Schema identity usage, wiki updates, and `Notes/walkthroughs/014-08/code-walkthrough` against Issue #14. Exercise int64 boundaries and overflow, decimal/exponent/hexadecimal floats, nonfinite and malformed tokens, signs and leading zeros, whitespace, empty text, typed `NULL`, embedded quotes, and injection-looking input. Inspect generated executable SQL and parameter values to confirm user values are absent from SQL text, exact concrete binding types are used, identifiers are schema-derived and safely quoted, and only approved fixed tokens can render. Compare every standalone literal category character-for-character, including REAL identity, TEXT quote doubling, NULL, and BLOB hex, and confirm there is only one UI-independent renderer before approving the issue.
-
----

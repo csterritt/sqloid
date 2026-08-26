@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/039-08/code-walkthrough`. Show schema fixtures with visible insertable, hidden, and generated columns and prove prompt order/exclusion. Walk every prompt choice, including empty TEXT Value, INTEGER/REAL, typed `NULL` TEXT, explicit NULL, omitted/defaulted columns, mixed rows, all omitted `DEFAULT VALUES`, and INTEGER PRIMARY KEY omission with its exact hint. Capture safely quoted SQL, placeholders/NULL keywords, exact parameter order and bound types, plus successful SQLite effects. Revisit, cancel, clear, and revise prompts to demonstrate exact choice/text/type/focus restoration and history-ready state. Include zero-insertable-column behavior with the exact message and no popup/request/history, and virtual-table best-effort success or ordinary hidden-input error evidence. Reference Issue #39 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review INSERT flows
-
-**Type**: REVIEW
-**Output**: Human confirms empty TEXT, NULL, omitted/mixed/all-omit, primary-key omission, zero-column, and virtual-table cases.
-**Depends on**: 8
-
-Review insertability and fixtures in `internal/schema`, choice/SQL state in `internal/querybuilder`, SQLite integration through `internal/connection`, prompt/restoration gating in `internal/ui`, wiki updates, and `Notes/walkthroughs/039-08/code-walkthrough` against Issue #39. Confirm every visible insertable column is prompted once in schema order and every generated/hidden column is excluded. Exercise empty TEXT, typed TEXT `NULL`, explicit NULL, omission/default, mixed choices, all-omit `DEFAULT VALUES`, unusual quoted identifiers, exact parameter order/types, and resulting SQLite rows. Revisit, cancel, clear, and revise all prompt types, verifying exact state/focus and history-ready behavior. Verify INTEGER PRIMARY KEY remains prompted with the omission hint and auto-assignment works when omitted; verify zero-column exact blocking with no prompt/request/history; and verify virtual tables receive visible-column best effort with ordinary module errors before approving the issue.
-
----

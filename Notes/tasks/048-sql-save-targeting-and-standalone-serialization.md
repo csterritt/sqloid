@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/048-06/code-walkthrough`. Demonstrate every ordinary priority combination among viewed-result query, runnable builder, and last execution, plus no-target exact feedback and absence of a picker. Enter deletion, replacement, and outcome-unknown terminal states and show selected-query then last-execution fallback with zero database work. Serialize and round-trip representative SELECT, qualified/unqualified UPDATE and DELETE, and INSERT statements containing difficult identifiers, strings, numeric edges, NULL, BLOB, UPDATE assignments, and INSERT Value/NULL/Default-Omit choices; inspect exact bytes and the single trailing semicolon. Include evidence that assembly uses Issue #14's atoms with no second literal serializer and that loading/filesystem completion remains unsupported here. Reference Issue #48 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review query saving
-
-**Type**: REVIEW
-**Output**: Human saves every ordinary/terminal target and verifies exact executable SQL and no-target behavior.
-**Depends on**: 6
-
-Review immutable target associations in `internal/history` and `internal/result`, Ctrl+S resolution in `internal/ui`, statement assembly in `internal/export`, the wiki updates, and `Notes/walkthroughs/048-06/code-walkthrough` against Issue #48. Manually exercise viewed-result, runnable-builder, last-execution, selected-terminal-query, and terminal last-execution targets in every priority combination, confirming terminal resolution remains in memory and starts no database work. Verify exact no-target feedback and no picker. Compare and execute saved SELECT, UPDATE, DELETE, and INSERT SQL with difficult identifiers and every typed literal category, checking UPDATE/INSERT choices, exact bytes, one statement, and trailing semicolon. Confirm Issue #14 remains the sole atom/literal serializer and no SQL-loading behavior was added before approving the issue.
-
----

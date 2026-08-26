@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/045-08/code-walkthrough`. Deterministically inject unresolved commit and rollback outcomes, show that terminal entry waits for all transaction and driver work to settle, and inspect the single newest selected immutable entry for status, operation/table, exact SQL, phase, driver error, and non-proving `RowsAffected()` wording. Browse populated and empty query/result histories with Ctrl+P/N and Ctrl+E/Y, attempt all database-capable actions and capture zero commands, open and dismiss reduced help, and demonstrate `q` and Ctrl+C exiting immediately with status 1 and no confirmation. Reference Issue #45 and `Notes/PRD-sqloid.md`, distinguish later Ctrl+S/Ctrl+X ownership, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review outcome-unknown behavior
-
-**Type**: REVIEW
-**Output**: Human injects unresolved commit/rollback, browses histories, attempts work, opens help, and quits.
-**Depends on**: 8
-
-Review outcome-unknown finalization and presentation in `internal/history` and `internal/ui`, the wiki updates, and `Notes/walkthroughs/045-08/code-walkthrough` against Issue #45. Manually inject unresolved commit and rollback cases, verify entry occurs only after settlement, and inspect exactly one newest selected entry for operation/table, executed SQL, phase, driver error, and optional actual row count with no persistence or untouched guarantee. Browse populated and empty histories with Ctrl+P/N and Ctrl+E/Y, attempt execution, paging, refresh, and other database actions, inspect reduced help, and confirm no database command starts. Finally use both `q` and Ctrl+C from representative terminal subviews and verify immediate status 1 without confirmation or abandoned pending work before approving the issue.
-
----

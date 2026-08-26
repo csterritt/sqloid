@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/031-08/code-walkthrough`. Demonstrate exact mixed-type payload totals and unchanged BLOB bytes, then cross the independent 64 MiB cap in both traversal directions while showing complete-row opposite-end eviction, coexistence with the position cap, contiguous retained ranges, and persistent `truncated-by-byte-cap` disclosure using the shared exact warning. Run separate oversized-page and oversized-TEXT/BLOB-value fixtures, capturing complete leading rows, no partial failing row, one-based non-first-page positions, preserved prior retention, and both exact failure messages. Reference Issue #31 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review byte-cap behavior
-
-**Type**: REVIEW
-**Output**: Human confirms cap crossing, persistent warning, oversized page, and oversized value fixtures.
-**Depends on**: 8
-
-Review payload accounting and admission in `internal/resultcache`, bounded SQLite scanning in `internal/connection`, disclosure and failure rendering in `internal/ui`, wiki updates, and `Notes/walkthroughs/031-08/code-walkthrough` against Issue #31. Use fixtures that cross the byte cap forward and backward, overlap with larger and smaller replacements, alternate traversal, and independently reach the position cap. Confirm exact totals, deterministic complete-row opposite-end eviction, persistent typed warning metadata and exact shared header text, exact BLOB bytes, and contiguous retained ranges. Exercise separate oversized page, TEXT value, and BLOB value failures at first and later logical positions; verify complete leading-row retention, no partial row, preserved prior cache, exact one-based positions, and both exact messages before approving the issue.
-
----

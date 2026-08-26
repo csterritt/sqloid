@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/017-06/code-walkthrough`. Demonstrate the reusable SELECT/UPDATE/DELETE predicate state with an eligible column and every fixed operator, showing that only `IS NULL` and `IS NOT NULL` bypass value entry and produce no bound parameter. Walk through column → operator → value focus, popup acceptance/cancellation, completion, revisiting, and exact restoration. Show typed `NULL` and empty input remaining TEXT with exact binding types, the inline SQL-NULL hint and contextual explanation, ordinary comparison/LIKE SQL-null semantics, and LIKE values containing `%` and `_` bound verbatim and absent from SQL text. Include safely quoted identifiers and exact SQL/parameter evidence from pure and scripted tests, reference Issue #17 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review predicate construction
-
-**Type**: REVIEW
-**Output**: Human confirms every operator, typed `NULL`, empty text, `%`/`_`, and null-operator behavior.
-**Depends on**: 6
-
-Review the reusable predicate state and tests in `internal/querybuilder`, guided popup/value integration in `internal/ui`, wiki updates, and `Notes/walkthroughs/017-06/code-walkthrough` against Issue #17. For eligible columns, inspect and select every operator; verify only `IS NULL` and `IS NOT NULL` skip value entry, add no parameter, and clear stale value state. Enter typed `NULL`, empty text, `%`, `_`, and combined LIKE patterns, confirming exact entered representation, TEXT binding where required, no interpolation or wildcard escaping, and accurate inline/help guidance about actual SQL NULL. Revisit and cancel each stage to confirm exact state and focus restoration, compare SELECT/UPDATE/DELETE predicate SQL and parameter behavior, and verify unsupported multiple predicates and operators cannot be introduced before approving the issue.
-
----

@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/041-08/code-walkthrough`. Demonstrate qualified and unqualified destructive preparations through successful and failed estimate settlement while SQL and warnings remain visible and confirmation becomes available. Hold an estimate behind a deterministic barrier, press Ctrl+W, capture persistent `cancelling…`, release a late success, and show cancellation winning only after settlement with both histories unchanged. Exercise Esc/n dismissal and exact opener/focus restoration, then confirm settled success and settled failure with Enter/y and replay confirmation to prove exactly one actual-write command. Include identity/stale-message evidence and history/request-count assertions, reference Issue #41 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review estimate outcomes
-
-**Type**: REVIEW
-**Output**: Human confirms success, failure, Ctrl+W, Esc/n, Enter/y, and double-confirm prevention.
-**Depends on**: 8
-
-Review estimate request handling in `internal/connection`, history boundaries in `internal/history`, preparation transitions and opener restoration in `internal/ui`, wiki updates, and `Notes/walkthroughs/041-08/code-walkthrough` against Issue #41. Manually open qualified and all-rows UPDATE/DELETE preparations and settle estimates successfully and unsuccessfully; confirm SQL/warnings remain visible and Enter/y becomes available. Cancel held estimation with Ctrl+W and verify `cancelling…` persists through settlement, late success is discarded, no replacement starts, and both histories remain unchanged; dismiss settled states with Esc/n and verify exact opener/focus restoration. Confirm success and failure once with Enter and y, repeat both keys, and verify exactly one correctly identified actual-write command with no preparation-time history before approving the issue.
-
----

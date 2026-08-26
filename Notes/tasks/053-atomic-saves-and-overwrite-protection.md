@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/053-06/code-walkthrough`. Demonstrate saving each supported format to a new destination and an existing destination, show that existing bytes remain untouched before explicit Enter/y confirmation, mutate live builder/result/history state behind confirmation, and verify the captured destination, format, immutable copy, and selection remain authoritative. Cancel overwrite with Esc/n and capture exact picker/save restoration, then confirm and show destination-local temp creation, complete write/close, rename, exact final bytes, and no temp artifact. Deterministically inject serialization, temporary creation, partial/full write, close, and rename failures; for each capture destination preservation where guaranteed, cleanup, inline error, no false success, retry with the same copy, and safe cancel. Reference Issue #53 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review save failures
-
-**Type**: REVIEW
-**Output**: Human verifies new/overwrite/cancel/confirm and injected serialization, write, and rename failures.
-**Depends on**: 6
-
-Review atomic output in `internal/export`, save-flow state in `internal/ui`, the wiki updates, and `Notes/walkthroughs/053-06/code-walkthrough` against Issue #53. Manually save SQL, CSV, and JSON to new and existing destinations; verify no existing byte changes before confirmation, cancel once and inspect exact directory/filename/format/warnings/selection/focus restoration, then confirm and compare exact output. Change live source state while overwrite is open and verify the immutable captured payload remains in use. Exercise injected serialization, create, partial/full write, close, and rename failures plus a restrictive destination directory; inspect existing-destination preservation, destination-local temporary cleanup, inline stage error, intact retry/cancel behavior, and absence of any success claim after failed rename. Approve only after successful replacement leaves no temporary artifact and every failed pre-rename path preserves the destination and cleans up.
-
----

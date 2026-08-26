@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/034-06/code-walkthrough`. Start active SELECTs with independent page and count requests, then demonstrate that editing, overlays/help, save/export/copy, estimation, query-history browsing, resize, page/count settlement, count failure, and idle periods preserve activity. Exercise each finalizer separately: a new actual SELECT and write execution, result-history entry, ending cancellation/failure, and accepted quit with idle and pending work. Capture exactly one immutable entry for success, count-failed rows, partial page failure, cancellation/failure before and after rows, showing correct tabular/non-tabular outcomes and retained metadata. Replay duplicate finalization and late old-request messages to prove they are harmless. Reference Issue #34 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review SELECT finalization
-
-**Type**: REVIEW
-**Output**: Human exercises every listed finalizing/nonfinalizing action and confirms one result entry.
-**Depends on**: 6
-
-Review active lifecycle transitions in `internal/ui`, immutable final entries in `internal/history`, retained cache capture in `internal/resultcache`, wiki updates, and `Notes/walkthroughs/034-06/code-walkthrough` against Issue #34. With idle and pending active SELECTs, manually exercise every documented nonfinalizing action and confirm activity and future paging survive; then exercise each enumerated finalizer and verify activity ends. For success, count failure, partial page failure, cancellation/failure before and after rows, new execution, result-history entry, and accepted quit, confirm exactly one correctly typed immutable result entry, preserved rows/metadata where required, no per-request entries, and no mutation or duplication from repeated finalizers or late page/count outcomes before approving the issue.
-
----

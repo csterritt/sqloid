@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/036-08/code-walkthrough`. Finalize successful tabular, empty, error, cancelled, and failed executions; browse them with Ctrl+E/Y while proving stable IDs, immutable rows/metadata/BLOB bytes after source and database changes, and zero refetch. Resize at multiple terminal heights and capture local reslicing from the same snapshots. Start a new execution from history and show selection/stale rows clear before finalization. Produce ordinary errors including `database is locked`, dismiss with Esc, reach older results, and contrast an authoritative terminal health override. Exceed 20 entries and force external selected-entry eviction with remaining and empty histories, showing the exact notice, new-oldest/base fallback, and no evicted rows. Reference Issue #36 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review result history
-
-**Type**: REVIEW
-**Output**: Human confirms success/error finalization, dismissal, database changes, resize, and forced eviction.
-**Depends on**: 8
-
-Review immutable storage/navigation in `internal/history`, snapshot values and metadata sourced from `internal/resultcache`, model browsing/error recovery in `internal/ui`, wiki updates, and `Notes/walkthroughs/036-08/code-walkthrough` against Issue #36. Finalize and navigate successful, empty, cancelled, failed, and ordinary error executions; dismiss errors and confirm older entries remain reachable. Change the database after finalization and resize the terminal while selected, verifying unchanged snapshot content, local complete-row reslicing, and zero requests until rerun. Exercise execution exit from history, five-second `database is locked`, and terminal health override. Fill beyond 20 entries and force selected oldest/middle/newest eviction plus empty removal; confirm stable surviving IDs, exact notice, new-oldest/base fallback, and that no evicted or stale rows ever render before approving the issue.
-
----

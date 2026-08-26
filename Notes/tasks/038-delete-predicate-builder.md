@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/038-06/code-walkthrough`. Demonstrate DELETE table eligibility and exact safely quoted SQL for an unqualified no-WHERE state, then walk through column → operator → value for `=`, `LIKE`, `IS NULL`, and `IS NOT NULL`, including empty TEXT, typed `NULL`, and `%`/`_` binding evidence. Show qualified runnable SQL/parameters, incomplete column/operator/value states, first-invalid focus and reasons, exact restoration/cancellation, and whole-value clearing. Capture that invalid attempts create no preparation or history and that every runnable path hands off to destructive preparation rather than direct execution, including higher-precedence popup/input/overlay/pending controls. Reference Issue #38 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review DELETE flows
-
-**Type**: REVIEW
-**Output**: Human confirms no-WHERE, value, LIKE, null-operator, invalid, and preparation paths.
-**Depends on**: 6
-
-Review DELETE construction in `internal/querybuilder`, guided transitions and handoff in `internal/ui`, wiki updates, and `Notes/walkthroughs/038-06/code-walkthrough` against Issue #38. Confirm eligible ordinary/virtual tables and rejected views/excluded/stale identities; build no-WHERE, bound comparison, empty TEXT, typed TEXT `NULL`, LIKE wildcard, `IS NULL`, and `IS NOT NULL` cases. Inspect qualified/unqualified SQL and exact parameter lists for quoting, binding, and no-value operators. At every incomplete stage press Enter and verify first-invalid focus, specific feedback, and no preparation/execution/history; revisit, clear, and cancel predicate prompts to confirm exact restoration. Finally verify runnable states enter only destructive preparation and never directly execute before approving the issue.
-
----

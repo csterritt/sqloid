@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/035-06/code-walkthrough`. Execute A→A→B→A to show only the consecutive duplicate suppressed, then browse older/newer entries with Ctrl+P/N through both boundaries and reverse direction. Restore examples covering every builder field, mutate restored/source/retrieved values, and edit restored state while proving retained history remains immutable and browsing creates no append. Start actual executions from unchanged and edited restored states, capturing history-mode exit before the unchanged Issue #20 append path and execution of current state. Force selected stable-ID eviction with surviving entries and with an empty store, showing the exact query notice, new-oldest fallback, base return, unchanged surviving IDs, and no missing backing state. Reference Issue #35 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review query history
-
-**Type**: REVIEW
-**Output**: Human confirms A→A→B→A, browsing, edit-after-restore, execution, and forced eviction.
-**Depends on**: 6
-
-Review query cursor/storage behavior in `internal/history`, restoration and execution transitions in `internal/ui`, wiki updates, and `Notes/walkthroughs/035-06/code-walkthrough` against Issue #35. Manually execute A→A→B→A and confirm Issue #20 append timing, full-field equality, suppression, stable IDs, and capacity remain unchanged. Browse both directions and boundaries, restore every builder field, edit restored copies, and confirm no browsing append or retained-state mutation. Execute unchanged and edited restored states and verify query-history mode exits first while current state runs. Force selected oldest/middle/newest eviction and empty-history removal; confirm the exact notice, new-oldest or base fallback, immutable copied state, and that the UI never references missing backing data before approving the issue.
-
----

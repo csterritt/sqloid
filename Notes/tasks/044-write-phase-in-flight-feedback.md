@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/044-06/code-walkthrough`. Hold deterministic estimating, beginning, executing, cancellation-requested, rollback-cleanup, and committing phases and capture the exact required label in each. During every phase exercise Enter, query and result history, save/export, permitted local interaction/help, q/Ctrl+C, and Ctrl+W; show explanatory rejections, unchanged histories and request counts, shared quit confirmation, cancellable-phase `cancelling…`, and exact post-boundary feedback. Include stale-message identity checks, evidence that generic gating does not inspect labels, and read-request regression evidence proving Issue #27's SELECT/page/count labels and behavior remain unchanged. Reference Issue #44 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review write feedback
-
-**Type**: REVIEW
-**Output**: Human holds each phase and verifies labels, Enter, history, save/export, quit, and cancellation behavior.
-**Depends on**: 6
-
-Review typed phases from `internal/connection`, unchanged history state in `internal/history`, phase rendering and generic gating in `internal/ui`, wiki updates, and `Notes/walkthroughs/044-06/code-walkthrough` against Issue #44. Manually hold estimate, beginning, executing, cancellation-requested, rollback-cleanup, and committing states; verify each exact label while exercising Enter, both histories, save/export, local interaction/help, quit, and Ctrl+W. Confirm blocked actions explain themselves and start no request, histories remain unchanged, quit uses the shared confirmation/cleanup path, cancellation is available only before the boundary, and rollback/commit gives exact boundary feedback. Re-run held SELECT/page/count phases to ensure read labels and gating did not change before approving the issue.
-
----

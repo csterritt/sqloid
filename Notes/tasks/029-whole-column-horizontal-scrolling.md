@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/029-06/code-walkthrough`. Demonstrate all four bindings against narrow, wide, Unicode, and oversized result columns; capture one-index movement, width recomputation, both boundary no-ops, and capped ellipsis with no intra-cell scroll state. Show that horizontal movement dispatches no database request while page or count work is pending, then resize at the first, middle, and last visible-column indexes to demonstrate preservation and clamping. Reference Issue #29 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review horizontal overflow
-
-**Type**: REVIEW
-**Output**: Human verifies all bindings, boundaries, oversized columns, and resize preservation.
-**Depends on**: 6
-
-Review the `internal/ui` layout and key handling, wiki updates, and `Notes/walkthroughs/029-06/code-walkthrough` against Issue #29. At the supported terminal sizes, use narrow, wide, Unicode, exact-fit, and oversized-column fixtures; exercise Shift+Page Up, Shift+Page Down, `,`, and `.` from the first, middle, and last columns. Confirm one whole-column movement per press, no-op boundaries, recomputed widths, capped ellipsis with no intra-cell scrolling, local behavior during pending page/count work, and preserved or correctly clamped first-visible indexes after resize before approving the issue.
-
----

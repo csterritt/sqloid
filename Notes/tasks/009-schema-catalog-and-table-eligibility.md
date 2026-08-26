@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough in `Notes/walkthroughs/009-06/code-walkthrough`. Demonstrate the completed `internal/schema` catalog and `internal/connection/schema.go` boundary against fixtures containing ordinary tables, virtual tables, views, `WITHOUT ROWID` tables, generated and hidden columns, SQLite system objects, and `_cf_METADATA`. Show evidence for schema version, object kinds, exclusions, write eligibility, rowid capability/shadowing, declared types, and insertability while confirming UI independence and the absence of type-specific input behavior. Reference Issue #9 and the relevant sections of `Notes/PRD-sqloid.md`, and place every generated artifact under the approved directory.
 
 ---
-
-### 7. Review schema fixtures
-
-**Type**: REVIEW
-**Output**: Human confirms ordinary, virtual, view, WITHOUT ROWID, generated, hidden, system, and `_cf_METADATA` behavior.
-**Depends on**: 6
-
-Review `internal/schema/schema.go`, `internal/schema/catalog.go`, `internal/schema/metadata.go`, the related `internal/connection/schema.go` seam, tests, wiki updates, and walkthrough against Issue #9 and the PRD Schema contracts. Open and inspect fixtures for every listed object and column category, confirm exact catalog inclusion and exclusion, object kind, schema version, rowid capability/shadowing, write eligibility, declared type, visibility/generated status, and insertability, and verify views are SELECT-only. Confirm that Schema remains independent of `internal/ui` and `internal/querybuilder` and that no declared-type-specific input behavior was introduced before approving the issue.
-
----

@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/021-06/code-walkthrough`. Demonstrate runnable Enter entering validation before execution and history, an unchanged schema version reusing cached metadata, and changed schemas refreshing and repairing only dependent builder state with the first specific invalid reason focused. Include changed identifier, eligibility, insertability, and rowid fixtures; an ordinary locked/stale refresh with retry and cancel; Ctrl+W showing exact `cancelling…` until settlement; late success being discarded; and deletion/replacement overriding ordinary workflow state. Show test-backed evidence that failed or cancelled validation appends no history, successful validation alone permits actual execution, and DDL after validation is reported as an ordinary execution error. Reference Issue #21 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review schema revalidation
-
-**Type**: REVIEW
-**Output**: Human confirms unchanged/changed/drop/lock cases and retry/cancel behavior.
-**Depends on**: 6
-
-Review the Issue #21 changes in `internal/schema`, `internal/querybuilder`, `internal/connection`, `internal/history`, and `internal/ui`, their fake and SQLite tests, wiki updates, and `Notes/walkthroughs/021-06/code-walkthrough`. With a runnable builder, verify unchanged validation reuses cache and proceeds; then externally rename, alter, or drop selected objects and columns and confirm refresh, eligibility/identifier/insertability/rowid checks, dependent-only clearing, preserved independent state, and exact first-invalid focus. Force lock/corruption-style ordinary refresh failures and exercise repeated retry and cancel while confirming no query or result history is appended. Cancel an in-flight validation with Ctrl+W and confirm `cancelling…` persists through settlement and late success cannot execute. Finally test deletion/replacement terminal precedence and a DDL race after successful validation, confirming the latter remains an ordinary execution error before approving the issue.
-
----

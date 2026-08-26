@@ -106,13 +106,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/022-09/code-walkthrough`. Demonstrate a runnable builder producing safe SQL/parameters, successful schema validation, the actual history append boundary, SQLite first-page execution, and the resulting bordered grid with frozen headers and absolute range/status. Include normal rows, full-set duplicate-label collisions, a successful empty result showing exact `No rows`, typed NULL/INTEGER/finite REAL/TEXT values, visible tabs/newlines, maximal invalid UTF-8 replacement with warning metadata, exact BLOB bytes with `[BLOB n bytes]` display, and an ordinary execution error. Show package or architecture evidence that `internal/result` is shared and UI-independent and that the hardcoded Issue #10 production tracer route no longer exists while reusable fixtures remain. Reference Issue #22 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 10. Review the first production SELECT
-
-**Type**: REVIEW
-**Output**: Human confirms normal, duplicate-label, empty, typed-value, invalid-UTF, BLOB, and error cases.
-**Depends on**: 9
-
-Review the Issue #22 production flow and tests across `internal/querybuilder`, `internal/schema`, `internal/connection`, `internal/history`, `internal/result`, and `internal/ui`, the wiki updates, and `Notes/walkthroughs/022-09/code-walkthrough`. Build and run representative SELECTs against SQLite fixtures, confirming validation precedes actual execution, query history appends at the actual-execution boundary, generated SQL/parameters are safe, and no tracer shortcut remains. Inspect normal and duplicate-label grids for deterministic full-set names, frozen headers, absolute range/status, and responsive rendering; verify exact `No rows` for empty execution. Compare NULL, INTEGER, finite REAL, identical-looking TEXT, control characters, malformed UTF-8, and BLOB cases against raw retained values, confirming warning metadata and no byte loss. Trigger query, scan, and post-validation schema errors and confirm ordinary error behavior and retained older results before approving the issue.
-
----

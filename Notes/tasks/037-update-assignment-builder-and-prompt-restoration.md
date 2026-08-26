@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/037-06/code-walkthrough`. Build an UPDATE by selecting several SET columns in order, attempt a duplicate, and show per-column Value/NULL prompts with no Default/Omit. Enter INTEGER, REAL, empty TEXT, and typed `NULL` Values where applicable; mix them with NULL assignments, then add value-taking and null-operator optional WHERE examples. Capture exact quoted executable SQL, NULL keywords, placeholders, runnable reports, and parameter lists proving SET Value order, skipped NULLs, and the WHERE value last. Revisit every prompt with Tab, Shift+Tab, and arrows; demonstrate exact choice/text/bound-type restoration, cancellation, Value-to-NULL revisions, whole-value clearing, first-invalid focus, completion, and the history-ready state without claiming execution. Reference Issue #37 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review UPDATE prompts
-
-**Type**: REVIEW
-**Output**: Human confirms mixed Value/NULL assignments, revisions, WHERE, SQL, and parameters.
-**Depends on**: 6
-
-Review UPDATE state and SQL in `internal/querybuilder`, prompt/focus/restoration integration in `internal/ui`, wiki updates, and `Notes/walkthroughs/037-06/code-walkthrough` against Issue #37. Select multiple SET columns, retry duplicates, and verify stable order plus the exact Value/NULL-only choices. Exercise mixed Value and NULL assignments, submitted empty TEXT, typed TEXT `NULL`, optional absent/value/null-operator WHERE, safely quoted unusual identifiers, and qualified/unqualified runnable states. Compare generated SQL and parameters character-for-character, confirming NULL contributes no placeholder or parameter and WHERE follows every SET Value. Revisit, cancel, clear, and revise every prompt, confirming exact choice, text, bound type/value, focus, completion, first-invalid feedback, no premature preparation/execution/history, and complete history-ready state before approving the issue.
-
----

@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/026-06/code-walkthrough`. Use deterministic barriers to show out-of-order first-page and later-page responses from old execution IDs, request IDs, and viewport generations being rejected after newer SELECTs, resize, result-history entry, and other deactivation. Demonstrate that a fully current response alone can update rows/cache, stale responses cannot clear newer feedback, cancellation wins over late success, and page/count replacement waits for predecessor settlement without breaking normal first-page/count concurrency. Reference Issue #26 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review stale-response protection
-
-**Type**: REVIEW
-**Output**: Human confirms slow pages cannot leak through cancellation, resize, deactivation, or newer SELECTs.
-**Depends on**: 6
-
-Review request and settlement behavior in `internal/connection`, identity/generation orchestration in `internal/ui`, page boundaries from `internal/querybuilder`, wiki updates, and `Notes/walkthroughs/026-06/code-walkthrough` against Issue #26. Hold first and later pages pending, then exercise cancellation, terminal resize, result-history deactivation, and a newer SELECT; release old successes and errors in multiple orders and confirm they never alter current rows, cache, range, status, or feedback. Verify cancellation remains the old request's classification after the newer execution begins and that no replacement request or lease reuse occurs before all replaced work settles, while normal count/page independence remains intact, before approving the issue.
-
----

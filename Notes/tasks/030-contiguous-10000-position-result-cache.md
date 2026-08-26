@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/030-06/code-walkthrough`. Demonstrate absolute-position identity with duplicate-valued rows, forward append, backward prepend, partial and full overlap replacement, and atomic rejection of stale pages that would form gaps. Traverse beyond 10,000 positions in both directions and alternate direction after eviction, capturing exact retained ranges and deterministic opposite-end eviction while proving every intermediate range remains contiguous and bounded. Reference Issue #30 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review cache traversal
-
-**Type**: REVIEW
-**Output**: Human confirms forward/backward traversal beyond the cap and alternating retained ranges.
-**Depends on**: 6
-
-Review `internal/resultcache`, its integration boundary with `internal/ui`, wiki updates, and `Notes/walkthroughs/030-06/code-walkthrough` against Issue #30. Manually inspect forward and backward traversal beyond 10,000 positions, then alternate directions with duplicate-valued rows, adjacent pages, overlaps, and deliberately stale nonadjacent responses. Confirm exact retained start/end positions, one row per logical position, overlap replacement without duplication, atomic gap rejection, and deterministic eviction only from the standard opposite end while the retained range remains contiguous and never exceeds the hard cap before approving the issue.
-
----

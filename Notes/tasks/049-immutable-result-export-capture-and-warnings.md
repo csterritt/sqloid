@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/049-08/code-walkthrough`. Demonstrate Ctrl+X from an idle active SELECT, selected historical snapshots, and deletion/replacement/outcome-unknown terminal selections; mutate live rows, metadata, BLOB sources, and selections after capture to prove the export copy is immutable and ascending while the active SELECT remains unchanged and unfinalized. Exercise every pending-request gate and non-tabular/empty/error/write/cancelled-before-rows case, showing the exact shared rejection and no picker or database work, then contrast retained-row cancelled/failed tabular exports. Present complete, partial, truncated, partial-plus-truncated, byte-cap, cancelled/failed, and invalid-UTF warning combinations in canonical order before destination selection, prove serializer spies receive no warning records/properties, and capture exact active/history/terminal restoration after cancel and completion. Reference Issue #49 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review export capture
-
-**Type**: REVIEW
-**Output**: Human exercises active, historical, terminal, warned, non-tabular, cancel, and complete paths.
-**Depends on**: 8
-
-Review immutable capture and eligibility in `internal/export`, typed rows/metadata in `internal/result`, UI gating/warnings/restoration in `internal/ui`, wiki updates, and `Notes/walkthroughs/049-08/code-walkthrough` against Issue #49. Manually export an idle active result, several historical selections, and tabular terminal selections; alter live state immediately after Ctrl+X and verify the captured rows, names, BLOB bytes, order, and metadata do not change, no database request starts, and the active SELECT remains live. Attempt export during representative pending requests and from empty, error, write, outcome-unknown, and cancelled-before-rows selections, confirming exact shared feedback and no picker. Exercise every warning axis and combination, verify Issue #31 wording and order outside serializer data, then cancel and complete from active, historical, and terminal openers and confirm exact state/focus restoration before approving the issue.
-
----

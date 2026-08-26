@@ -96,13 +96,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/046-08/code-walkthrough`. Trigger Issue #7's typed deletion and replacement classifications and capture each exact terminal message, UI-only string ownership, settled/no-pending-work entry, and rejection of every database-capable action. For each terminal, exercise populated query/result histories, initial newest result selection, Ctrl+P/N and Ctrl+E/Y boundaries, and empty-history fallback with the primary message, no synthetic entry, and no stale or missing-backed rows. Open reduced help and verify only available actions appear, then demonstrate both `q` and Ctrl+C exiting immediately with status 1 and no confirmation. Reference Issue #46 and `Notes/PRD-sqloid.md`, distinguish later save/export ownership, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 9. Review deletion/replacement behavior
-
-**Type**: REVIEW
-**Output**: Human triggers both states with populated/empty histories and verifies actions and exit status.
-**Depends on**: 8
-
-Review typed terminal mapping and interaction in `internal/ui`, immutable selection behavior in `internal/history`, the wiki updates, and `Notes/walkthroughs/046-08/code-walkthrough` against Issue #46. Manually trigger both deletion and same-path replacement with populated and empty query/result histories; verify exact messages, newest selection or empty primary fallback, Ctrl+P/N and Ctrl+E/Y navigation/no-ops, and absence of synthetic, stale, or missing-backed results. Attempt all database actions, inspect reduced help for only valid in-memory actions, and confirm no command starts. Use `q` and Ctrl+C from primary, history, and help contexts and verify immediate status 1 without confirmation or pending work before approving the issue.
-
----

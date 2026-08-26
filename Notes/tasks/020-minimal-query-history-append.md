@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/020-06/code-walkthrough`. Demonstrate stable non-positional IDs, immutable stored copies after source/retrieved-state mutation attempts, capacity 20, and repeated oldest-first eviction with surviving IDs unchanged. Exercise normalized comparison differences for command/table, projection order, WHERE operator/value/entered representation/bound type, GROUP BY order, ORDER BY/direction, Limit empty versus number, and UPDATE/INSERT ordered choices and values. Run the append policy through A→A→B→A and show only the consecutive duplicate suppressed without consuming an ID. Show no append during runnable evaluation, validation, estimation, cancellation, or dismissal, then append at the actual SELECT/INSERT start and confirmed UPDATE/DELETE start, including an execution that later fails. State clearly that navigation/restoration is deferred, reference Issue #20 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review append behavior
-
-**Type**: REVIEW
-**Output**: Human confirms A→A→B→A, actual-execution timing, stable IDs, and eviction.
-**Depends on**: 6
-
-Review normalized snapshots in `internal/querybuilder`, stable capped storage and append policy in `internal/history`, the execution-start seam in `internal/ui`, wiki updates, and `Notes/walkthroughs/020-06/code-walkthrough` against Issue #20. Execute or simulate A→A→B→A and confirm only the second consecutive A is suppressed, both separated A entries remain, and suppression consumes neither an ID nor capacity. Change each normalized field individually, especially entered representation versus bound type, ordered fields, write choices, and empty-versus-number Limit, and verify each intended distinction appends. Exercise validation, estimation, cancellation, dismissal, confirmed write start, SELECT/INSERT start, and a later execution failure to confirm exact timing. Mutate source and retrieved states, exceed 20 retained entries, and verify immutable backing data, oldest-first eviction, chronological order, and unchanged stable surviving IDs. Confirm no Ctrl+P/N navigation or restoration behavior was added before approving the issue.
-
----

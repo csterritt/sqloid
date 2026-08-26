@@ -72,13 +72,3 @@ Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.
 Use showboat, consulting `uvx showboat --help`, to create the walkthrough at exactly `Notes/walkthroughs/040-06/code-walkthrough`. Open preparation for qualified and unqualified UPDATE and DELETE statements, including UPDATE with mixed Value/NULL SET assignments and predicates using bound values and SQL-null operators. Capture operation, table, canonical rendered SQL, safely rendered literals, and the prominent all-rows warning only for no-WHERE statements. Compare each write with exact `SELECT COUNT(*) FROM <quoted target> [WHERE <identical predicate>]` evidence and parameter lists, proving SET fragments/values are absent and WHERE values retain exact bound types/order. While the fake or controlled estimate is pending, show exact `Estimating matching target rows…`, continuously visible SQL/warning, disabled Enter/y, one request, and no history. Demonstrate current/stale success and failure handling plus dismissal/cancellation restoring the builder without execution/history. Reference Issue #40 and `Notes/PRD-sqloid.md`, and place every showboat-generated artifact under the approved directory.
 
 ---
-
-### 7. Review destructive preparation
-
-**Type**: REVIEW
-**Output**: Human confirms qualified/unqualified UPDATE/DELETE and mixed Value/NULL estimate behavior.
-**Depends on**: 6
-
-Review preparation construction in `internal/querybuilder`, estimate requests in `internal/connection`, modal state/view handling in `internal/ui`, wiki updates, and `Notes/walkthroughs/040-06/code-walkthrough` against Issue #40. Open qualified and unqualified UPDATE/DELETE preparations with unusual quoted identifiers, typed INTEGER/REAL/TEXT values, typed TEXT `NULL`, mixed Value/NULL assignments, value WHERE, and null-operator WHERE. Compare canonical rendered write SQL and exact estimate SQL/params, confirming shared serialization, identical predicates, WHERE-only bindings, no SET values, and no private UI renderer. Verify operation/table/SQL remain continuously visible, the all-rows warning is prominent exactly without WHERE, pending text is exact, confirmation is disabled while estimating, and stale responses cannot alter state. Dismiss/cancel pending and settled preparations and confirm exact restoration, no actual write, and no query/result history before approving the issue.
-
----
