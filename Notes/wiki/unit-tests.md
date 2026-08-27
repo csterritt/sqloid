@@ -40,3 +40,14 @@ Startup-failure rendering with real fixtures through `Main` using the production
 Runs the re-executed test binary with the production connection handler (`SQLOID_CLI_REAL=1` env selects `connection.Session` instead of the recording stub). Asserts silent status-0 success on a valid fixture plus exact one-line stderr diagnostics and status 1 for missing, invalid-header, and non-writable databases — process-level verification of the Issue #2 contract.
 
 Cross-references: [cli-contract.md](cli-contract.md), [sqlite-startup.md](sqlite-startup.md).
+
+## internal/d1
+
+### internal/d1/discovery_test.go (Issue #3)
+
+Table-driven filesystem tests via `t.Chdir(t.TempDir())`: sole-candidate selection with exact joined path; zero candidates across directory-absent/empty/metadata-only/sidecar-only/wrong-case/nested/alternate-layout fixtures (`ErrNoCandidate`, empty path); multiple candidates including uppercase-`Metadata` names remaining eligible under the case-sensitive rule (`ErrMultipleCandidates`); exclusions leaving a surviving top-level candidate while metadata, sidecar, nested, and alternate-layout files are ignored.
+
+## Additional Issue #3 tests elsewhere
+
+- `internal/cli/d1_test.go` — `TestRunD1PassesSoleCandidateUnchangedToSharedOpener` proves the discovery→opener handoff passes the exact path unchanged through injected seams; `TestD1EndToEndOpensSoleDiscoveredCandidate` runs `sqloid d1` through `Main` on a mixed fixture (real SQLite candidate plus ignored metadata, sidecar, wrong-case, nested, and alternate-layout files) asserting silent status-0 success.
+- `internal/connection/opener_test.go` — `TestOpenRelativePath` pins read-write mode=rw opening of a working-directory-relative discovered path.

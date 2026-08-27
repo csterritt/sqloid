@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"syscall"
 
 	_ "modernc.org/sqlite" // registers the pinned pure-Go "sqlite" driver
@@ -136,8 +137,16 @@ func dsn(path string) string {
 
 // mustFileURL renders path as a file: URI whose query string can be extended;
 // it only panics for inputs that cannot occur from normal callers.
+//
+// Relative paths render as opaque "file:<path>" URIs: url.URL.String() would
+// otherwise promote the first path segment to a URI authority ("file://.
+// wrangler/..."), which the SQLite URI parser rejects with "invalid uri
+// authority" while diagnostics keep referring to the caller's relative path.
 func mustFileURL(path string) url.URL {
-	return url.URL{Scheme: "file", Path: path}
+	if filepath.IsAbs(path) {
+		return url.URL{Scheme: "file", Path: path}
+	}
+	return url.URL{Scheme: "file", Opaque: path}
 }
 
 // Open validates the database at path without creating or modifying it and,

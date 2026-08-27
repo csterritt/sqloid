@@ -179,3 +179,27 @@ func TestStartupErrorsKeepOneLineMessages(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenRelativePath pins the Issue #3 end-to-end requirement that a
+// working-directory-relative discovered path opens read-write through the
+// same mode=rw flow as absolute paths, without the URI parser rejecting a
+// path segment as an authority and without touching the caller's path text.
+func TestOpenRelativePath(t *testing.T) {
+	t.Chdir(t.TempDir())
+	rel := filepath.Join("state", "discovered.sqlite")
+	if err := os.MkdirAll("state", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	createDatabase(t, rel)
+
+	db, err := Open(rel)
+	if err != nil {
+		t.Fatalf("Open(%q) error = %v", rel, err)
+	}
+	defer db.Close()
+
+	var got string
+	if err := db.SQL.QueryRow("SELECT v FROM t WHERE id = 1").Scan(&got); err != nil {
+		t.Fatalf("querying opened database: %v", err)
+	}
+}

@@ -7,7 +7,7 @@ The complete command-line contract implemented by `internal/cli` on top of the P
 | Command | Spec | Behavior |
 | --- | --- | --- |
 | `sqloid sqlite <file>` | `FILE` (exactly one string argument) | Opens the SQLite database at `<file>` through the production connection handler (wired in `cmd/sqloid/main.go`). The handler is invoked only after successful routing; startup validation/diagnostics are defined by Issue #2 ([sqlite-startup.md](sqlite-startup.md)). |
-| `sqloid d1` | no arguments | Discovers and opens the local D1 database under `.wrangler/state/v3/d1/miniflare-D1DatabaseObject`. |
+| `sqloid d1` | no arguments | Discovers and opens the local D1 database under `.wrangler/state/v3/d1/miniflare-D1DatabaseObject`; discovery rules in [d1-discovery.md](d1-discovery.md). |
 
 ## Flags
 
@@ -33,7 +33,7 @@ Startup/database-validation failures exit **1** with exactly one stderr line per
 
 ## Roles of `internal/cli` and `cmd/sqloid`
 
-- `internal/cli` owns the entire shell: it builds the mow.cli app (`sqlite` command with `FILE` argument, `d1` command, `--version`/`-v` flag, root action), sets `flag.ContinueOnError` so mow.cli never calls `os.Exit` directly, and exposes `Main(args, handlers) int` returning the process status. Database startup is behind the injectable `Handlers` struct so tests can inject fakes while the production binary wires `connection.Session`. A routed handler that returns an error has its `Error()` printed as one stderr line with status 1.
+- `internal/cli` owns the entire shell: it builds the mow.cli app (`sqlite` command with `FILE` argument, `d1` command, `--version`/`-v` flag, root action), sets `flag.ContinueOnError` so mow.cli never calls `os.Exit` directly, and exposes `Main(args, handlers) int` returning the process status. Database startup is behind the injectable `Handlers` struct so tests can inject fakes while the production binary wires `connection.Session` (for `sqlite`) and `cli.RunD1` (for `d1`, which passes the sole [discovered candidate](d1-discovery.md) unchanged to `connection.Session`). A routed handler that returns an error has its `Error()` printed as one stderr line with status 1.
 - `cmd/sqloid` is a thin process boundary: `os.Exit(cli.Main(os.Args, handlers))` where `handlers.SQLite = connection.Session`; nothing else.
 
 ## Verification
