@@ -90,3 +90,16 @@ Local D1 candidate discovery (Issue #3): `Discover()` reads only the immediate e
 ### internal/cli/d1.go
 
 The D1 startup glue (`RunD1`, backed by injectable `runD1With(discover, open)`): requests the sole candidate from `internal/d1.Discover` and passes that path unchanged to the shared `internal/connection.Session`. On any discovery failure, `mapDiscoveryDiagnostic` converts the typed outcomes to the exact Issue #4 process diagnostics — zero candidates become exactly two lines (typed message plus the expected-path and `sqloid sqlite <file>` explicit-open hint), multiple candidates become only the exact single line `There is more than one SQLite database in .wrangler` with no hint — and the opener is never invoked. No D1-specific validation or SQLite opening exists; `cmd/sqloid/main.go` wires `Handlers{SQLite: connection.Session, D1: cli.RunD1}`.
+## internal/ui
+
+### internal/ui/model.go
+
+The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll.
+
+### internal/ui/layout.go
+
+Pure region arithmetic with no rendering dependency. `CalculateLayout(totalHeight, fields)` returns footer=1 row, builder desired height inclusive of its 2 border rows and 2 padding rows capped at `floor(H/3)`, results height as every remaining row (> H/2), and `PageRows` as results minus its owned fixed rows (2 border + status/count + frozen header). `BuilderViewport` is interior content lines; `fieldSpans`/`adjustScroll` keep the complete focused field visible inside that viewport; `tooSmall` implements the exact 80×24 threshold; constants pin each region's fixed-row ownership so no border is shared.
+
+### internal/ui/view.go
+
+Deterministic Lip Gloss composition: results box on top owning border/status/header, bordered padded builder below showing the visible field-line window starting at `Scroll` with `>` focused markers, one global footer row last, joining to exactly H rendered rows. While suspended, `View` returns exactly `terminal too small`. Styles are centralized; color never carries meaning alone.
