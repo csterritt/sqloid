@@ -2,7 +2,9 @@
 /**
  * build-tasks-until-review.ts
  *
- * Drives the sqloid task pipeline with a pi.dev agent session:
+ * Drives the sqloid task pipeline with a pi.dev agent session, looping
+ * over unimplemented tasks until a REVIEW task is reached or an error
+ * occurs:
  *
  *   1. Scan Notes/walkthroughs for subdirectories whose first three
  *      characters name an already-implemented task.
@@ -18,6 +20,8 @@
  *   6. On success, describe the current jj commit and start a fresh one:
  *        jj describe -m "Task <task-name> implemented by <PI_MODEL>."
  *        jj new
+ *   7. If the task file contains a "**Type**: REVIEW" section, notify and
+ *      stop the loop for human review. Otherwise, repeat from step 1.
  *
  * Usage:
  *   build-tasks-until-review.ts [--dry-run]
@@ -38,7 +42,6 @@ import {
   createAgentSessionServices,
   getAgentDir,
   resolveCliModel,
-  runPrintMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 
@@ -59,6 +62,9 @@ const PI_MODEL_NAME = PI_MODEL.split(":")[0];
 const DRY_RUN = process.argv.includes("--dry-run");
 
 const PREFIX_RE = /^(\d{3})/;
+
+/** Matches a "**Type**: REVIEW" section in a task file (case-insensitive). */
+const REVIEW_RE = /\*\*type\*\*\s*:\s*review/i;
 
 /** Run a command in ROOT, returning trimmed stdout. Throws on non-zero exit. */
 async function run(cmd: string, args: string[]): Promise<string> {
@@ -220,7 +226,7 @@ async function notify(message: string): Promise<void> {
   }
 }
 
-/** Run the pi agent session against the task prompt. */
+/** Run the pi agent session against the task prompt, streaming output live. */
 async function runPi(prompt: string): Promise<void> {
   const createRuntime: CreateAgentSessionRuntimeFactory = async ({
     cwd,
@@ -250,12 +256,30 @@ async function runPi(prompt: string): Promise<void> {
     sessionManager: SessionManager.create(ROOT),
   });
 
-  await runPrintMode(runtime, {
-    mode: "text",
-    initialMessage: prompt,
-    initialImages: [],
-    messages: [],
+  const session = runtime.session;
+
+  // Stream assistant text deltas and tool activity to stdout as they happen.
+  const unsubscribe = session.subscribe((event) => {
+    if (event.type === "message_update") {
+      const ame = event.assistantMessageEvent;
+      if (ame.type === "text_delta") {
+        process.stdout.write(ame.delta);
+      } else if (ame.type === "text_end") {
+        process.stdout.write("\n");
+      } else if (ame.type === "toolcall_start") {
+        process.stdout.write(`\n[tool call starting]\n`);
+      }
+    } else if (event.type === "tool_execution_end") {
+      process.stdout.write(`[tool done: ${event.toolName}]\n`);
+    }
   });
+
+  try {
+    await session.prompt(prompt);
+  } finally {
+    unsubscribe();
+    await runtime.dispose();
+  }
 }
 
 /**
@@ -281,66 +305,84 @@ async function runTestSuite(): Promise<{ ok: true } | { ok: false; output: strin
 }
 
 async function main() {
-  const task = await nextTask();
-  if (!task) {
-    console.log("All tasks are implemented. Nothing to do.");
-    return;
+  for (;;) {
+    const task = await nextTask();
+    if (!task) {
+      console.log("All tasks are implemented. Nothing to do.");
+      return;
+    }
+
+    const taskPath = join(TASKS_DIR, task.file);
+    const taskText = await readFile(taskPath, "utf8");
+    const prompt = buildPrompt(task, taskText);
+
+    console.log(`Next task: ${task.file} (prefix ${task.prefix})`);
+    console.log(`Task file: ${taskPath}`);
+    console.log(`Model: ${PI_MODEL}`);
+    console.log(`Skills dir: ${SKILLS_CODE_WRITING_DIR}`);
+    console.log(`Prompt (${prompt.length} chars):`);
+    console.log(prompt);
+    console.log("---");
+
+    if (DRY_RUN) {
+      console.log("[dry-run] stopping here; would invoke pi agent session next.");
+      console.log("[dry-run] after pi, would run: go test ./...");
+      console.log("[dry-run] after tests, would verify a new walkthrough dir/file >=10 lines.");
+      console.log(`[dry-run] on success: jj describe -m "Task ${task.name} implemented by ${PI_MODEL_NAME}." && jj new`);
+      console.log("[dry-run] on failure: /home/chris/notify-app \"<message>\"");
+      return;
+    }
+
+    const before = await snapshotWalkthroughs();
+
+    console.log("Invoking pi agent session...");
+    try {
+      await runPi(prompt);
+    } catch (err) {
+      const message = `pi agent session failed for task ${task.file}: ${err}`;
+      console.error(message);
+      await notify(message);
+      break;
+    }
+    console.log("pi agent session finished.");
+    console.log("---");
+
+    console.log("Running all tests: go test ./...");
+    const testResult = await runTestSuite();
+    if (!testResult.ok) {
+      const message = `tests failed for task ${task.file}:\n${testResult.output}`;
+      console.error(message);
+      await notify(message);
+      break;
+    }
+    console.log("All tests passed.");
+    console.log("---");
+
+    const result = await verifyWalkthrough(task.prefix, before);
+    if (!result.ok) {
+      const message = `pi agent did not write a walkthrough for task ${task.file}: ${result.reason}`;
+      console.error(message);
+      await notify(message);
+      break;
+    }
+
+    console.log(`Walkthrough verified: ${result.dir}/${result.file}`);
+
+    const describeMsg = `Task ${task.name} implemented by ${PI_MODEL_NAME}.`;
+    console.log(`Running: jj describe -m "${describeMsg}"`);
+    await run("jj", ["describe", "-m", describeMsg]);
+    console.log("Running: jj new");
+    await run("jj", ["new"]);
+    console.log(`Task ${task.name} done.`);
+    console.log("===");
+
+    if (REVIEW_RE.test(taskText)) {
+      const message = `Reached REVIEW task ${task.file}; stopping loop for human review.`;
+      console.log(message);
+      await notify(message);
+      break;
+    }
   }
-
-  const taskPath = join(TASKS_DIR, task.file);
-  const taskText = await readFile(taskPath, "utf8");
-  const prompt = buildPrompt(task, taskText);
-
-  console.log(`Next task: ${task.file} (prefix ${task.prefix})`);
-  console.log(`Task file: ${taskPath}`);
-  console.log(`Model: ${PI_MODEL}`);
-  console.log(`Skills dir: ${SKILLS_CODE_WRITING_DIR}`);
-  console.log(`Prompt (${prompt.length} chars):`);
-  console.log(prompt);
-  console.log("---");
-
-  if (DRY_RUN) {
-    console.log("[dry-run] stopping here; would invoke pi agent session next.");
-    console.log("[dry-run] after pi, would run: go test ./...");
-    console.log("[dry-run] after tests, would verify a new walkthrough dir/file >=10 lines.");
-    console.log(`[dry-run] on success: jj describe -m "Task ${task.name} implemented by ${PI_MODEL_NAME}." && jj new`);
-    console.log("[dry-run] on failure: /home/chris/notify-app \"<message>\"");
-    return;
-  }
-
-  const before = await snapshotWalkthroughs();
-
-  console.log("Invoking pi agent session...");
-  await runPi(prompt);
-  console.log("pi agent session finished.");
-  console.log("---");
-
-  console.log("Running all tests: go test ./...");
-  const testResult = await runTestSuite();
-  if (!testResult.ok) {
-    const message = `tests failed for task ${task.file}:\n${testResult.output}`;
-    console.error(message);
-    await notify(message);
-    process.exit(1);
-  }
-  console.log("All tests passed.");
-  console.log("---");
-
-  const result = await verifyWalkthrough(task.prefix, before);
-  if (!result.ok) {
-    const message = `pi agent did not write a walkthrough for task ${task.file}: ${result.reason}`;
-    console.error(message);
-    await notify(message);
-    process.exit(1);
-  }
-
-  console.log(`Walkthrough verified: ${result.dir}/${result.file}`);
-
-  const describeMsg = `Task ${task.name} implemented by ${PI_MODEL_NAME}.`;
-  console.log(`Running: jj describe -m "${describeMsg}"`);
-  await run("jj", ["describe", "-m", describeMsg]);
-  console.log("Running: jj new");
-  await run("jj", ["new"]);
   console.log("Done.");
 }
 
