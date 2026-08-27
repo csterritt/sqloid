@@ -1,0 +1,11 @@
+{
+  "name": "sqloid-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0"
+  }
+}
