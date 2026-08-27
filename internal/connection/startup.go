@@ -4,18 +4,48 @@
 // classifies startup failures into the structured classes rendered as exact
 // one-line diagnostics by internal/cli, per Issue #2 and the Startup
 // validation and errors section of Notes/PRD-sqloid.md.
+//
+// The opened pool holds exactly two connections (its minimum and maximum) so
+// concurrent page/count requests can each Lease a distinct dedicated physical
+// connection, per Issue #5 and the Connection pool, limits, and busy handling
+// decision in Notes/PRD-sqloid.md: every physical connection carries a
+// five-second busy timeout set through the DSN, every lease is configured
+// with an exact 64 MiB connection-local SQLITE_LIMIT_LENGTH, and journal mode
+// is never set or changed on any connection.
 package connection
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
-	_ "modernc.org/sqlite" // registers the pinned pure-Go "sqlite" driver
+	sqlite "modernc.org/sqlite" // pinned pure-Go "sqlite" driver
+	sqlite3 "modernc.org/sqlite/lib"
+)
+
+const (
+	// poolSize pins the database/sql pool to exactly two connections, its
+	// minimum and maximum alike, so that two concurrent page/count requests
+	// can each lease a distinct physical connection without serializing or
+	// growing beyond the PRD's exact-two contract.
+	poolSize = 2
+
+	// busyTimeoutMillis configures every physical connection's five-second
+	// SQLite busy timeout through the supported modernc DSN parameter, so
+	// lock waits settle no later than five seconds as the PRD requires.
+	busyTimeoutMillis = 5000
+
+	// sqlMaxLengthBytes is the exact 64 MiB connection-local SQLITE_LIMIT_LENGTH
+	// applied to every leased connection before it performs any work. Length
+	// limits cannot be set through SQL; sqlite.Limit on a *sql.Conn lease is
+	// the documented mechanism for this configuration.
+	sqlMaxLengthBytes = 64 << 20
 )
 
 // sqliteHeader is the exact 16-byte header required at offset 0 of every
@@ -121,8 +151,58 @@ type DB struct {
 	SQL *sql.DB
 }
 
+// Lease acquires one dedicated physical connection from the exact-two pool,
+// applies this package's required per-connection configuration to it before
+// any query runs, and returns ownership of that connection to the caller.
+// Concurrent callers receive distinct connections; a third concurrent Lease
+// blocks until one of the two leases is released. Close of db releases the
+// whole pool regardless of outstanding leases.
+type Lease struct {
+	conn *sql.Conn
+}
+
+// Conn returns the leased underlying connection for executing requests. It
+// panics if called after Release: reusing a released lease would silently run
+// against a different pooled connection and break caller-owned assumptions;
+// callers must keep their work on the lease until settled and then release it.
+func (l *Lease) Conn() *sql.Conn {
+	if l.conn == nil {
+		panic("connection: use of released lease")
+	}
+	return l.conn
+}
+
+// Release returns the leased connection to the pool. Release is safe to call
+// more than once and after errors; subsequent Conn calls on the same lease
+// panic rather than observing a connection owned elsewhere.
+func (l *Lease) Release(ctx context.Context) error {
+	if l.conn == nil {
+		return nil
+	}
+	err := l.conn.Close()
+	l.conn = nil
+	return err
+}
+
 // Close closes the underlying pool.
 func (db *DB) Close() error { return db.SQL.Close() }
+
+// Lease checks out one dedicated connection from the exact-two pool and
+// configures it with the connection-local length limit before handing it
+// over. The busy timeout was already established by dsn when the physical
+// connection was created; the limit has no DSN equivalent and must be applied
+// per *sql.Conn via sqlite.Limit, the driver's documented mechanism.
+func (db *DB) Lease(ctx context.Context) (*Lease, error) {
+	conn, err := db.SQL.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("lease connection from pool: %w", err)
+	}
+	if _, err := sqlite.Limit(conn, sqlite3.SQLITE_LIMIT_LENGTH, sqlMaxLengthBytes); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("configure leased connection length limit: %w", err)
+	}
+	return &Lease{conn: conn}, nil
+}
 
 // dsn builds the modernc.org/sqlite data source name for path: URI form so
 // that mode=rw forbids creating a missing database, with the path percent-
@@ -131,6 +211,9 @@ func dsn(path string) string {
 	u := mustFileURL(path)
 	q := u.Query()
 	q.Set("mode", "rw")
+	// Applies to every physical connection the pool creates: busy handling is
+	// per connection, so the five-second bound travels with the DSN itself.
+	q.Set("_busy_timeout", strconv.Itoa(busyTimeoutMillis))
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -190,11 +273,19 @@ func Open(path string) (*DB, error) {
 	if err != nil {
 		return nil, &StartupError{Path: path, Kind: FailureReadWrite, Cause: err}
 	}
+	closeOnError := func(err error) (*DB, error) {
+		sqlDB.Close()
+		return nil, err
+	}
+
+	// The exact-two pool: minimum and maximum are both enforced here, two
+	// being enough for the two concurrent page/count leases Issue #5 needs.
+	sqlDB.SetMaxOpenConns(poolSize)
+	sqlDB.SetMaxIdleConns(poolSize)
 	// The first real contact happens here, so surface it immediately instead
 	// of lazily on first use; failure is classified as above.
 	if err := probe(sqlDB); err != nil {
-		sqlDB.Close()
-		return nil, classifyOpenError(path, err)
+		return closeOnError(classifyOpenError(path, err))
 	}
 	return &DB{SQL: sqlDB}, nil
 }

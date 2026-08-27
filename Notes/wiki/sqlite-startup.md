@@ -8,6 +8,7 @@ How Sqloid starts a session on a SQLite database: ordered pre-open validation, r
 
 - `Open(path) (*DB, error)` — validation + read-write opening + probe; returns `*DB` wrapping the pooled `*sql.DB`.
 - `Session(path) error` — CLI-facing handler that opens a session and closes it when the TUI does not consume the handle yet.
+- `Lease(ctx) (*Lease, error)` / `(*Lease).Conn` / `(*Lease).Release` — dedicated-connection leasing over the exact-two pool; see [connection-pool.md](connection-pool.md) for ownership, busy timeout, length limits, and journal invariants (Issue #5).
 - `StartupError` / `FailureKind` / `DB` / `Close` as the public surface for classification and rendering.
 
 `internal/cli` only renders diagnostics and exit statuses; `cmd/sqloid/main.go` wires `Handlers{SQLite: connection.Session}` and stays a thin entrypoint.
@@ -46,4 +47,4 @@ The pure-Go driver is pinned to exact version `modernc.org/sqlite v1.57.0` (adde
 - `internal/cli/startup_test.go` — real fixtures through `Main`: every failure class prints exactly its documented one line on stderr, nothing on stdout, status 1; valid databases are fully silent with status 0.
 - `cmd/sqloid/main_test.go::TestSQLiteStartupProcessBehavior` — process-level behavior with the production connection handler (`SQLOID_CLI_REAL=1`): silent success plus exact stderr lines/status 1.
 
-Cross-references: [cli-contract.md](cli-contract.md), [source-code.md](source-code.md), [unit-tests.md](unit-tests.md).
+Cross-references: [cli-contract.md](cli-contract.md), [connection-pool.md](connection-pool.md), [source-code.md](source-code.md), [unit-tests.md](unit-tests.md).

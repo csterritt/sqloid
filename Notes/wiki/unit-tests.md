@@ -57,3 +57,10 @@ Table-driven filesystem tests via `t.Chdir(t.TempDir())`: sole-candidate selecti
 - `TestD1DiscoveryFailureProcessBehavior` — runs `sqloid d1` through `Main` on real fixtures via `t.Chdir`: missing, empty, and candidate-free Wrangler directories produce exactly the two-line zero-candidate diagnostic; multiple `.sqlite` candidates produce exactly the single line. Each case asserts stderr equality byte-for-byte, silence on stdout, status 1, and — by walking the working directory before and after — that no database or stray file was created.
 - `TestD1DiscoveryUnreadableDirectoryProcessBehavior` — an unreadable (`0o000`) Wrangler directory yields the identical zero-candidate two lines with status 1 and no creation. Permission cases skip under root.
 - `internal/connection/opener_test.go` — `TestOpenRelativePath` pins read-write mode=rw opening of a working-directory-relative discovered path.
+
+## internal/connection Issue #5 pool and leasing tests
+
+- `internal/connection/pool_config_test.go` — exact-two pool contract: maximum size 2, simultaneous usable distinct leases within an explicit bound, retained floor of two idle connections after release, per-connection five-second busy timeout, and per-connection exact 64 MiB `SQLITE_LIMIT_LENGTH` (cross-checked on every inspected connection).
+- `internal/connection/lease_test.go` — dedicated-leasing high-risk coverage from the PRD: barrier-driven concurrent lease pairs in WAL and rollback-journal fixtures prove distinct physical connections, all per-connection invariants hold on each held lease, journal mode is neither set nor changed, and release/reuse safety is enforced.
+
+Cross-references: [connection-pool.md](connection-pool.md), [sqlite-startup.md](sqlite-startup.md).
