@@ -24,3 +24,19 @@ Process-boundary tests asserting the real binary's exact streams and exit status
 - `TestSuccessfulDispatchRunsHandlersSilently` — `sqlite example.db` and `d1` exit 0 with empty streams, and the recorded dispatch lines prove the handlers ran with the routed arguments.
 
 Cross-references: [cli-contract.md](cli-contract.md), [source-code.md](source-code.md).
+
+## internal/cli
+
+### internal/cli/startup_test.go (Issue #2)
+
+Startup-failure rendering with real fixtures through `Main` using the production `connection.Session` handler:
+
+- `TestStartupFailuresRenderOneLineOnStderr` — table over missing, unreadable, directory, invalid-header, and non-writable fixtures: each prints exactly its documented one stderr line, nothing on stdout, and exits 1. Skips under root, where mode-based unreadability cannot be exercised.
+- `TestSuccessfulStartupIsSilent` — a valid database exits 0 with completely empty streams.
+- `TestStartupFailureKeepsStructuredCause` — startup errors remain `*connection.StartupError`, guarding structured classification for rendering.
+
+### cmd/sqloid/main_test.go — TestSQLiteStartupProcessBehavior
+
+Runs the re-executed test binary with the production connection handler (`SQLOID_CLI_REAL=1` env selects `connection.Session` instead of the recording stub). Asserts silent status-0 success on a valid fixture plus exact one-line stderr diagnostics and status 1 for missing, invalid-header, and non-writable databases — process-level verification of the Issue #2 contract.
+
+Cross-references: [cli-contract.md](cli-contract.md), [sqlite-startup.md](sqlite-startup.md).

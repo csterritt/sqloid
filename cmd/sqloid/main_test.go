@@ -1,12 +1,16 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/chris/sqloid/internal/cli"
+	"github.com/chris/sqloid/internal/connection"
 )
 
 // The real binary's exact stream and exit-status contracts are asserted by
@@ -20,9 +24,88 @@ func TestMain(m *testing.M) {
 			SQLite: func(path string) error { return appendRecord(record, "sqlite "+path) },
 			D1:     func() error { return appendRecord(record, "d1") },
 		}
+		// SQLOID_CLI_REAL routes through the production sqlite session
+		// handler instead of the recording stub, for Issue #2 startup tests.
+		if os.Getenv("SQLOID_CLI_REAL") != "" {
+			handlers.SQLite = connection.Session
+		}
 		os.Exit(cli.Main(append([]string{"sqloid"}, strings.Fields(args)...), handlers))
 	}
 	os.Exit(m.Run())
+}
+
+// TestSQLiteStartupProcessBehavior runs the real binary path (production
+// connection handler) against representative Issue #2 fixtures and asserts
+// silent success plus exact one-line diagnostics with status 1.
+func TestSQLiteStartupProcessBehavior(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; permission-based fixtures cannot be exercised")
+	}
+
+	validPath := t.TempDir() + "/valid.db"
+	db, err := sql.Open("sqlite", validPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec("CREATE TABLE t (id INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	missing := t.TempDir() + "/absent.db"
+	invalidHeader := t.TempDir() + "/text.db"
+	if err := os.WriteFile(invalidHeader, []byte("plain text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lockedPath := t.TempDir() + "/locked.db"
+	db2, _ := sql.Open("sqlite", lockedPath)
+	db2.Exec("PRAGMA user_version=1")
+	db2.Close()
+	if err := os.Chmod(lockedPath, 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+		wantStderr string // empty means any stderr is a failure
+	}{
+		{name: "valid database opens silently", path: validPath, wantStatus: 0},
+		{name: "missing file", path: missing, wantStatus: 1, wantStderr: missing + ": no such file or directory\n"},
+		{name: "invalid header", path: invalidHeader, wantStatus: 1, wantStderr: invalidHeader + ": not a SQLite database\n"},
+		{name: "non-writable database", path: lockedPath, wantStatus: 1, wantStderr: "cannot open database read-write: " + lockedPath + ": permission denied\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0])
+			cmd.Args[0] = "sqloid"
+			cmd.Env = append(os.Environ(), "SQLOID_CLI_UNDER_TEST=sqlite "+tt.path, "SQLOID_CLI_REAL=1")
+			var out, errOut strings.Builder
+			cmd.Stdout, cmd.Stderr = &out, &errOut
+			runErr := cmd.Run()
+			status := 0
+			if runErr == nil {
+				status = 0
+			} else if exitErr, ok := runErr.(*exec.ExitError); ok {
+				status = exitErr.ExitCode()
+			} else {
+				t.Fatalf("running CLI: %v", runErr)
+			}
+			if status != tt.wantStatus {
+				t.Errorf("status = %d (stderr %q), want %d", status, errOut.String(), tt.wantStatus)
+			}
+			if tt.wantStderr != "" && errOut.String() != tt.wantStderr {
+				t.Errorf("stderr = %q, want exactly %q", errOut.String(), tt.wantStderr)
+			}
+			if out.String() != "" {
+				t.Errorf("stdout = %q, want silence", out.String())
+			}
+		})
+	}
 }
 
 func appendRecord(path, line string) error {

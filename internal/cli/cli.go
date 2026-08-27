@@ -3,9 +3,11 @@
 // mow.cli command structure.
 //
 // The package owns the `sqlite <file>` and `d1` command contracts from
-// Notes/PRD-sqloid.md and Issue #1. Database startup itself stays behind the
-// injectable Handlers so later work can connect internal/connection and
-// internal/d1 without replacing this shell.
+// Notes/PRD-sqloid.md and Issue #1, plus the startup-failure rendering from
+// Issue #2: each command handler may return an error whose Error() is already
+// the exact one-line diagnostic (internal/connection guarantees this), which
+// is printed verbatim on stderr with exit status 1. Successful dispatch stays
+// silent.
 package cli
 
 import (
@@ -22,8 +24,9 @@ import (
 var Version = "dev"
 
 // Handlers holds the functions invoked when a routed command reaches startup.
-// A nil handler is treated as not yet wired and does nothing, which keeps the
-// shell testable before internal/connection and internal/d1 exist.
+// A nil handler is treated as not yet wired and does nothing. A non-nil
+// handler that returns an error must have prepared its Error() string as the
+// exact user-facing diagnostic; the shell prints it unmodified.
 type Handlers struct {
 	// SQLite opens the database at the path passed as the `sqlite <file>`
 	// argument. It is called only after successful routing.
@@ -33,13 +36,25 @@ type Handlers struct {
 	D1 func() error
 }
 
-// New builds the Sqloid command surface: the `sqlite <file>` and `d1`
-// commands, the version flags, and mow.cli's default help handling.
+// exitStatus records the process exit code chosen inside a routed command
+// action, since mow.cli actions cannot return errors directly.
+type exitStatus struct {
+	code int
+}
+
+// fail marks a dispatched command as failed and returns true exactly once, so
+// callers can report their diagnostic without printing twice.
+func (s *exitStatus) fail() { s.code = 1 }
+
+// buildApp constructs the Sqloid command surface: the `sqlite <file>` and
+// `d1` commands, the version flags, and mow.cli's default help handling.
 //
 // Usage failures are reported by mow.cli on stderr; Main turns them into the
 // exit status 2 required by the PRD. ContinueOnError keeps that decision
 // inside this package instead of letting mow.cli call os.Exit directly.
-func New(h Handlers) *cli.Cli {
+// Handler failures print the handler's exact one-line diagnostic on stderr
+// and set status 1 (Issue #2).
+func buildApp(h Handlers, status *exitStatus) *cli.Cli {
 	app := cli.App("sqloid", "Browse and edit SQLite databases.")
 	// Propagate to subcommands; see cli.doInit, which copies this policy.
 	app.ErrorHandling = flag.ContinueOnError
@@ -62,9 +77,10 @@ func New(h Handlers) *cli.Cli {
 			if h.SQLite == nil {
 				return
 			}
-			// Startup-failure reporting and exit status are defined by
-			// Issue #2; the shell stays silent here.
-			_ = h.SQLite(*file)
+			if err := h.SQLite(*file); err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				status.fail()
+			}
 		}
 	})
 
@@ -73,7 +89,10 @@ func New(h Handlers) *cli.Cli {
 			if h.D1 == nil {
 				return
 			}
-			_ = h.D1()
+			if err := h.D1(); err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				status.fail()
+			}
 		}
 	})
 
@@ -88,15 +107,25 @@ func New(h Handlers) *cli.Cli {
 	return app
 }
 
+// New builds the Sqloid command surface for direct construction when a caller
+// drives app.Run itself; handler failures within it are recorded only for
+// reporting through Main, so interactive callers should prefer Main.
+func New(h Handlers) *cli.Cli {
+	return buildApp(h, &exitStatus{})
+}
+
 // Main runs the CLI and returns the process exit status without calling
 // os.Exit, so both the real entrypoint and tests can control termination.
+//
 // Usage failures return 2 after mow.cli has already written the error and
-// usage message to stderr; successful dispatch returns 0 and adds no output
-// of its own.
+// usage message to stderr. A routed command whose handler reports failure
+// returns 1 after the exact one-line diagnostic was written to stderr.
+// Successful dispatch returns 0 and adds no output of its own.
 func Main(args []string, h Handlers) int {
-	app := New(h)
+	status := &exitStatus{}
+	app := buildApp(h, status)
 	if err := app.Run(args); err != nil {
 		return 2
 	}
-	return 0
+	return status.code
 }

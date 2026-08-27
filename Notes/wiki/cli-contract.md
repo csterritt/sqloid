@@ -6,7 +6,7 @@ The complete command-line contract implemented by `internal/cli` on top of the P
 
 | Command | Spec | Behavior |
 | --- | --- | --- |
-| `sqloid sqlite <file>` | `FILE` (exactly one string argument) | Opens the SQLite database at `<file>`. The handler is invoked only after successful routing. |
+| `sqloid sqlite <file>` | `FILE` (exactly one string argument) | Opens the SQLite database at `<file>` through the production connection handler (wired in `cmd/sqloid/main.go`). The handler is invoked only after successful routing; startup validation/diagnostics are defined by Issue #2 ([sqlite-startup.md](sqlite-startup.md)). |
 | `sqloid d1` | no arguments | Discovers and opens the local D1 database under `.wrangler/state/v3/d1/miniflare-D1DatabaseObject`. |
 
 ## Flags
@@ -19,7 +19,7 @@ The complete command-line contract implemented by `internal/cli` on top of the P
 ## Stream ownership
 
 - **stdout** — only version output (`sqloid <version>\n`). Successful `sqlite`/`d1` dispatch adds nothing; the CLI has no success message.
-- **stderr** — help/usage text, usage-error messages (`Error: incorrect usage` and the usage block), and future startup diagnostics.
+- **stderr** — help/usage text, usage-error messages (`Error: incorrect usage` and the usage block), and each startup failure's exact one-line diagnostic printed verbatim from the handler error (`internal/cli` performs the rendering).
 
 ## Exit statuses
 
@@ -29,12 +29,12 @@ The complete command-line contract implemented by `internal/cli` on top of the P
 | Successful `sqlite <file>` or `d1` dispatch | 0 |
 | Usage failure: missing argument, unexpected argument, unknown command, illegal option | 2 |
 
-Startup/database-validation failures (status 1) are defined by Issue #2 and are not yet wired.
+Startup/database-validation failures exit **1** with exactly one stderr line per [sqlite-startup.md](sqlite-startup.md) (Issue #2); successful startup is silent.
 
 ## Roles of `internal/cli` and `cmd/sqloid`
 
-- `internal/cli` owns the entire shell: it builds the mow.cli app (`sqlite` command with `FILE` argument, `d1` command, `--version`/`-v` flag, root action), sets `flag.ContinueOnError` so mow.cli never calls `os.Exit` directly, and exposes `Main(args, handlers) int` returning the process status. Database startup is behind the injectable `Handlers` struct so `internal/connection` and `internal/d1` can be connected later without replacing the shell.
-- `cmd/sqloid` is a thin process boundary: `os.Exit(cli.Main(os.Args, cli.Handlers{}))` and nothing else.
+- `internal/cli` owns the entire shell: it builds the mow.cli app (`sqlite` command with `FILE` argument, `d1` command, `--version`/`-v` flag, root action), sets `flag.ContinueOnError` so mow.cli never calls `os.Exit` directly, and exposes `Main(args, handlers) int` returning the process status. Database startup is behind the injectable `Handlers` struct so tests can inject fakes while the production binary wires `connection.Session`. A routed handler that returns an error has its `Error()` printed as one stderr line with status 1.
+- `cmd/sqloid` is a thin process boundary: `os.Exit(cli.Main(os.Args, handlers))` where `handlers.SQLite = connection.Session`; nothing else.
 
 ## Verification
 
