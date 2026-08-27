@@ -32,9 +32,17 @@ Owns SQLite connection startup for explicit and discovered paths (Issue #2):
 - `Open(path)` — ordered, non-mutating pre-open validation: existence → readability → exact 16-byte `SQLite format 3\0` header (no driver involvement) → OS-level writability proof (`O_RDWR` open; prevents the driver's silent O_RDONLY fallback) → driver open with DSN `file:<path>?mode=rw` (never creates) → harmless `PRAGMA schema_version` probe. Journal mode is never changed; there is no read-only fallback.
 - `DB`/`Close()` — wraps the opened pool. `Session(path)` is the CLI-facing handler.
 - Exact-two pool (Issue #5): `SetMaxOpenConns(2)` + `SetMaxIdleConns(2)` after opening; DSN carries `_busy_timeout=5000`, so every physical connection receives the five-second busy timeout at creation. Constants: `poolSize = 2`, `busyTimeoutMillis = 5000`, `sqlMaxLengthBytes = 64 MiB`.
-- `DB.Lease(ctx)` / `Lease` type — dedicated lease acquisition: checks out one pooled connection and applies `sqlite.Limit(conn, SQLITE_LIMIT_LENGTH, 64 MiB)` before handing it over (the documented modernc mechanism for connection-local limits); concurrent callers get distinct connections, a third blocks until release, release is idempotent-safe, and `Conn()` panics on reuse of a released lease.
+- `DB.Lease(ctx)` / `Lease` type — dedicated lease acquisition: checks out one pooled connection and applies `sqlite.Limit(conn, SQLITE_LIMIT_LENGTH, 64 MiB)` before handing it over (the documented modernc mechanism for connection-local limits); concurrent callers get distinct connections, a third blocks until release, release is idempotent-safe, and `Conn()` panics on reuse of a released lease. Carries the narrow `interruptFn` seam (nil in production; tests install hooks).
 
 Driver: pinned exact `modernc.org/sqlite v1.57.0` (pure Go/no-cgo), registered as `"sqlite"`. DSNs build from a percent-encoded `file:` URI so reserved characters in paths stay part of the filename.
+
+### internal/connection/request.go
+
+Reusable cancellable request lifecycle (Issue #6; semantics documented in [cancellation-infrastructure.md](cancellation-infrastructure.md)):
+
+- `Request` — one cancellable database request exclusively owning its lease: process-unique atomic-counter ID, derived cancellable context (`Context()`), at-most-once idempotent `Cancel` that dispatches the connection-scoped interrupt once, observable `State()` (`running`/`cancelling`/`settled`) and `Settled()`, exactly-one `Settle(err) Outcome` with cancellation-wins late-success classification and settle-idempotence, and idempotent `Close` releasing the lease only after settlement. Never force-closes a connection.
+- `Outcome`/`RequestState` — typed terminal classifications (`success`, `cancelled`, `failed`) and visible lifecycle states with `String()` renderings.
+- `Lease.BeginRequest(parent)` — entry point; `Request.Run(op)` is the synchronous convenience form.
 
 ### internal/connection/startup_test.go
 
@@ -47,6 +55,14 @@ Pool and per-connection configuration integration tests: maximum pool size pinne
 ### internal/connection/lease_test.go (Issue #5)
 
 Barrier-driven dedicated-leasing tests against fixtures pre-placed in rollback-journal (`delete`) and WAL mode: two goroutines hold leases concurrently, underlying driver connections are compared by pointer identity to prove distinctness; each lease answers `PRAGMA schema_version`, has the five-second busy timeout and exact 64 MiB limit while held; journal mode recorded before open is unchanged after use. Release-safety test covers successful release, repeated-release idempotence, and the panic guarding reuse of a released lease.
+
+### internal/connection/request_test.go (Issue #6)
+
+Fake-backed lifecycle tests without a live driver: unique IDs and context ownership; eight racing Cancellers dispatching exactly one interrupt via a fake hook plus post-settlement idempotence; visible cancelling-until-settlement state; late-success discarded as cancelled; error classification matrix; real-pool lease-hold-before-settlement with third-lease refusal; no-force-close and safe same-lease/released-pool reuse after settled cancellation.
+
+### internal/connection/interrupt_unix_test.go (Issue #6)
+
+Linux/macOS mandatory barrier-based capability tests against modernc v1.57.0 (release-blocking): CPU-bound 200k-row probe scan settles under one second of cancellation; lock-wait INSERT blocked behind a held SHARED read lock settles within the five-second bound; independent second-lease isolation during interruption; deliberately released late success classified cancelled and discarded; subsequent harmless work on the interrupted physical connection and pool reuse prove no force-close.
 
 ### internal/connection/opener_test.go
 

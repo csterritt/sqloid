@@ -159,6 +159,13 @@ type DB struct {
 // whole pool regardless of outstanding leases.
 type Lease struct {
 	conn *sql.Conn
+
+	// interruptFn, when set, dispatches a connection-scoped interrupt on
+	// this lease's physical connection without touching any other pooled
+	// connection. Production leases leave it nil: cancelling the request
+	// context is itself the connection-scoped interrupt on the pinned
+	// driver. Tests install fake hooks to observe or replace the dispatch.
+	interruptFn func()
 }
 
 // Conn returns the leased underlying connection for executing requests. It

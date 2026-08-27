@@ -36,4 +36,4 @@ WAL and rollback-journal modes are neither set nor changed anywhere in `Connecti
   - `TestLeaseReleaseIsSafeAndRefusesReuse` — release after successful use, repeated-release safety, and `Conn()` panicking with the released-lease message on reuse.
 - Race-detector run over `internal/connection` passes (`CGO_ENABLED=1 go test -race ./internal/connection/`).
 
-Cross-references: [sqlite-startup.md](sqlite-startup.md), [source-code.md](source-code.md), [unit-tests.md](unit-tests.md).
+Cross-references: [sqlite-startup.md](sqlite-startup.md), [cancellation-infrastructure.md](cancellation-infrastructure.md), [source-code.md](source-code.md), [unit-tests.md](unit-tests.md).
