@@ -27,8 +27,17 @@ An immediate entry of that directory is a candidate when **all** rules hold:
 | Candidates found | Behavior |
 | --- | --- |
 | Exactly one | Discovery returns its joined path (`<dir>/<name>`) unchanged and startup proceeds through the shared opener below. Successful open is silent (exit 0). |
-| Zero (directory absent, empty, or all entries excluded) | Typed outcome surfaced to `internal/cli`; exit 1. Exact diagnostics are specified by Issue #4 (task notes 004). |
-| More than one | Typed outcome surfaced to `internal/cli`; exit 1. Exact diagnostics are specified by Issue #4. |
+| Zero (directory absent, empty, unreadable, or all entries excluded) | Typed `ErrNoCandidate` outcome surfaced to `internal/cli`; exit 1 with exactly **two** stderr lines: `no candidate database found in .wrangler`, then `Expected .wrangler/state/v3/d1/miniflare-D1DatabaseObject; your Wrangler version may use a different local-state layout. Use sqloid sqlite <file> to open the database explicitly.` |
+| More than one | Typed `ErrMultipleCandidates` outcome surfaced to `internal/cli`; exit 1 with only the exact single stderr line `There is more than one SQLite database in .wrangler` — deliberately no expected-path or explicit-open layout hint. |
+
+## Discovery-failure diagnostics (Issue #4)
+
+`internal/cli` owns the mapping from typed outcomes to process-facing diagnostics; `internal/d1` carries no message text beyond its sentinel errors, and neither maps to any open attempt:
+
+- **Zero candidates** — covering a missing, unreadable, empty, or candidate-free directory — produce exactly two stderr lines: the typed message plus the hint above naming the working-directory-relative expected path and explicit-open recovery (`sqloid sqlite <file>`). Note that `d1.Discover` cannot distinguish missing from unreadable from candidate-free: every such case collapses onto the same zero-candidate diagnostic by design.
+- **Multiple candidates** produce exactly one stderr line with no hint.
+- Every discovery failure exits status 1, writes nothing to stdout, bypasses `internal/connection` entirely, and creates no database target anywhere in the working directory (golden tests snapshot the whole working tree before/after).
+- The single-line `internal/connection` rendering convention does not apply here: discovery failures are the PRD's explicitly defined multi-line exception, printed verbatim by `Main` as one newline-bearing handler error.
 
 ## Handoff chain
 

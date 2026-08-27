@@ -50,4 +50,10 @@ Table-driven filesystem tests via `t.Chdir(t.TempDir())`: sole-candidate selecti
 ## Additional Issue #3 tests elsewhere
 
 - `internal/cli/d1_test.go` — `TestRunD1PassesSoleCandidateUnchangedToSharedOpener` proves the discovery→opener handoff passes the exact path unchanged through injected seams; `TestD1EndToEndOpensSoleDiscoveredCandidate` runs `sqloid d1` through `Main` on a mixed fixture (real SQLite candidate plus ignored metadata, sidecar, wrong-case, nested, and alternate-layout files) asserting silent status-0 success.
+
+## Issue #4 discovery-failure golden tests (internal/cli/d1_test.go)
+
+- `TestRunD1DiscoveryFailureMapsExactDiagnosticAndSkipsOpener` — with each typed `internal/d1` outcome injected: asserts the mapped diagnostic's exact spelling, line count (2 for zero candidates with the expected-path + `sqloid sqlite <file>` hint; 1 for multiple candidates without a hint), and that the shared opener is never invoked.
+- `TestD1DiscoveryFailureProcessBehavior` — runs `sqloid d1` through `Main` on real fixtures via `t.Chdir`: missing, empty, and candidate-free Wrangler directories produce exactly the two-line zero-candidate diagnostic; multiple `.sqlite` candidates produce exactly the single line. Each case asserts stderr equality byte-for-byte, silence on stdout, status 1, and — by walking the working directory before and after — that no database or stray file was created.
+- `TestD1DiscoveryUnreadableDirectoryProcessBehavior` — an unreadable (`0o000`) Wrangler directory yields the identical zero-candidate two lines with status 1 and no creation. Permission cases skip under root.
 - `internal/connection/opener_test.go` — `TestOpenRelativePath` pins read-write mode=rw opening of a working-directory-relative discovered path.
