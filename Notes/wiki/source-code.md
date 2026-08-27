@@ -30,9 +30,9 @@ Owns SQLite connection startup for explicit and discovered paths (Issue #2):
 - `FailureKind` — structured failure classes: `FailureMissing`, `FailureUnreadable`, `FailureNotADatabase`, `FailureReadWrite`.
 - `StartupError` — carries `Path`, `Kind`, and a preserved unwrappable `Cause`; `Error()` already produces the exact one-line diagnostics rendered verbatim by `internal/cli` (see [sqlite-startup.md](sqlite-startup.md) for the message table).
 - `Open(path)` — ordered, non-mutating pre-open validation: existence → readability → exact 16-byte `SQLite format 3\0` header (no driver involvement) → OS-level writability proof (`O_RDWR` open; prevents the driver's silent O_RDONLY fallback) → driver open with DSN `file:<path>?mode=rw` (never creates) → harmless `PRAGMA schema_version` probe. Journal mode is never changed; there is no read-only fallback.
-- `DB`/`Close()` — wraps the opened pool. `Session(path)` is the CLI-facing handler.
+- `DB`/`Close()` — wraps the opened pool. `Session(path)` is the CLI-facing handler. After successful startup validation, `Open` records the validated target's path, device, and inode on the `DB` as the request-boundary health reference (Issue #7; see [session-health.md](session-health.md)).
 - Exact-two pool (Issue #5): `SetMaxOpenConns(2)` + `SetMaxIdleConns(2)` after opening; DSN carries `_busy_timeout=5000`, so every physical connection receives the five-second busy timeout at creation. Constants: `poolSize = 2`, `busyTimeoutMillis = 5000`, `sqlMaxLengthBytes = 64 MiB`.
-- `DB.Lease(ctx)` / `Lease` type — dedicated lease acquisition: checks out one pooled connection and applies `sqlite.Limit(conn, SQLITE_LIMIT_LENGTH, 64 MiB)` before handing it over (the documented modernc mechanism for connection-local limits); concurrent callers get distinct connections, a third blocks until release, release is idempotent-safe, and `Conn()` panics on reuse of a released lease. Carries the narrow `interruptFn` seam (nil in production; tests install hooks).
+- `DB.Lease(ctx)` / `Lease` type — dedicated lease acquisition: verifies original-path identity before admitting any connection (retained or newly opened/replacement) for use (Issue #7), then checks out one pooled connection and applies `sqlite.Limit(conn, SQLITE_LIMIT_LENGTH, 64 MiB)` before handing it over (the documented modernc mechanism for connection-local limits); concurrent callers get distinct connections, a third blocks until release, release is idempotent-safe, and `Conn()` panics on reuse of a released lease. Carries the narrow `interruptFn` seam (nil in production; tests install hooks).
 
 Driver: pinned exact `modernc.org/sqlite v1.57.0` (pure Go/no-cgo), registered as `"sqlite"`. DSNs build from a percent-encoded `file:` URI so reserved characters in paths stay part of the filename.
 
@@ -43,6 +43,19 @@ Reusable cancellable request lifecycle (Issue #6; semantics documented in [cance
 - `Request` — one cancellable database request exclusively owning its lease: process-unique atomic-counter ID, derived cancellable context (`Context()`), at-most-once idempotent `Cancel` that dispatches the connection-scoped interrupt once, observable `State()` (`running`/`cancelling`/`settled`) and `Settled()`, exactly-one `Settle(err) Outcome` with cancellation-wins late-success classification and settle-idempotence, and idempotent `Close` releasing the lease only after settlement. Never force-closes a connection.
 - `Outcome`/`RequestState` — typed terminal classifications (`success`, `cancelled`, `failed`) and visible lifecycle states with `String()` renderings.
 - `Lease.BeginRequest(parent)` — entry point; `Request.Run(op)` is the synchronous convenience form.
+
+### internal/connection/health.go
+
+Request-boundary database identity checks (Issue #7; semantics documented in [session-health.md](session-health.md)):
+
+- `HealthKind` (`HealthDeleted`, `HealthReplaced`) and `HealthError{Path, Kind, Cause}` — typed classification with neutral diagnostic text only; terminal copy is Issue #46's.
+- `VerifyHealth()` — stats the recorded original path and compares both identifiers once per call; nil means unchanged (including same-inode in-place mutation), absence of any kind (deletion, rename-away, or unstatable path) classifies deleted with preserved unwrappable cause, device/inode mismatch classifies replaced.
+- `RunRequest(parent, op) RequestResult` — the reusable request boundary: identity verification inside Lease → cancellable op → settlement → post-error reverification where deletion/replacement takes precedence over ordinary error handling while preserving causes; successful results stand until the next boundary detects changes before work.
+- No watcher, polling loop, or UI dependency.
+
+### internal/connection/identity_unix.go / identity_other.go
+
+Platform split for identity capture under build tags: Unix reads device/inode from `syscall.Stat_t`; non-Unix reports capture unsupported so verification trivially passes (Sqloid targets Linux/macOS).
 
 ### internal/connection/startup_test.go
 

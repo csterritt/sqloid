@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 
 	sqlite "modernc.org/sqlite" // pinned pure-Go "sqlite" driver
@@ -149,6 +150,20 @@ func readWriteDetail(cause error) string {
 // database/sql access for a validated database. Close releases the pool.
 type DB struct {
 	SQL *sql.DB
+
+	// path, startDev, and startIno are the recorded request-boundary health
+	// reference (Issue #7): the validated target path plus the device and
+	// inode it carried at successful startup. VerifyHealth compares stat of
+	// path against them before every database request. On platforms without
+	// device/inode support both identifiers remain zero.
+	path     string
+	startDev uint64
+	startIno uint64
+
+	// identityChecks counts VerifyHealth invocations so tests can prove the
+	// exactly-one-pre-BEGIN-check contract for phased writes without hooks;
+	// reading it is test observability of the boundary, not production state.
+	identityChecks atomic.Int64
 }
 
 // Lease acquires one dedicated physical connection from the exact-two pool,
@@ -203,6 +218,15 @@ func (db *DB) Lease(ctx context.Context) (*Lease, error) {
 	conn, err := db.SQL.Conn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lease connection from pool: %w", err)
+	}
+	// Request-boundary health check (Issue #7): no physical connection — a
+	// retained pooled member or one newly opened/reopened for this lease — is
+	// admitted for use until the original path still carries its startup
+	// device and inode. This check is the pre-request check itself: work can
+	// only follow after Lease returns, so every request begins verified.
+	if err := db.VerifyHealth(); err != nil {
+		conn.Close()
+		return nil, err
 	}
 	if _, err := sqlite.Limit(conn, sqlite3.SQLITE_LIMIT_LENGTH, sqlMaxLengthBytes); err != nil {
 		conn.Close()
@@ -294,7 +318,16 @@ func Open(path string) (*DB, error) {
 	if err := probe(sqlDB); err != nil {
 		return closeOnError(classifyOpenError(path, err))
 	}
-	return &DB{SQL: sqlDB}, nil
+	// Record the validated target's filesystem identity after the full
+	// ordered validation succeeded; this reference backs every later
+	// request-boundary verification per Issue #7.
+	startDev, startIno, statErr := statIdentity(path)
+	if statErr != nil {
+		// The file vanished or became unstatable in the instant between
+		// validation and recording; classify the same way as open failures.
+		return closeOnError(classifyOpenError(path, statErr))
+	}
+	return &DB{SQL: sqlDB, path: path, startDev: startDev, startIno: startIno}, nil
 }
 
 // probe issues the harmless schema probe required after opening.
