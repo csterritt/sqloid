@@ -2,28 +2,36 @@
 /**
  * json-watch.ts
  *
- * Tails a file and parses each new line as JSON. Prints extracted fields
- * depending on the message shape:
+ * Watches a directory for the most recently modified file, tails it, and
+ * parses each new line as JSON. Prints extracted fields depending on the
+ * message shape:
  *   - assistant/user/etc with content: id, timestamp, first 40 chars of content
  *   - toolResult: id, timestamp, toolName
  *   - anything else: id, timestamp, role
  *
  * Lines that fail JSON parsing print "Not JSON:" plus the first 40 chars.
  *
- * Usage: json-watch.ts <file>
+ * Periodically checks the directory for a newer file. When a newer file is
+ * found, prints a line of 20 hyphens and switches to tailing that file
+ * instead.
+ *
+ * Usage: json-watch.ts <directory>
  */
 
 import { watchFile } from "node:fs";
-import { open, stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { open, stat, readdir } from "node:fs/promises";
+import { resolve, join } from "node:path";
 
-const file = process.argv[2];
-if (!file) {
-  console.error("Usage: json-watch.ts <file>");
+const dirArg = process.argv[2];
+if (!dirArg) {
+  console.error("Usage: json-watch.ts <directory>");
   process.exit(1);
 }
 
-const path = resolve(file);
+const dir = resolve(dirArg);
+
+/** How often to scan the directory for a newer file (ms). */
+const DIR_SCAN_INTERVAL = 5000;
 
 /** Extract the first 40 characters of a message's content array. */
 function contentPreview(content: unknown): string {
@@ -32,7 +40,7 @@ function contentPreview(content: unknown): string {
   if (!first) return "";
   // Content items may carry text in "text" or "thinking" fields.
   const text = (first.text ?? first.thinking ?? "") as string;
-  return text.replace(/\n/g, " ").slice(0, 40);
+  return text.replace(/[\n]+/g, " ").slice(0, 40);
 }
 
 function handleLine(line: string): void {
@@ -73,37 +81,69 @@ function handleLine(line: string): void {
   console.log(`${ts} ${id} (no message)`);
 }
 
+/** Find the most recently modified file in a directory. */
+async function newestFile(): Promise<string | undefined> {
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return undefined;
+  }
+  let best: { path: string; mtime: number } | undefined;
+  for (const name of entries) {
+    const full = join(dir, name);
+    try {
+      const s = await stat(full);
+      if (!s.isFile()) continue;
+      if (!best || s.mtimeMs > best.mtime) {
+        best = { path: full, mtime: s.mtimeMs };
+      }
+    } catch {
+      // skip unreadable entries
+    }
+  }
+  return best?.path;
+}
+
 async function main() {
+  let currentPath = await newestFile();
   let size = 0;
   let buf = "";
   let fd: Awaited<ReturnType<typeof open>> | undefined;
+  let watcher: typeof watchFile | undefined;
 
   // On an existing file, show the last 5 lines before tailing.
-  try {
-    const s = await stat(path);
-    const fd0 = await open(path, "r");
-    const data = Buffer.alloc(s.size);
-    await fd0.read(data, 0, s.size, 0);
-    await fd0.close();
-    const allLines = data.toString("utf8").split("\n").filter((l) => l.trim().length > 0);
-    for (const line of allLines.slice(-5)) {
-      handleLine(line);
+  async function loadInitial(path: string) {
+    try {
+      const s = await stat(path);
+      const fd0 = await open(path, "r");
+      const data = Buffer.alloc(s.size);
+      await fd0.read(data, 0, s.size, 0);
+      await fd0.close();
+      const allLines = data
+        .toString("utf8")
+        .split("\n")
+        .filter((l) => l.trim().length > 0);
+      for (const line of allLines.slice(-5)) {
+        handleLine(line);
+      }
+      size = s.size;
+    } catch {
+      // File may not exist yet; start at 0.
     }
-    size = s.size;
-  } catch {
-    // File may not exist yet; start at 0.
   }
 
   async function readNew() {
+    if (!currentPath) return;
     try {
-      const s = await stat(path);
+      const s = await stat(currentPath);
       if (s.size < size) {
         // File was truncated/rotated; reset.
         size = 0;
         buf = "";
       }
       if (s.size === size) return;
-      if (!fd) fd = await open(path, "r");
+      if (!fd) fd = await open(currentPath, "r");
       const length = s.size - size;
       const data = Buffer.alloc(length);
       await fd.read(data, 0, length, size);
@@ -120,12 +160,43 @@ async function main() {
     }
   }
 
-  await readNew();
-  watchFile(path, { interval: 200 }, () => {
-    readNew().catch(() => {});
-  });
+  async function switchTo(path: string) {
+    if (watcher) watcher.unwatchFile(currentPath!);
+    if (fd) {
+      await fd.close().catch(() => {});
+      fd = undefined;
+    }
+    size = 0;
+    buf = "";
+    currentPath = path;
+    console.log("--------------------");
+    await loadInitial(path);
+    await readNew();
+    watcher = watchFile(path, { interval: 200 }, () => {
+      readNew().catch(() => {});
+    });
+  }
 
-  console.log(`Watching ${path}...`);
+  if (currentPath) {
+    await loadInitial(currentPath);
+    await readNew();
+    watcher = watchFile(currentPath, { interval: 200 }, () => {
+      readNew().catch(() => {});
+    });
+    console.log(`Watching ${currentPath}...`);
+  } else {
+    console.log(`No files found in ${dir}; waiting...`);
+  }
+
+  // Periodically scan for a newer file.
+  setInterval(async () => {
+    const latest = await newestFile();
+    if (!latest) return;
+    if (latest !== currentPath) {
+      await switchTo(latest).catch(() => {});
+      console.log(`Watching ${latest}...`);
+    }
+  }, DIR_SCAN_INTERVAL);
 }
 
 main().catch((err) => {
