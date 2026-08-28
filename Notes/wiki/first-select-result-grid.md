@@ -17,7 +17,7 @@ The single UI-independent seam consumed by the grid and by future CSV/JSON expor
 
 - **Typed values** — `Value`/`Kind` preserve NULL, INTEGER, REAL, TEXT, and BLOB distinctions; render helpers never coerce numeric-looking TEXT, null, or BLOB-like values into another type.
 - **Output names** — `DeduplicateNames` applies the full-set collision rule: first occurrence unchanged; each duplicate receives the lowest `_2`, `_3`, … suffix colliding with neither an already-final name nor any original name. Original driver labels remain separately in `Page.Columns`; `HeaderNames()` returns the deduplicated display/export names.
-- **Finite REAL tokens** — `RealToken` renders the shortest round-tripping 'g' token, appending `.0` exactly when the token contains none of `.`, `e`, `E` (so `1` → `1.0`, `-0.0` stays `-0.0`); locale-independent. Non-finite policy is Issue #23's.
+- **Finite REAL tokens** — `RealToken` renders the shortest round-tripping 'g' token, appending `.0` exactly when the token contains none of `.`, `e`, `E` (so `1` → `1.0`, `-0.0` stays `-0.0`); locale-independent. Non-finite policy is Issue #23's, implemented in [non-finite-real-grid.md](non-finite-real-grid.md).
 - **Invalid UTF-8** — `DecodeText` replaces each maximal invalid byte sequence with exactly one U+FFFD and sets `Page.InvalidUTF` warning metadata without changing row or column counts. The grid shows the persistent `invalid UTF-8 replaced with U+FFFD` warning in the status line.
 - **Control characters** — `GridText` renders tabs as `⇥` and newlines as `⏎` in grid-facing TEXT.
 - **BLOBs** — payloads are copied and retained byte-for-byte (including invalid UTF-8 and empty bytes) while display is exactly `[BLOB n bytes]`.
@@ -37,4 +37,4 @@ The hardcoded Issue #10 runtime path is fully removed: `internal/ui/tracer.go`, 
 
 ## Deferred contracts
 
-Non-finite REAL rendering (Issue #23), independent concurrent count/later paging/cache caps (Issue #24), CSV/JSON export escaping, result history navigation, and horizontal scrolling are deliberately absent; `internal/result` is shaped so exporters extend rather than copy it.
+Independent concurrent count/later paging/cache caps (Issue #24), CSV/JSON export escaping, result history navigation, and horizontal scrolling are deliberately absent; `internal/result` is shaped so exporters extend rather than copy it. Non-finite REAL grid rendering was completed by Issue #23 (see [non-finite-real-grid.md](non-finite-real-grid.md)).

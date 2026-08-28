@@ -248,6 +248,73 @@ func TestDisplayTypedCellValues(t *testing.T) {
 	}
 }
 
+func TestNonFiniteRealDisplayTokens(t *testing.T) {
+	nanQuiet := math.NaN()
+	nanPayload := math.Float64frombits(math.Float64bits(nanQuiet) | 0x0007_5000_0000_0001)
+	nanNegative := math.Float64frombits(math.Float64bits(nanQuiet) | 0x8000_0000_0000_0001)
+	tests := []struct {
+		name string
+		v    Value
+		want string
+	}{
+		{name: "positive infinity", v: NewReal(math.Inf(1)), want: "Inf"},
+		{name: "negative infinity", v: NewReal(math.Inf(-1)), want: "-Inf"},
+		{name: "quiet NaN", v: NewReal(nanQuiet), want: "NaN"},
+		{name: "NaN payload renders same token", v: NewReal(nanPayload), want: "NaN"},
+		{name: "negative NaN renders same token", v: NewReal(nanNegative), want: "NaN"},
+		{name: "finite REAL keeps exact token", v: NewReal(1), want: "1.0"},
+		{name: "finite REAL exponent keeps exact token", v: NewReal(1e20), want: "1e+20"},
+		{name: "TEXT Inf stays verbatim text", v: NewText("Inf"), want: "Inf"},
+		{name: "TEXT -Inf stays verbatim text", v: NewText("-Inf"), want: "-Inf"},
+		{name: "TEXT NaN stays verbatim text", v: NewText("NaN"), want: "NaN"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.v.Display(); got != tt.want {
+				t.Errorf("Display() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNonFiniteRealTypeAndValueRetained(t *testing.T) {
+	rows := [][]any{
+		{math.Inf(1), math.Inf(-1), math.NaN(), math.Float64frombits(math.Float64bits(math.NaN()) | 0x000A_5000_0000_0002), 1.5, "Inf", "NaN"},
+	}
+	page := FromDriver([]string{"pos", "neg", "nan", "nan2", "finite", "t1", "t2"}, rows)
+	row := page.Rows[0]
+
+	wantTokens := []string{"Inf", "-Inf", "NaN", "NaN", "1.5", "Inf", "NaN"}
+	for i, want := range wantTokens {
+		if got := row[i].Display(); got != want {
+			t.Errorf("cell %d display = %q, want %q", i, got, want)
+		}
+	}
+	// REAL cells keep their kind and exact float64 backing value even when
+	// the token differs; TEXT cells keep their kind despite matching glyphs.
+	for i, wantFloat := range []float64{math.Inf(1), math.Inf(-1), math.NaN(), math.Float64frombits(math.Float64bits(math.NaN()) | 0x000A_5000_0000_0002), 1.5} {
+		if row[i].Kind != KindReal {
+			t.Errorf("cell %d kind = %d, want KindReal", i, row[i].Kind)
+		}
+		if math.IsNaN(wantFloat) {
+			if !math.IsNaN(row[i].Float) || math.Float64bits(row[i].Float) != math.Float64bits(wantFloat) {
+				t.Errorf("cell %d NaN bits changed: %#x, want %#x", i, math.Float64bits(row[i].Float), math.Float64bits(wantFloat))
+			}
+		} else if row[i].Float != wantFloat {
+			t.Errorf("cell %d float = %v, want %v", i, row[i].Float, wantFloat)
+		}
+	}
+	for i, wantStr := range []string{"Inf", "NaN"} {
+		c := row[5+i]
+		if c.Kind != KindText || c.Str != wantStr {
+			t.Errorf("cell %d = (%d, %q), want text %q", 5+i, c.Kind, c.Str, wantStr)
+		}
+	}
+	if page.InvalidUTF {
+		t.Errorf("non-finite REALs set invalid-UTF metadata")
+	}
+}
+
 func TestTypeIdentityPreserved(t *testing.T) {
 	// INTEGER 1, REAL 1.0, and TEXT "1.0" must remain three distinct typed
 	// values even though their tokens overlap.

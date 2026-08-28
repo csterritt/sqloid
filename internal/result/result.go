@@ -17,6 +17,7 @@ package result
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -33,8 +34,8 @@ const (
 	KindNull Kind = iota
 	// KindInteger is a signed 64-bit integer.
 	KindInteger
-	// KindReal is a float64 REAL value, finite or not; non-finite rendering
-	// policy is owned by Issue #23 and deliberately not this package.
+	// KindReal is a float64 REAL value, finite or not; non-finite values
+	// render as the exact Issue #23 tokens Inf, -Inf, and NaN.
 	KindReal
 	// KindText is decoded TEXT, verbatim except for maximal invalid UTF-8
 	// sequences, which become exactly one U+FFFD each at conversion time.
@@ -125,12 +126,23 @@ func (v Value) Display() string {
 	}
 }
 
-// RealToken returns the exact PRD finite-REAL token: the shortest
-// round-tripping 'g'-format float64 representation, with ".0" appended
-// exactly when the token contains none of '.', 'e', or 'E' so REAL identity
-// survives for values such as 1.0, -0.0, and 1e+20. The token is
-// locale-independent by construction of strconv.
+// RealToken returns the exact PRD REAL token. For positive infinity,
+// negative infinity, and any NaN payload it is exactly `Inf`, `-Inf`, and
+// `NaN` respectively (Issue #23), never strconv's `+Inf` and never a
+// payload-specific form. Finite values use the shortest round-tripping
+// 'g'-format float64 representation, with ".0" appended exactly when the
+// token contains none of '.', 'e', or 'E' so REAL identity survives for
+// values such as 1.0, -0.0, and 1e+20. The token is locale-independent by
+// construction of strconv.
 func RealToken(v float64) string {
+	switch {
+	case math.IsInf(v, 1):
+		return "Inf"
+	case math.IsInf(v, -1):
+		return "-Inf"
+	case math.IsNaN(v):
+		return "NaN"
+	}
 	token := strconv.FormatFloat(v, 'g', -1, 64)
 	if !strings.ContainsAny(token, ".eE") {
 		token += ".0"

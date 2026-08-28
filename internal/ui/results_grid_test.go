@@ -11,6 +11,7 @@ package ui
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -96,6 +97,56 @@ func TestResultGridTypedCellDistinctions(t *testing.T) {
 	// Backing bytes stay raw and untouched.
 	if string(page.Rows[0][3].Bytes) != "\x01\x02\x03" {
 		t.Errorf("BLOB bytes mutated by rendering: %x", page.Rows[0][3].Bytes)
+	}
+}
+
+func TestResultGridNonFiniteRealTokens(t *testing.T) {
+	page := &result.Page{
+		Columns: []string{"r", "t"},
+		Rows: [][]result.Value{
+			{result.NewReal(math.Inf(1)), result.NewText("Inf")},
+			{result.NewReal(math.Inf(-1)), result.NewText("-Inf")},
+			{result.NewReal(math.NaN()), result.NewText("NaN")},
+			{result.NewReal(1), result.NewText("1.0")},
+		},
+	}
+	m := resultModel(t, page, nil)
+	view := m.View()
+
+	for _, want := range []string{"Inf", "-Inf", "NaN"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing non-finite REAL token %q:\n%s", want, view)
+		}
+	}
+	// Finite REALs keep the Issue #22 shortest-round-trip token.
+	if !strings.Contains(view, "1.0") {
+		t.Errorf("view missing finite REAL token \"1.0\":\n%s", view)
+	}
+	// Identical-looking TEXT keeps its type and verbatim value; REALs keep
+	// their float64 backing value.
+	if page.Rows[0][1].Kind != result.KindText || page.Rows[0][1].Str != "Inf" {
+		t.Errorf("TEXT \"Inf\" value altered: (%d, %q)", page.Rows[0][1].Kind, page.Rows[0][1].Str)
+	}
+	if page.Rows[0][0].Kind != result.KindReal || !math.IsInf(page.Rows[0][0].Float, 1) {
+		t.Errorf("REAL +Inf backing value altered: (%d, %v)", page.Rows[0][0].Kind, page.Rows[0][0].Float)
+	}
+	if len(m.Result.Page.Rows) != 4 {
+		t.Errorf("row count = %d, want 4", len(m.Result.Page.Rows))
+	}
+	// Exact per-row grid tokens, rendered through the shared seam only.
+	wantRows := [][]string{
+		{"Inf", "Inf"},
+		{"-Inf", "-Inf"},
+		{"NaN", "NaN"},
+		{"1.0", "1.0"},
+	}
+	for i, row := range m.Result.Page.Rows {
+		cells := gridCellTexts(row)
+		for j, want := range wantRows[i] {
+			if cells[j] != want {
+				t.Errorf("grid cell (%d,%d) = %q, want %q", i, j, cells[j], want)
+			}
+		}
 	}
 }
 

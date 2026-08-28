@@ -98,9 +98,9 @@ Cross-references: [cancellation-infrastructure.md](cancellation-infrastructure.m
 ## internal/ui Issue #22 first-select and result-grid tests
 
 - `internal/ui/first_select_test.go` — scripted model coverage of the production route: runnable builder through validation handoff to exactly one executor call carrying the builder's SQL/parameters, history appended exactly at the actual-execution boundary with consecutive-identical suppression, ordinary execution-error settlement, and failed validation producing no execution and no history.
-- `internal/ui/results_grid_test.go` — focused view tests over `internal/result` fixtures only: frozen deduplicated header, absolute inclusive `rows 1-N` range, typed cell distinctions (NULL/INTEGER/finite REAL/TEXT/BLOB), visible tab/newline symbols, persistent invalid-UTF warning without extra rows/columns, exact `No rows` distinct from the startup prompt, and the result-error boundary.
+- `internal/ui/results_grid_test.go` — focused view tests over `internal/result` fixtures only: frozen deduplicated header, absolute inclusive `rows 1-N` range, typed cell distinctions (NULL/INTEGER/finite REAL/TEXT/BLOB), Issue #23 non-finite REAL tokens (exact `Inf`/`-Inf`/`NaN` per-row grid tokens beside identical-looking TEXT, finite REAL tokens unchanged, backing REAL and TEXT values retained), visible tab/newline symbols, persistent invalid-UTF warning without extra rows/columns, exact `No rows` distinct from the startup prompt, and the result-error boundary.
 
-Cross-references: [first-select-result-grid.md](first-select-result-grid.md).
+Cross-references: [first-select-result-grid.md](first-select-result-grid.md), [non-finite-real-grid.md](non-finite-real-grid.md).
 
 ## internal/querybuilder Issue #11 builder tests
 
