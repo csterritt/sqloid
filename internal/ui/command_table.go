@@ -164,6 +164,7 @@ func handleCommandKey(m *Model, msg tea.KeyMsg) bool {
 // fields from the resulting builder snapshot, keeping UI focus on the same
 // labeled field when it survives the refresh.
 func (m *Model) applySchemaRefresh(c *schema.Catalog) Model {
+	m.catalog = c // the cache the next pre-execution validation compares against
 	previous := ""
 	if m.Focus >= 0 && m.Focus < len(m.Fields) {
 		previous = m.Fields[m.Focus].Label

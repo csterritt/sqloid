@@ -108,8 +108,14 @@ func (m Model) drawPopupOverlay(base string) string {
 func (m Model) renderResults(width, height int) string {
 	header := ""
 	var content []string
-	if m.schemaStale && m.Popup == nil {
+	if m.schemaStale && m.Popup == nil && !m.validating {
 		content = staleStatusLines(true, m.staleCause)
+	} else if m.validating {
+		// Issue #21: validation owns the results content — exact
+		// `cancelling…` after a Ctrl+W request, the stale indicators after an
+		// ordinary refresh failure, or `validating…` while a request is in
+		// flight.
+		content = m.validationStatusLines()
 	} else {
 		status := "Select a command (S/U/D/I) to begin"
 		content = []string{status}

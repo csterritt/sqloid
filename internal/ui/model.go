@@ -11,6 +11,7 @@ import (
 
 	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
+	"github.com/chris/sqloid/internal/schema"
 )
 
 // Minimum supported terminal dimensions. Below either threshold the shell
@@ -77,6 +78,22 @@ type Model struct {
 	// selection. Its transitions own eligibility and downstream clearing;
 	// Fields below re-render from it whenever a transition applies.
 	QB qb.QueryBuilder
+
+	// catalog is the retained cached schema catalog (Issue #9/#21 cache):
+	// the exact pointer reused on unchanged pre-execution validation. Kept
+	// current on every successful catalog install.
+	catalog *schema.Catalog
+
+	// Pre-execution validation workflow state (Issue #21): validating is
+	// true while the distinct workflow is open; validationPending while a
+	// schema-version request is outstanding; validationCancelling from the
+	// Ctrl+W request until settlement; validationAttempt is the monotonic
+	// preparation/request identity guarding late or superseded responses.
+	VersionReader        VersionReader
+	validating           bool
+	validationPending    bool
+	validationCancelling bool
+	validationAttempt    uint64
 
 	// History owns the session-only query-history store (Issue #20). Nil
 	// means no history is wired; execution-start appends then no-op. Append
@@ -171,15 +188,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyCancel()
 		m.adjustScroll()
 		return m, nil
+	case ValidationSettledMsg:
+		cmd := m.applyValidationSettled(msg)
+		m.adjustScroll()
+		return m, cmd
 	case StartTraceMsg:
 		return m, func() tea.Msg { return handleStartTrace(msg) }
 	case traceSettledMsg:
 		return m.applyTraceResult(msg.result), nil
 	case PreExecutionRequestedMsg:
-		// Issue #20 lifecycle: runnable evaluation and the pre-execution seam
-		// append nothing. Schema validation, destructive estimation, and
-		// confirmation (Issue #22 onward) must settle before any history
-		// entry exists.
+		// Issue #21 lifecycle: runnable Enter opens the distinct pre-execution
+		// validation workflow and issues the schema-version request. Opening,
+		// pending, failed, cancelled, and dismissed validation appends nothing;
+		// the execution-start route is returned only by settled success.
+		return m, m.beginValidation()
+	case CancelValidationMsg:
+		// Produced by the cancellation closure dispatched at Ctrl+W; the model
+		// already entered its cancelling state before dispatching, so this
+		// settles nothing on its own (the workflow closes at true settlement).
 		return m, nil
 	case ExecutionStartedMsg:
 		m.appendQueryHistoryAtExecutionStart()
@@ -251,6 +277,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg.String() {
+	case "ctrl+w":
+		if m.validating {
+			// Issue #21: connection-scoped cancellation requested exactly once
+			// per request; exact `cancelling…` renders until settlement.
+			return m, m.requestValidationCancellation()
+		}
+		if m.ActiveCancellable && m.CancelCommand != nil {
+			return m, m.CancelCommand
+		}
+	case "esc":
+		if m.validating && m.schemaStale && !m.validationCancelling {
+			// Cancel closes the stale validation flow with the exact
+			// pre-validation builder context and no execution.
+			m.cancelValidation()
+			m.adjustScroll()
+			return m, nil
+		}
 	case "backspace", "delete":
 		if m.columnsFocused() {
 			// Base Column(s) field owns removal (Issue #16): the immutable
@@ -289,6 +332,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "enter":
+		if m.validating && m.schemaStale && !m.validationCancelling {
+			// Retry inside stale validation issues a fresh version request
+			// under a new preparation identity; duplicates are refused.
+			cmd := m.retryValidation()
+			m.adjustScroll()
+			return m, cmd
+		}
 		// Base-context Enter consults the authoritative runnable report after
 		// every higher-precedence context has been handled above (Issue #19).
 		cmd := m.handleBaseEnter()

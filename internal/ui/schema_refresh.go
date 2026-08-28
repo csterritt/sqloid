@@ -116,6 +116,7 @@ func (m *Model) applyRefreshSettled(msg SchemaRefreshSettledMsg) {
 	}
 	switch msg.Result.Status {
 	case schema.RefreshOK:
+		m.catalog = msg.Result.Catalog
 		m.applyBuilder(m.QB.RefreshSchema(msg.Result.Catalog))
 		m.schemaStale = false
 		m.staleCause = ""

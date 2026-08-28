@@ -16,6 +16,22 @@ import (
 	"github.com/chris/sqloid/internal/schema"
 )
 
+// ReadSchemaVersion reads the database's current PRAGMA schema_version as one
+// cancellable request. It backs pre-execution revalidation (Issue #21): the
+// caller compares the value against its cached Catalog.Version and only
+// issues a catalog refresh when the version changed. Failures return the
+// failed RequestResult with the operation error wrapped for cause inspection.
+func (db *DB) ReadSchemaVersion(parent context.Context) (int64, RequestResult) {
+	var version int64
+	res := db.RunRequest(parent, func(ctx context.Context, conn *sql.Conn) error {
+		if err := conn.QueryRowContext(ctx, "PRAGMA schema_version").Scan(&version); err != nil {
+			return wrapCatalog("read schema version", err)
+		}
+		return nil
+	})
+	return version, res
+}
+
 // ReadCatalog gathers one complete schema snapshot as a single cancellable
 // request: PRAGMA schema_version, eligible main.sqlite_master objects in
 // ascending name order, and each object's table_xinfo columns decoded by
