@@ -9,8 +9,10 @@
 // Display text so a real column named `*` or `COUNT(*)` can never collide
 // with the synthetic wildcard or sentinel identities. Aggregates exist only
 // on named-column identities — MIN(*), MAX(*), AVG(*), and SUM(*) are not
-// representable by construction. Ordered-editing breadth (reordering beyond
-// appends and full deduplication) belongs to Issue #16.
+// representable by construction. Entries commit in insertion order (Issue
+// #16): exact repeated named pairs are rejected as no-ops, the sentinel
+// duplicates defensively, and wildcard selection atomically replaces the
+// whole list, staying sole until removal empties the projection.
 
 package querybuilder
 
@@ -136,21 +138,35 @@ func (q QueryBuilder) ProjectionCandidates() []ProjectionCandidate {
 	return out
 }
 
-// AcceptProjection applies one accepted candidate. Wildcard and bare COUNT(*)
-// commit directly — appending their dedicated identity, focusing Column(s),
-// and requesting the popup's reopen without ever asking for a named-column
-// aggregate choice. A named column never commits here: it hands back the
-// chosen identity as PendingAggregate for the aggregate-selection step while
-// leaving builder state unchanged. Invalid or out-of-context accepts return
-// the receiver unchanged.
+// projectionHasWildcard reports whether any committed entry is the dedicated
+// wildcard identity. The wildcard is always the sole entry by construction:
+// selection replaces the whole list atomically and nothing may append beside
+// it until removal empties the projection again.
+func (q QueryBuilder) projectionHasWildcard() bool {
+	for _, e := range q.projection {
+		if e.Kind == ProjectionWildcard {
+			return true
+		}
+	}
+	return false
+}
+
+// AcceptProjection applies one accepted candidate (Issue #16 ordered rules).
+// A named column never commits here: it hands back the chosen identity as
+// PendingAggregate for the aggregate-selection step while leaving builder
+// state unchanged; a malformed empty-name identity routes nowhere. Wildcard
+// selection — from any prior state, including fully populated ones — replaces
+// the whole list with its dedicated sole identity atomically. Bare COUNT(*)
+// appends only while the projection is empty; a repeated sentinel transition
+// outside the conditional UI path is an unchanged no-op. Duplicate accepts
+// return the receiver unchanged without changing focus-transition data.
 func (q QueryBuilder) AcceptProjection(c ProjectionCandidate) ProjectionOutcome {
 	switch c.Kind {
 	case ProjectionWildcard:
-		if !q.ProjectionEmpty() {
-			return ProjectionOutcome{Builder: q}
-		}
-		next := q.appendEntry(ProjectionEntry{Kind: ProjectionWildcard})
-		return ProjectionOutcome{Builder: next}
+		replacement := q
+		replacement.projection = []ProjectionEntry{{Kind: ProjectionWildcard}}
+		replacement.focus = FieldColumns
+		return ProjectionOutcome{Builder: replacement}
 	case ProjectionCountStar:
 		if !q.ProjectionEmpty() {
 			return ProjectionOutcome{Builder: q}
@@ -158,6 +174,9 @@ func (q QueryBuilder) AcceptProjection(c ProjectionCandidate) ProjectionOutcome 
 		next := q.appendEntry(ProjectionEntry{Kind: ProjectionCountStar})
 		return ProjectionOutcome{Builder: next, ReopenColumns: true}
 	case ProjectionColumn:
+		if c.Column == "" {
+			return ProjectionOutcome{Builder: q}
+		}
 		pending := c
 		return ProjectionOutcome{Builder: q, PendingAggregate: &pending}
 	default:
@@ -170,8 +189,10 @@ func (q QueryBuilder) AcceptProjection(c ProjectionCandidate) ProjectionOutcome 
 // the popup. The column must be a visible declared name and the aggregate one
 // of the six supported values; anything else — including any attempt to
 // aggregate a wildcard — leaves the builder unchanged with reopen unset.
+// A pending aggregate never completes onto an existing wildcard: exclusivity
+// leaves it alone until removal empties the projection, per Issue #16.
 func (q QueryBuilder) CompleteProjectionAggregate(column string, agg Aggregate) ProjectionOutcome {
-	if !q.projectionReady() || agg > AggSum {
+	if !q.projectionReady() || agg > AggSum || q.projectionHasWildcard() {
 		return ProjectionOutcome{Builder: q}
 	}
 	found := false
@@ -187,6 +208,13 @@ func (q QueryBuilder) CompleteProjectionAggregate(column string, agg Aggregate) 
 	entry := ProjectionEntry{Kind: ProjectionColumn, Column: column}
 	if agg != AggregateValue {
 		entry.Aggregate = agg
+	}
+	for _, e := range q.projection {
+		if e == entry {
+			// Exact repeated (column, aggregate) pairs are rejected outright:
+			// no reorder, no replace, no focus-transition change.
+			return ProjectionOutcome{Builder: q}
+		}
 	}
 	next := q.appendEntry(entry)
 	return ProjectionOutcome{Builder: next, ReopenColumns: true}
@@ -213,6 +241,21 @@ func (q QueryBuilder) appendEntry(e ProjectionEntry) QueryBuilder {
 	next.projection = append(append([]ProjectionEntry(nil), q.projection...), e)
 	next.focus = FieldColumns
 	return next
+}
+
+// RemoveLatestProjection removes the most recently committed projection entry,
+// returning a new snapshot without mutating the receiver's slices (Issue #16):
+// one entry per call, walking backward through named entries and the bare
+// sentinel while every earlier entry keeps its identity and insertion order.
+// Removing the last remaining entry — including a sole wildcard — empties the
+// projection entirely so the Issue #15 empty-projection candidate sequence
+// reappears. Removal never changes focus; an empty projection is an exact
+// unchanged no-op.
+func (q QueryBuilder) RemoveLatestProjection() QueryBuilder {
+	if len(q.projection) == 0 {
+		return q
+	}
+	return q.RemoveProjection(len(q.projection) - 1)
 }
 
 // ProjectionEntries returns the committed entries in insertion order as a

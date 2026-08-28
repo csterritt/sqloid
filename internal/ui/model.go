@@ -225,6 +225,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg.String() {
+	case "backspace", "delete":
+		if m.columnsFocused() {
+			// Base Column(s) field owns removal (Issue #16): the immutable
+			// remove-latest transition deletes exactly one committed entry per
+			// press, and applyBuilder re-renders from the authoritative snapshot.
+			m.applyBuilder(m.QB.RemoveLatestProjection())
+			m.adjustScroll()
+			return m, nil
+		}
 	case "tab":
 		m.setFocus(m.Focus + 1)
 	case "shift+tab":
