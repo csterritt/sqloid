@@ -17,12 +17,15 @@ import (
 // longer eligible list scrolls within this window.
 const tablePopupViewport = 8
 
-// openTablePopup installs the fresh searchable single-select Table popup over
-// the focused Table field whenever it opens. Eligibility filtering follows
-// the currently selected command through QueryBuilder's own rule set.
-func (m *Model) openTablePopup() bool {
+// beginTablePopup installs the fresh searchable single-select Table popup
+// over the focused Table field whenever it opens, and issues the mandatory
+// fresh main-schema catalog request (Issue #13) whose settled result later
+// replaces the offered candidates. Eligibility filtering follows the
+// currently selected command through QueryBuilder's own rule set. The
+// returned command performs the request; nil when nothing is wired.
+func (m *Model) beginTablePopup() tea.Cmd {
 	if !m.tableFocused() {
-		return false
+		return nil
 	}
 	m.installPopup(NewSearchablePopup(tableFieldLabel, popupCandidates(m.QB.EligibleTables())),
 		func(mm *Model, id string) {
@@ -31,7 +34,7 @@ func (m *Model) openTablePopup() bool {
 			mm.applyBuilder(mm.QB.SelectTable(id))
 		})
 	m.Popup.SetViewportHeight(tablePopupViewport)
-	return true
+	return m.issueRefresh()
 }
 
 // popupCandidates converts refreshed schema objects into popup candidates:
@@ -53,8 +56,12 @@ func (m *Model) tableFocused() bool {
 	return m.Fields[m.Focus].Label == tableFieldLabel
 }
 
-// openPopupKey reports whether msg opens the context-appropriate popup in
-// the base context. Only Enter on the Table field qualifies today.
-func (m *Model) openPopupKey(msg tea.KeyMsg) bool {
-	return msg.Type == tea.KeyEnter && m.openTablePopup()
+// openPopupCmd installs the context-appropriate popup when msg opens it and
+// returns the popup's issued work as a tea.Cmd — the mandatory fresh schema
+// catalog request for the Table popup, nil otherwise.
+func (m *Model) openPopupCmd(msg tea.KeyMsg) tea.Cmd {
+	if msg.Type != tea.KeyEnter {
+		return nil
+	}
+	return m.beginTablePopup()
 }

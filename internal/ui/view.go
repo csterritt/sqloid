@@ -28,6 +28,14 @@ func (m Model) View() string {
 	if m.suspended {
 		return TooSmallMessage
 	}
+	if m.terminalState != TerminalNone {
+		// Deletion/replacement ended the session: the exact terminal message
+		// replaces every region, overlay, and stale indicator.
+		if m.terminalState == TerminalReplaced {
+			return ReplacedSessionEndedMessage
+		}
+		return DeletedSessionEndedMessage
+	}
 	if m.Width <= 0 || m.Height <= 0 {
 		return ""
 	}
@@ -52,31 +60,38 @@ func (m Model) drawPopupOverlay(base string) string {
 	if maxWidth < 1 {
 		maxWidth = 1
 	}
-	content := renderPopupLines(m.Popup, maxWidth)
-	box := RenderPopup(m.Popup, maxWidth, len(content)+popupBorderRows)
+	extra := staleStatusLines(m.schemaStale, m.staleCause)
+	content := renderPopupLines(m.Popup, maxWidth, extra...)
+	box := RenderPopupBox(m.Popup, maxWidth, len(content)+popupBorderRows, extra)
 	return composeOverlay(base, box, 1, 1)
 }
 
 // renderResults renders the independently bordered results region. Its fixed
 // owned rows are the top/bottom border, one status/count line, and one frozen
-// header row. With settled tracer output the region shows the minimal tracer
-// grid or basic error text instead of the pre-execution placeholder; both are
-// plain text with no feature claims beyond this milestone's scope.
+// header row. While the stale-schema flow is active with no popup open it
+// leads content with exactly the persistent stale status and inline cause
+// lines; otherwise settled tracer output or the pre-execution placeholder is
+// shown as before.
 func (m Model) renderResults(width, height int) string {
-	status := "Select a command (S/U/D/I) to begin"
 	header := ""
-	content := []string{status}
-	if m.Trace != nil && m.Trace.Settled {
-		content = []string{"tracer"}
-		if m.Trace.Err != "" {
-			content = append(content, m.Trace.Err)
-		} else if g := m.Trace.Grid; g != nil {
-			header = resultsHeaderStyle.Render(strings.Join(g.Headers, " | "))
-			if header != "" {
-				content = append(content, header)
-			}
-			for _, row := range g.Rows {
-				content = append(content, strings.Join(row, " | "))
+	var content []string
+	if m.schemaStale && m.Popup == nil {
+		content = staleStatusLines(true, m.staleCause)
+	} else {
+		status := "Select a command (S/U/D/I) to begin"
+		content = []string{status}
+		if m.Trace != nil && m.Trace.Settled {
+			content = []string{"tracer"}
+			if m.Trace.Err != "" {
+				content = append(content, m.Trace.Err)
+			} else if g := m.Trace.Grid; g != nil {
+				header = resultsHeaderStyle.Render(strings.Join(g.Headers, " | "))
+				if header != "" {
+					content = append(content, header)
+				}
+				for _, row := range g.Rows {
+					content = append(content, strings.Join(row, " | "))
+				}
 			}
 		}
 	}

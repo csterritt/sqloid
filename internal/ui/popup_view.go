@@ -37,23 +37,36 @@ const (
 // `> ` on the highlighted row. width/height bound the box; every line is
 // truncated to the interior width without splitting visible glyphs.
 func RenderPopup(p *Popup, width, height int) string {
-	lines := renderPopupLines(p, width)
+	return RenderPopupBox(p, width, height, nil)
+}
+
+// RenderPopupBox renders the bordered popup box with optional extra status
+// lines (the exact stale-schema indicators for the Table flow) placed after
+// the search line and before any no-match/candidate rows. width/height bound
+// the box; every line is truncated to the interior width without splitting
+// visible glyphs.
+func RenderPopupBox(p *Popup, width, height int, extra []string) string {
+	lines := renderPopupLines(p, width, extra...)
 	maxContent := height - popupBorderRows
 	if height > 0 && len(lines) > maxContent {
 		lines = lines[:maxContent]
 	}
-	w := popupInteriorWidth(p, width)
+	w := popupInteriorWidth(p, width, extra)
 	return popupStyle.
 		Width(w).
 		Render(strings.Join(lines, "\n"))
 }
 
-// renderPopupLines produces the unbordered content lines of a popup, each
-// already truncated to width cells.
-func renderPopupLines(p *Popup, width int) []string {
+// renderPopupLines produces the unbordered content lines of a popup: the
+// search input row, then any caller-supplied status lines (stale indicators),
+// then the popup's own status messages and visible candidate window.
+func renderPopupLines(p *Popup, width int, extra ...string) []string {
 	var lines []string
 	if p.Mode == PopupSearchable {
 		lines = append(lines, truncateCell(popupSearchPrompt+p.Search+popupCursorRune, width))
+	}
+	for _, e := range extra {
+		lines = append(lines, truncateCell(e, width))
 	}
 	lines = append(lines, p.StatusMessages()...)
 	if !p.NoMatch() {
@@ -76,9 +89,9 @@ func renderPopupLines(p *Popup, width int) []string {
 
 // popupInteriorWidth sizes the box wide enough for its widest content line
 // but never wider than width allows, accounting for the two border columns.
-func popupInteriorWidth(p *Popup, width int) int {
+func popupInteriorWidth(p *Popup, width int, extra []string) int {
 	longest := 0
-	for _, l := range renderPopupLines(p, maxInt(width, 1)) {
+	for _, l := range renderPopupLines(p, maxInt(width, 1), extra...) {
 		if w := lipgloss.Width(l); w > longest {
 			longest = w
 		}

@@ -77,6 +77,17 @@ type Model struct {
 	// Fields below re-render from it whenever a transition applies.
 	QB qb.QueryBuilder
 
+	// Refresher performs one main-schema catalog refresh through the
+	// Connection boundary per Table-popup open (Issue #13). It is invoked
+	// only inside returned tea.Cmd functions; nil means no database work is
+	// wired, so opens present the current catalog without issuing requests.
+	Refresher      CatalogRefresher
+	schemaStale    bool          // stale indicators active after an ordinary refresh failure
+	staleCause     string        // exact inline cause text while schemaStale
+	refreshAttempt uint64        // identity of the most recently issued refresh request
+	refreshPending bool          // a refresh command is outstanding
+	terminalState  TerminalState // TerminalNone while the session stays live
+
 	suspended      bool   // true while the terminal is below minimum size
 	suspendedModel *Model // exact copy retained across the undersized period
 
@@ -136,6 +147,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SchemaRefreshedMsg:
 		next := m.applySchemaRefresh(msg.Catalog)
 		return next, nil
+	case SchemaRefreshSettledMsg:
+		m.applyRefreshSettled(msg)
+		m.adjustScroll()
+		return m, nil
+	case RetrySchemaRefreshMsg:
+		return m, m.applyRetry()
+	case CancelStaleRefreshMsg:
+		m.applyCancel()
+		m.adjustScroll()
+		return m, nil
 	case StartTraceMsg:
 		return m, func() tea.Msg { return handleStartTrace(msg) }
 	case traceSettledMsg:
@@ -186,8 +207,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.terminalState != TerminalNone {
+		// A terminal health classification ended the session: no key may open
+		// popups, move builder state, or start any further database work.
+		return m, nil
+	}
 	if m.Popup != nil {
 		return m.handlePopupKey(msg)
+	}
+	if m.schemaStale {
+		// Stale-schema flow owns the context: navigating to another builder
+		// field would continue past unchanged data, so movement keys are
+		// ignored until retry succeeds or cancel closes the flow.
+		switch msg.String() {
+		case "tab", "shift+tab", "up", "down":
+			return m, nil
+		}
 	}
 	switch msg.String() {
 	case "tab":
@@ -202,10 +237,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if handleCommandKey(&m, msg) {
 			return m, nil
 		}
-		if m.openPopupKey(msg) {
+		cmd := m.openPopupCmd(msg)
+		if m.Popup != nil {
 			m.adjustScroll()
 		}
-		return m, nil
+		return m, cmd
 	}
 	m.adjustScroll()
 	return m, nil

@@ -127,6 +127,15 @@ func (p *Popup) install(candidates []PopupCandidate) {
 	p.open = true
 }
 
+// ReplaceCandidates adopts the given slice as the popup's complete offered
+// list, preserving the current search text while resetting highlight and
+// viewport deterministically — the same contract install applies to a fresh
+// open. Only whole-catalog refresh replacement may use this; no partial
+// substitution is ever applied.
+func (p *Popup) ReplaceCandidates(candidates []PopupCandidate) {
+	p.install(candidates)
+}
+
 // Open reports whether the popup is still open.
 func (p *Popup) Open() bool { return p.open }
 
@@ -340,7 +349,7 @@ func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Popup.Down()
 	case "enter":
 		res := m.Popup.Enter()
-		if res.Outcome == EnterAccepted {
+		if res.Outcome == EnterAccepted && !m.schemaStale {
 			opener, id, accept := m.openerFocus, res.ID, m.popupAccept
 			m.closePopupRestore(opener)
 			if accept != nil {
@@ -349,7 +358,13 @@ func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.adjustScrollAndReturn()
 		}
 	case "esc":
-		m.closePopupRestore(m.openerFocus)
+		if m.schemaStale {
+			// Esc under stale schema is the cancel path: close only the stale
+			// refresh flow and restore the captured pre-open state unchanged.
+			m.applyCancel()
+		} else {
+			m.closePopupRestore(m.openerFocus)
+		}
 		return m.adjustScrollAndReturn()
 	case "backspace":
 		m.Popup.BackspaceSearch()
