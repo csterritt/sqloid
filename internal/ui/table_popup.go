@@ -66,5 +66,9 @@ func (m *Model) openPopupCmd(msg tea.KeyMsg) tea.Cmd {
 	if m.columnsFocused() {
 		return m.beginColumnsPopup()
 	}
+	if m.whereFocused() {
+		m.beginWhereEdit()
+		return nil
+	}
 	return m.beginTablePopup()
 }

@@ -17,6 +17,9 @@ var (
 			Border(lipgloss.RoundedBorder())
 
 	resultsHeaderStyle = lipgloss.NewStyle().Bold(true)
+
+	valuePromptStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder())
 )
 
 // View implements tea.Model. Rendering is deterministic for a given model and
@@ -49,8 +52,38 @@ func (m Model) View() string {
 		// Issue #8 overlay pattern: the popup draws over the results region
 		// and never reflows any region's border or content rows.
 		out = m.drawPopupOverlay(out)
+	} else if m.ValuePrompt != nil {
+		// Same overlay pattern for the universal value entry: exclusive with
+		// popups, drawn without reflowing any region or growing the shell.
+		out = m.drawValuePromptOverlay(out)
 	}
 	return out
+}
+
+// drawValuePromptOverlay composites the universal-entry box over the composed
+// shell inside the results region, sized to its widest guidance line but
+// capped to the terminal width minus one border column on each side.
+func (m Model) drawValuePromptOverlay(base string) string {
+	maxWidth := m.Width - popupBorderCols
+	if maxWidth < 1 {
+		maxWidth = 1
+	}
+	lines := m.ValuePrompt.PromptLines(maxWidth, WhereTypedNullHint, WhereNullHelpLines())
+	longest := 0
+	for _, l := range lines {
+		if w := lipgloss.Width(l); w > longest {
+			longest = w
+		}
+	}
+	w := longest + 2
+	if w < 4 {
+		w = 4
+	}
+	if w > maxWidth {
+		w = maxWidth
+	}
+	box := valuePromptStyle.Width(w).Height(len(lines)).Render(strings.Join(lines, "\n"))
+	return composeOverlay(base, box, 1, 1)
 }
 
 // drawPopupOverlay composites the open popup box over the composed shell,

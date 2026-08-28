@@ -67,6 +67,11 @@ func builderFields(q qb.QueryBuilder) []Field {
 		fields = append(fields, Field{Label: columnsFieldLabel,
 			Content: projectionEntryLabels(q.ProjectionEntries())})
 	}
+	if q.WhereReady() {
+		// Query Grammar order: WHERE trails every projected field it filters.
+		fields = append(fields, Field{Label: whereFieldLabel,
+			Content: q.WherePredicate().SQL()})
+	}
 	return fields
 }
 

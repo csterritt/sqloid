@@ -51,8 +51,12 @@ func openColumnsPopup(t *testing.T) Model {
 	if name, ok := m.QB.SelectedTable(); !ok || name != "users" {
 		t.Fatalf("setup selected (%q,%v), want users", name, ok)
 	}
-	if got := len(m.Fields); got != 3 || m.Fields[2].Label != columnsFieldLabel {
-		t.Fatalf("field bar=%v, want exactly three fields ending in %v", labels(m.Fields), columnsFieldLabel)
+	// Issue #17 legitimately extends the SELECT field bar with a trailing
+	// Where entry; Column(s) keeps its position ahead of it.
+	if got := len(m.Fields); got != 4 || m.Fields[2].Label != columnsFieldLabel ||
+		m.Fields[3].Label != whereFieldLabel {
+		t.Fatalf("field bar=%v, want %s:%s:%s:%s order ending in %v",
+			labels(m.Fields), commandFieldLabel, tableFieldLabel, columnsFieldLabel, whereFieldLabel, whereFieldLabel)
 	}
 	m = drive(m, tea.KeyMsg{Type: tea.KeyTab}).(Model)
 	if m.Focus != 2 {

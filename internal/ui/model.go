@@ -101,6 +101,12 @@ type Model struct {
 	Popup       *Popup
 	openerFocus int
 	popupAccept func(*Model, string)
+
+	// ValuePrompt is the currently open universal text entry (Issues #14 and
+	// #17), or nil when closed. While non-nil it consumes every key before any
+	// popup or base-context handling; Enter submits the verbatim buffer to the
+	// owning feature's hook and Esc cancels its whole open draft.
+	ValuePrompt *ValuePrompt
 }
 
 // New returns the initial model focused on the Command field with an idle,
@@ -214,6 +220,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.Popup != nil {
 		return m.handlePopupKey(msg)
+	}
+	if m.ValuePrompt != nil {
+		return m.handleValuePromptKey(msg)
 	}
 	if m.schemaStale {
 		// Stale-schema flow owns the context: navigating to another builder

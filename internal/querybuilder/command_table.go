@@ -73,6 +73,11 @@ type QueryBuilder struct {
 
 	projection []ProjectionEntry // committed SELECT projection entries in insertion order
 
+	where         WherePredicate // completed optional WHERE predicate for S/U/D
+	whereSet      bool           // distinguishes a real completion from no predicate
+	whereDraft    WherePredicate // in-progress guided draft, seeded from where on revision
+	whereDrafting bool           // a guided WHERE draft is open
+
 	objects []*schema.Object // latest refreshed catalog snapshot
 
 	focus       Field
@@ -130,6 +135,7 @@ func (q QueryBuilder) RefreshSchema(c *schema.Catalog) QueryBuilder {
 	if q.tableSet && q.findObject(q.table) == nil {
 		q.table, q.tableSet = "", false
 		q.projection = nil // the projection follows the selected object's columns
+		q.discardWhere()   // so does the optional single WHERE predicate and any draft
 	}
 	return q
 }
@@ -144,6 +150,7 @@ func (q QueryBuilder) SelectCommand(cmd Command) QueryBuilder {
 	q.focus = FieldTable
 	q.downstreamG++
 	q.projection = nil // command replacement clears everything below Table
+	q.discardWhere()   // including the optional single WHERE predicate and any draft
 	if q.tableSet && !q.selectedEligibleFor(cmd) {
 		q.table, q.tableSet = "", false
 	}
