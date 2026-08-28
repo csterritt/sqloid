@@ -23,6 +23,8 @@ Content-oriented catalog of all wiki pages.
 - [responsive-tui-shell.md](responsive-tui-shell.md) — Issue #8 responsive Bubble Tea shell: pinned Bubble Tea/Lip Gloss versions, one-row global footer, builder desired border/padding-inclusive height capped at floor(H/3), all remaining rows to an independently bordered results region exceeding half-height, complete-row page-area arithmetic, focused-field internal scrolling, the exact 80×24 minimum, exact `terminal too small` suspension with ignored input, conditional Ctrl+W cancellation routing, and exact state restoration on resize.
 - [early-integration-tracer.md](early-integration-tracer.md) — Issue #10 disposable early integration tracer: hardcoded safely quoted `SELECT *` flowing Schema → Connection → UI, typed `TracerResult`/`TraceResult` row and error boundaries, minimal bordered grid rendering inside the Issue #8 shell, deliberately isolated state, every omitted production feature (builder, validation, paging, count, history, cancellation UX, recovery, writes), and the mandatory replacement of the tracer rather than extension by Issue #22.
 
+- [builder-command-table.md](builder-command-table.md) — Issue #11 builder startup lifecycle: exact idle prompt with no result-only headers, initial Command focus, one-key S/U/D/I selection/replacement, Table advancement, immutable transitions with downstream clearing, Schema-owned eligibility (ordinary/virtual tables writable, views SELECT-only), view-to-write clearing, revisiting Command, and resulting focus transitions.
+
 ## Tests
 
 - [unit-tests.md](unit-tests.md) — catalog and summaries of the Go unit and process-boundary tests.

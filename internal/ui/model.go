@@ -6,7 +6,11 @@
 // contains no database logic.
 package ui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+
+	qb "github.com/chris/sqloid/internal/querybuilder"
+)
 
 // Minimum supported terminal dimensions. Below either threshold the shell
 // suspends its state behind an exact message instead of rendering a malformed
@@ -68,14 +72,22 @@ type Model struct {
 	// Issue #22 can replace it wholesale. nil before any trace started.
 	Trace *TraceView
 
+	// QB is the authoritative query-builder state for command and table
+	// selection. Its transitions own eligibility and downstream clearing;
+	// Fields below re-render from it whenever a transition applies.
+	QB qb.QueryBuilder
+
 	suspended      bool   // true while the terminal is below minimum size
 	suspendedModel *Model // exact copy retained across the undersized period
 }
 
-// New returns the initial model focused on the Command field.
+// New returns the initial model focused on the Command field with an idle,
+// unselected query builder matching startup before any execution exists.
 func New() Model {
+	q := qb.NewQuery()
 	return Model{
-		Fields: []Field{{Label: "Command", Content: ""}},
+		Fields: builderFields(q),
+		QB:     q,
 		Focus:  0,
 	}
 }
@@ -89,6 +101,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
+	case SchemaRefreshedMsg:
+		next := m.applySchemaRefresh(msg.Catalog)
+		return next, nil
 	case StartTraceMsg:
 		return m, func() tea.Msg { return handleStartTrace(msg) }
 	case traceSettledMsg:
@@ -149,6 +164,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		m.setFocus(m.Focus + 1)
 	default:
+		if handleCommandKey(&m, msg) {
+			return m, nil
+		}
 		return m, nil
 	}
 	m.adjustScroll()

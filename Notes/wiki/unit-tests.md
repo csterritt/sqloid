@@ -100,3 +100,12 @@ Cross-references: [cancellation-infrastructure.md](cancellation-infrastructure.m
 - `internal/ui/results_test.go` — focused layout assertions: tracer grid views still partition 80×24, 100×30, and 160×50 into exactly H rows, keeping Issue #8 region ownership intact.
 
 Cross-references: [early-integration-tracer.md](early-integration-tracer.md).
+
+## internal/querybuilder Issue #11 builder tests
+
+- `internal/querybuilder/command_table_test.go` — pure table-driven tests using fixture catalogs of ordinary/virtual table and view objects from `internal/schema`: the initial unselected state (no command, no table, Command focused); one-key selection of each S/U/D/I command advancing to Table without mutating the source snapshot; all sixteen cross-command replacements retaining a selected object exactly when it remains eligible under Schema metadata; downstream generation bumping on every replacement even when the table is retained; view-to-write clearing while ordinary plus virtual tables stay listed as write candidates; refresh-driven eligible-list recomputation (SELECT permissive, writes filtered, vanished names cleared); and `SelectTable` rejecting views during writes, unknown names, and empty input. No Bubble Tea dependency.
+
+## internal/ui Issue #11 command/table tests
+
+- `internal/ui/command_table_test.go` — scripted `(model, msg) → (model, cmd)` tests: startup focuses Command with only that field rendered; each plain S/U/D/I key selects its command and advances both builder and UI focus to Table; Shift+Tab back to Command allows replacement that clears downstream state; letters are inert while Table is focused; injected `SchemaRefreshedMsg` catalogs populate eligibility (three objects under SELECT, two write tables under UPDATE); a selected view clears when INSERT is chosen through the UI path while eligible write tables remain; an eligible ordinary table survives an UPDATE→DELETE switch; and an executed tracer-settled state renders differently from idle.
+- `internal/ui/view_test.go` — rendering assertions for the pre-execution idle state: exact prompt `Select a command (S/U/D/I) to begin` inside the bordered results region at 80×24, 100×30, and 160×50; status row showing exactly that prompt with every interior row beneath blank (no frozen header, range, or count); no `No rows` or `Result count:` decoration; unchanged region partitioning (exactly H rows at each size); and a settled tracer grid state visually distinct from idle.

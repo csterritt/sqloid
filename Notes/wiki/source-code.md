@@ -125,15 +125,31 @@ Local D1 candidate discovery (Issue #3): `Discover()` reads only the immediate e
 ### internal/cli/d1.go
 
 The D1 startup glue (`RunD1`, backed by injectable `runD1With(discover, open)`): requests the sole candidate from `internal/d1.Discover` and passes that path unchanged to the shared `internal/connection.Session`. On any discovery failure, `mapDiscoveryDiagnostic` converts the typed outcomes to the exact Issue #4 process diagnostics — zero candidates become exactly two lines (typed message plus the expected-path and `sqloid sqlite <file>` explicit-open hint), multiple candidates become only the exact single line `There is more than one SQLite database in .wrangler` with no hint — and the opener is never invoked. No D1-specific validation or SQLite opening exists; `cmd/sqloid/main.go` wires `Handlers{SQLite: connection.Session, D1: cli.RunD1}`.
+## internal/querybuilder
+
+QueryBuilder module (Issues #11+), documented in [builder-command-table.md](builder-command-table.md):
+
+### internal/querybuilder/builder.go
+
+Package comment and scope: the QueryBuilder module stores command-specific structured state as UI-independent data with immutable value-level transitions. It consumes object kinds and eligibility from `internal/schema` instead of duplicating catalog rules; at this milestone it never imports `internal/ui`, renders no copy, implements popups, or builds SQL.
+
+### internal/querybuilder/command_table.go (Issue #11)
+
+Command and table selection lifecycle: `Command` kind (`CommandUnselected` plus SELECT/UPDATE/DELETE/INSERT, human-facing `String()`), `Field` identity (`FieldCommand`, `FieldTable`), and `QueryBuilder` with `NewQuery()` starting unselected and Command-focused. Transitions: `SelectCommand` replaces the command, bumps `DownstreamGeneration()` (all downstream command-specific state discarded), recomputes eligibility under Schema metadata (`WriteEligible`/kind), retains the selected table only while still eligible, clears it when absent from the latest refresh, and focuses Table; `RefreshSchema` swaps in a fresh catalog snapshot and drops vanished selections; `SelectTable` accepts only names present in the current eligible list; `EligibleTables()` returns every refreshed object for SELECT and only write-eligible kinds for writes.
+
 ## internal/ui
 
 ### internal/ui/model.go
 
-The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll. Issue #10 adds the isolated disposable tracer state field `Trace *TraceView` plus `StartTraceMsg`/`traceSettledMsg` handling: a start message always returns a command (executor runs inside the command, never in Update); completion stores fully owned fresh `*TraceView{Grid, Err, Settled}` replacing any prior trace (see [early-integration-tracer.md](early-integration-tracer.md)).
+The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll, and Issue #11 routes plain S/U/D/I through `internal/ui/command_table.go` while Command holds focus. Issue #10 adds the isolated disposable tracer state field `Trace *TraceView` plus `StartTraceMsg`/`traceSettledMsg` handling: a start message always returns a command (executor runs inside the command, never in Update); completion stores fully owned fresh `*TraceView{Grid, Err, Settled}` replacing any prior trace (see [early-integration-tracer.md](early-integration-tracer.md)).
 
 ### internal/ui/layout.go
 
 Pure region arithmetic with no rendering dependency. `CalculateLayout(totalHeight, fields)` returns footer=1 row, builder desired height inclusive of its 2 border rows and 2 padding rows capped at `floor(H/3)`, results height as every remaining row (> H/2), and `PageRows` as results minus its owned fixed rows (2 border + status/count + frozen header). `BuilderViewport` is interior content lines; `fieldSpans`/`adjustScroll` keep the complete focused field visible inside that viewport; `tooSmall` implements the exact 80×24 threshold; constants pin each region's fixed-row ownership so no border is shared.
+
+### internal/ui/command_table.go (Issue #11)
+
+Builder-field integration: field labels (`Command`, `Table`), plain-key mapping for `s`/`u`/`d`/`i`, and `builderFields(qb.QueryBuilder)` rendering Command always plus Table once any command is chosen. `applyBuilder` installs a transition snapshot, rebuilds the rendered fields, and aligns UI focus with the builder's next required field; `handleCommandKey` consumes one-key selection only while Command holds focus; `SchemaRefreshedMsg{Catalog}` routes refreshed Schema metadata through `applySchemaRefresh`, which keeps focus on the surviving labeled field. No database logic, popups (Issue #12), or idle-prompt rendering changes live here.
 
 ### internal/ui/view.go
 
