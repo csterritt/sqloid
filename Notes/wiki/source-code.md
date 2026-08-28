@@ -145,6 +145,10 @@ Package comment and scope: the QueryBuilder module stores command-specific struc
 
 Command and table selection lifecycle: `Command` kind (`CommandUnselected` plus SELECT/UPDATE/DELETE/INSERT, human-facing `String()`), `Field` identity (`FieldCommand`, `FieldTable`), and `QueryBuilder` with `NewQuery()` starting unselected and Command-focused. Transitions: `SelectCommand` replaces the command, bumps `DownstreamGeneration()` (all downstream command-specific state discarded), recomputes eligibility under Schema metadata (`WriteEligible`/kind), retains the selected table only while still eligible, clears it when absent from the latest refresh, and focuses Table; `RefreshSchema` swaps in a fresh catalog snapshot and drops vanished selections; `SelectTable` accepts only names present in the current eligible list; `EligibleTables()` returns every refreshed object for SELECT and only write-eligible kinds for writes.
 
+### internal/querybuilder/value.go, sql_atoms.go, sql_literal.go (Issue #14)
+
+Universal parsing and SQL-safety atoms, documented in [sql-atoms-and-literals.md](sql-atoms-and-literals.md). `value.go` owns `ParsedKind`/`Value`, verbatim `ParseValue` (INTEGER `-?[0-9]+` fitting int64 first; finite `strconv.ParseFloat` REAL second with leading-`+` rejection; exact TEXT fallback), shared `realToken` PRD formatting and `quoteTextLiteral` helpers, and `ParamValue()` returning stable concrete bind types (`int64`/`float64`/string) where typed NULL and empty input stay strings. `sql_atoms.go` owns schema-derived quoting (`ObjectIdentifier`, `ColumnIdentifier`, single-atom `quoteIdentifierAtom`) plus closed `Operator`/`Aggregate`/`Direction` enums with token renderers that reject invalid values, and `Predicate` assembly keeping user values on the parameter list. `sql_literal.go` owns the sole canonical standalone renderer `RenderSQLLiteral` over `Literal`/`LiteralKind` (exact INTEGER decimal, shortest round-trip REAL with `.0` restoration and non-finite rejection, quote-doubled TEXT, `NULL`, lowercase-hex `X'...'` BLOB), exposed for future Issues #40/#48 without UI or modal coupling.
+
 ## internal/ui
 
 ### internal/ui/model.go

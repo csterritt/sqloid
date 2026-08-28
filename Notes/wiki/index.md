@@ -30,3 +30,4 @@ Content-oriented catalog of all wiki pages.
 ## Tests
 
 - [unit-tests.md](unit-tests.md) — catalog and summaries of the Go unit and process-boundary tests.
+- [sql-atoms-and-literals.md](sql-atoms-and-literals.md) — Issue #14 universal value parsing (verbatim INTEGER-first then finite-REAL grammar with exact TEXT fallback), concrete SQLite bind types with no declared-type coercion, schema-only atom-by-atom identifier quoting, closed operator/aggregate/direction choices, and the canonical standalone INTEGER/REAL/TEXT/NULL/BLOB literal renderer owned by `internal/querybuilder/sql_literal.go` for Issues #40/#48.
