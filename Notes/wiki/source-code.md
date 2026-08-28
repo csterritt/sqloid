@@ -85,6 +85,12 @@ Opener integration: real databases open read-write and answer queries; journal m
 
 Connection-boundary behavior of catalog reads: success settles `OutcomeSuccess` with a populated catalog and positive schema version; two concurrent reads lease distinct pooled connections without blocking; an already-cancelled context fails with `context.Canceled` preserved through the refresh wrapper; and a same-path replacement at the boundary classifies typed `HealthReplaced` instead of ordinary SQLite error handling.
 
+### internal/connection/tracer.go (Issue #10, disposable)
+
+Disposable tracer execution path (replaced by Issue #22): `TracerResult{Columns []string, Rows [][]any}` typed transport (`nil`/`int64`/`float64`/`string`/`[]byte` values; copied row slices); `DB.RunTraceSelectAll(parent, target)` executes exactly one hardcoded quoted `SELECT *` from `schema.SelectAllSQL(target)` as one complete `RunRequest` — boundary identity checks, dedicated lease, cancellable read, settlement, post-error reclassification — without schema revalidation or query building. Failures wrap causes in neutral `tracerError` ("could not trace …") and return no result. See [early-integration-tracer.md](early-integration-tracer.md).
+
+### internal/connection/tracer_test.go (Issue #10)
+
 ## internal/schema
 
 Schema metadata module (Issue #9), documented in [schema-catalog.md](schema-catalog.md):
@@ -101,6 +107,14 @@ Pure catalog rules over gathered metadata rows: `MasterRow`/`ColumnRow`/`Input` 
 
 In the Connection module: `DB.ReadCatalog(ctx)` runs one `RunRequest` that reads `PRAGMA schema_version`, eligible rows from `main.sqlite_master` (`WHERE type IN ('table','view') ORDER BY name`), and each object's columns from the bound-parameter pragma function `main.pragma_table_xinfo(?)`, then decodes everything with `internal/schema.BuildCatalog`. Failures wrap their cause losslessly in `catalogError` (`could not refresh: <step>: <cause>`) and return the failed `RequestResult`, so health classification (deletion/replacement) wins over ordinary error handling per Issue #7; a cancelled context yields `context.Canceled` preserved through the wrapper. No catalog rules live here — only gathering. See [schema-catalog.md](schema-catalog.md).
 
+### internal/schema/tracer.go (Issue #10, disposable)
+
+Catalog-to-tracer composition seam (replaced by Issue #22): `ChooseTracerTarget(cat, name)` returns the cataloged object (any selected kind — SELECT-only usage) or typed `*TracerError` (`"%q": not present in the refreshed schema catalog`) so execution never runs against stale identifiers; `SelectAllSQL(obj)` renders the one hardcoded `SELECT * FROM "<name>"` with embedded double quotes doubled. No revalidation, parameters, predicates, or builder behavior; see [early-integration-tracer.md](early-integration-tracer.md).
+
+### internal/schema/tracer_test.go / tracer_integration_test.go (Issue #10)
+
+Unit tests for safe identifier quoting (embedded quotes, spaces), catalog selection and typed rejection; Unix-tagged SQLite integration proving the chosen fixture table executes through Connection into typed headers/rows, an unusual identifier (`odd "name`), and a basic failure after a post-selection drop.
+
 
 ## internal/d1
 
@@ -115,7 +129,7 @@ The D1 startup glue (`RunD1`, backed by injectable `runD1With(discover, open)`):
 
 ### internal/ui/model.go
 
-The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll.
+The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll. Issue #10 adds the isolated disposable tracer state field `Trace *TraceView` plus `StartTraceMsg`/`traceSettledMsg` handling: a start message always returns a command (executor runs inside the command, never in Update); completion stores fully owned fresh `*TraceView{Grid, Err, Settled}` replacing any prior trace (see [early-integration-tracer.md](early-integration-tracer.md)).
 
 ### internal/ui/layout.go
 
@@ -123,4 +137,8 @@ Pure region arithmetic with no rendering dependency. `CalculateLayout(totalHeigh
 
 ### internal/ui/view.go
 
-Deterministic Lip Gloss composition: results box on top owning border/status/header, bordered padded builder below showing the visible field-line window starting at `Scroll` with `>` focused markers, one global footer row last, joining to exactly H rendered rows. While suspended, `View` returns exactly `terminal too small`. Styles are centralized; color never carries meaning alone.
+Deterministic Lip Gloss composition: results box on top owning border/status/header, bordered padded builder below showing the visible field-line window starting at `Scroll` with `>` focused markers, one global footer row last, joining to exactly H rendered rows. While suspended, `View` returns exactly `terminal too small`. Styles are centralized; color never carries meaning alone. With settled tracer state, `renderResults` shows instead the minimal tracer grid (bold pipe-joined header row then pipe-joined data rows) or the plain failure text in the same bordered region — no feature claims beyond Issue #10 scope.
+
+### internal/ui/tracer.go (Issue #10, disposable)
+
+Bubble Tea composition path for the disposable tracer (replaced wholesale by Issue #22): `TraceGrid{Headers, Rows}` string cells; `TraceResult{Grid, Err}` typed completion translated at the composition seam (no connection/driver type crosses into UI); `StartTraceMsg{Execute func(ctx) TraceResult}` whose injected Schema/Connection-facing executor always runs inside a returned command; `traceSettledMsg`; isolated `TraceView{Grid, Err, Settled}` state; `SettledTracer()`; and nil-executor safety. No SQL, handles, or catalog queries here.

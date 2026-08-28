@@ -41,15 +41,27 @@ func (m Model) View() string {
 
 // renderResults renders the independently bordered results region. Its fixed
 // owned rows are the top/bottom border, one status/count line, and one frozen
-// header row.
+// header row. With settled tracer output the region shows the minimal tracer
+// grid or basic error text instead of the pre-execution placeholder; both are
+// plain text with no feature claims beyond this milestone's scope.
 func (m Model) renderResults(width, height int) string {
 	status := "Select a command (S/U/D/I) to begin"
 	header := ""
 	content := []string{status}
-	if header != "" {
-		content = append(content, resultsHeaderStyle.Render(header))
+	if m.Trace != nil && m.Trace.Settled {
+		content = []string{"tracer"}
+		if m.Trace.Err != "" {
+			content = append(content, m.Trace.Err)
+		} else if g := m.Trace.Grid; g != nil {
+			header = resultsHeaderStyle.Render(strings.Join(g.Headers, " | "))
+			if header != "" {
+				content = append(content, header)
+			}
+			for _, row := range g.Rows {
+				content = append(content, strings.Join(row, " | "))
+			}
+		}
 	}
-	content = append(content, "")
 	box := resultsStyle.
 		Width(width - resultsBorderRows).
 		Height(height - resultsBorderRows).

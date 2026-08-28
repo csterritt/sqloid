@@ -83,7 +83,20 @@ Cross-references: [cancellation-infrastructure.md](cancellation-infrastructure.m
 
 - `internal/connection/schema_test.go` — success result with populated catalog; two concurrent catalog reads leasing distinct pool connections; cancelled context classified failed with `context.Canceled` unwrappable; same-path replacement at the request boundary yields typed `HealthReplaced` (see [schema-catalog.md](schema-catalog.md)).
 
+## internal/connection and internal/schema Issue #10 tracer boundary tests
+
+- `internal/connection/tracer_test.go` — SQLite-backed: typed row transport (`int64` INTEGER, `string` TEXT, headers in result order), execution against the safely quoted unusual identifier `odd "name`, and a basic query failure (`no_such_table`) settling as failed `RequestResult` with a preserved cause naming the failing object and no terminal-classification claims. Composition always goes through `ReadCatalog` + `schema.ChooseTracerTarget`.
+- `internal/schema/tracer_test.go` — unit tests for identifier quoting (embedded double quotes doubled, spaces/mixed case preserved), catalog selection by name across kinds, and typed `*TracerError` rejection of uncataloged names with diagnostic text identifying the object.
+- `internal/schema/tracer_integration_test.go` (unix) — end-to-end fixture flow: ordinary table executes into typed headers/rows via Connection; unusual identifier succeeds; a post-selection drop makes execution alone fail as an ordinary basic failure. No builder/validation/paging/count/history/cancellation/write behavior exercised.
+
 ## internal/ui Issue #8 shell tests
 
 - `internal/ui/layout_test.go` — table-driven pure arithmetic over 80×24, 100×30, and 160×50 with minimal and growing builders: exactly one footer row; builder desired height inclusive of border+padding capped at floor(H/3); results equal every remaining row and greater than half-height; regions partitioning H exactly; `PageRows` subtracting results' owned fixed rows; viewport excluding builder border/padding. `TestViewRegionOwnership` renders full screens asserting exactly H rows with the footer on the last, both boxes occupying exactly their owned heights, exactly two top-border corner rows across the whole view (independent borders, none shared), and page area consistent with inner rows minus status/header.
 - `internal/ui/suspension_test.go` — scripted `(model, msg) → (model, cmd)` behavior: focus scrolling with builders far beyond the cap keeping each complete multiline focused field inside the visible range on Tab/Shift+Tab/Up/Down; below-minimum sizes (both-below, width-only, height-only) render exactly `terminal too small`; ordinary keys produce no commands, leave the view exact, and mutate nothing hidden; resize-back restores context/focus/scroll exactly then applies normal layout; Ctrl+W returns non-nil routing into the generic cancellation flow only when hidden state owns cancellable work, invoking it without exposing or mutating hidden state, and returns nil otherwise.
+
+## internal/ui Issue #10 tracer rendering tests
+
+- `internal/ui/tracer_test.go` — scripted messages only (no database opened): start message returns exactly one command whose completion re-enters Update; success renders returned column headers and rows inside a bordered region at exactly H lines for 80×24 with the builder bar intact and no row data leaking into builder fields; failure renders the typed error text without crashing and without copy claiming paging/count/history/recovery; nil-executor zero-value messages never panic.
+- `internal/ui/results_test.go` — focused layout assertions: tracer grid views still partition 80×24, 100×30, and 160×50 into exactly H rows, keeping Issue #8 region ownership intact.
+
+Cross-references: [early-integration-tracer.md](early-integration-tracer.md).

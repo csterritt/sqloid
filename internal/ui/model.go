@@ -63,6 +63,11 @@ type Model struct {
 	// request. It is invoked as a tea.Cmd, never directly inside Update.
 	CancelCommand func() tea.Msg
 
+	// Trace holds the disposable Issue #10 tracer state (hardcoded SELECT *
+	// integration milestone), isolated from all builder and shell state so
+	// Issue #22 can replace it wholesale. nil before any trace started.
+	Trace *TraceView
+
 	suspended      bool   // true while the terminal is below minimum size
 	suspendedModel *Model // exact copy retained across the undersized period
 }
@@ -84,6 +89,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.resize(msg.Width, msg.Height), nil
+	case StartTraceMsg:
+		return m, func() tea.Msg { return handleStartTrace(msg) }
+	case traceSettledMsg:
+		return m.applyTraceResult(msg.result), nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
