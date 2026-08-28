@@ -98,6 +98,9 @@ type QueryBuilder struct {
 	whereDraft    WherePredicate // in-progress guided draft, seeded from where on revision
 	whereDrafting bool           // a guided WHERE draft is open
 
+	sets    []SetAssignment // committed UPDATE SET assignments in selection order
+	inserts []InsertColumn  // committed INSERT per-column prompt states in declared order
+
 	objects []*schema.Object // latest refreshed catalog snapshot
 
 	focus       Field
@@ -138,6 +141,7 @@ func (q *QueryBuilder) discardSelectors() {
 	q.orderKey, q.orderDir, q.orderSet = "", 0, false
 	q.limitInput = ""
 	q.limitVal, q.limitHas = 0, false
+	q.sets, q.inserts = nil, nil
 	q.discardWhere()
 }
 

@@ -243,6 +243,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.adjustScroll()
 			return m, nil
 		}
+		if m.whereFocused() {
+			// Base Where field owns whole-value clearing (Issue #19): one
+			// immutable transition removes the entire submitted value while
+			// preserving the selected column and operator.
+			m.applyBuilder(m.QB.ClearWhereValue())
+			refocusField(&m, whereFieldLabel)
+			m.adjustScroll()
+			return m, nil
+		}
 		if m.groupByFocused() {
 			// Base Group By field owns removal (Issue #18): one accepted group
 			// column per press, in reverse selection order.
@@ -262,6 +271,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.adjustScroll()
 			return m, nil
 		}
+	case "enter":
+		// Base-context Enter consults the authoritative runnable report after
+		// every higher-precedence context has been handled above (Issue #19).
+		cmd := m.handleBaseEnter()
+		m.adjustScroll()
+		return m, cmd
 	case "tab":
 		m.setFocus(m.Focus + 1)
 	case "shift+tab":

@@ -63,6 +63,16 @@ func builderFields(q qb.QueryBuilder) []Field {
 		fields = append(fields, Field{Label: tableFieldLabel, Content: table})
 	}
 	_, tableSet := q.SelectedTable()
+	if q.Command() == qb.CommandUpdate && tableSet {
+		// Issue #19 write seam: the SET assignments field sits between Table
+		// and the optional Where field, in visual builder order.
+		fields = append(fields, Field{Label: setFieldLabel, Content: setFieldContent(q)})
+	}
+	if q.Command() == qb.CommandInsert && tableSet {
+		// Issue #19 write seam: one rendered Insert field represents every
+		// per-column prompt state in declared order.
+		fields = append(fields, Field{Label: insertFieldLabel, Content: insertFieldContent(q)})
+	}
 	isSelect := q.Command() == qb.CommandSelect && tableSet
 	if isSelect {
 		fields = append(fields, Field{Label: columnsFieldLabel,
