@@ -74,6 +74,15 @@ Table-driven filesystem tests via `t.Chdir(t.TempDir())`: sole-candidate selecti
 
 Cross-references: [cancellation-infrastructure.md](cancellation-infrastructure.md), [connection-pool.md](connection-pool.md), [session-health.md](session-health.md), [sqlite-startup.md](sqlite-startup.md).
 
+## internal/schema Issue #9 schema catalog tests
+
+- `internal/schema/catalog_test.go` — table-driven pure contract tests over synthetic metadata: object kind classification (ordinary/virtual/view incl. odd-case CREATE VIRTUAL TABLE and WITHOUT ROWID suffix variants with semicolon/whitespace/trailing comment), write eligibility, rowid capability plus declared-rowid shadowing for all three aliases (`rowid`, `_rowid_`, `oid`, case-insensitive), generated/hidden columns as noninsertable with declared-type passthrough, zero-insertable tables, exact exclusion of `sqlite_%` (any case) and `_cf_METADATA` while look-alikes survive and indexes/triggers are ignored, ascending-name determinism across input orders, empty-column-map objects, and the human-facing kind/capability strings.
+- `internal/schema/catalog_integration_test.go` — SQLite-backed (`//go:build unix`) fixture covering an ordinary table, an fts5 virtual table with its five shadow tables (config/idx genuinely WITHOUT ROWID), a view, a WITHOUT ROWID table, a declared-`rowid` shadowing table, AUTOINCREMENT's auto-created `sqlite_sequence`, `_cf_METADATA`, and a generated-columns mix. Asserts catalog version equals direct `PRAGMA schema_version`; the reserved objects exist in the DB yet never surface in the catalog; per-object kinds, rowid capabilities, shadowing, eligibility sets, virtual-table hidden columns, view SELECT-only zero insertable columns, and column declared types/insertability; repeated reads deep-equal; and DROP raises the version and removes the object from a refreshed catalog.
+
+## internal/connection Issue #9 catalog boundary tests
+
+- `internal/connection/schema_test.go` — success result with populated catalog; two concurrent catalog reads leasing distinct pool connections; cancelled context classified failed with `context.Canceled` unwrappable; same-path replacement at the request boundary yields typed `HealthReplaced` (see [schema-catalog.md](schema-catalog.md)).
+
 ## internal/ui Issue #8 shell tests
 
 - `internal/ui/layout_test.go` — table-driven pure arithmetic over 80×24, 100×30, and 160×50 with minimal and growing builders: exactly one footer row; builder desired height inclusive of border+padding capped at floor(H/3); results equal every remaining row and greater than half-height; regions partitioning H exactly; `PageRows` subtracting results' owned fixed rows; viewport excluding builder border/padding. `TestViewRegionOwnership` renders full screens asserting exactly H rows with the footer on the last, both boxes occupying exactly their owned heights, exactly two top-border corner rows across the whole view (independent borders, none shared), and page area consistent with inner rows minus status/header.

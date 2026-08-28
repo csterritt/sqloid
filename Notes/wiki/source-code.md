@@ -81,6 +81,27 @@ Linux/macOS mandatory barrier-based capability tests against modernc v1.57.0 (re
 
 Opener integration: real databases open read-write and answer queries; journal mode (`delete` and `wal`) is unchanged by opening (`TestOpenPreservesJournalMode`); non-writable valid-header databases yield exactly `cannot open database read-write: <path>: permission denied`; direct classifier tests pin EACCES→`permission denied`, EPERM→`permission denied`, EROFS→`read-only file system`, and raw driver causes preserved verbatim; all diagnostics stay single-line.
 
+### internal/connection/schema_test.go (Issue #9)
+
+Connection-boundary behavior of catalog reads: success settles `OutcomeSuccess` with a populated catalog and positive schema version; two concurrent reads lease distinct pooled connections without blocking; an already-cancelled context fails with `context.Canceled` preserved through the refresh wrapper; and a same-path replacement at the boundary classifies typed `HealthReplaced` instead of ordinary SQLite error handling.
+
+## internal/schema
+
+Schema metadata module (Issue #9), documented in [schema-catalog.md](schema-catalog.md):
+
+### internal/schema/schema.go
+
+UI-independent catalog types: `ObjectKind` (`ordinary-table`/`virtual-table`/`view`), `RowidCapability` (`has-rowid`/`without-rowid`/`not-applicable`), `Object` (name, kind, `WriteEligible`, rowid capability, `RowidShadowed`, `InsertableCount`, declared-order `Columns`), `Column` (name, declared type as pure metadata, hidden/generated visibility, insertability), and `Catalog` (schema version plus name-sorted objects). No driver, Bubble Tea, `internal/ui`, or `internal/querybuilder` dependency; no type-specific input behavior.
+
+### internal/schema/catalog.go
+
+Pure catalog rules over gathered metadata rows: `MasterRow`/`ColumnRow`/`Input` inputs and `BuildCatalog` classification — kind detection (`CREATE VIRTUAL TABLE` prefix), suffix-based `WITHOUT ROWID` detection (trailing semicolon/whitespace/comment tolerated, last two tokens compared case-insensitively), rowid-alias shadowing (`rowid`/`_rowid_`/`oid`, case-insensitive), exclusions of `sqlite_%` (case-insensitive) and `_cf_METADATA`, index/trigger ignoring, ascending-name determinism, and insertability (`hidden==0` plus write eligibility, so views report zero insertable columns).
+
+### internal/connection/schema.go (Issue #9)
+
+In the Connection module: `DB.ReadCatalog(ctx)` runs one `RunRequest` that reads `PRAGMA schema_version`, eligible rows from `main.sqlite_master` (`WHERE type IN ('table','view') ORDER BY name`), and each object's columns from the bound-parameter pragma function `main.pragma_table_xinfo(?)`, then decodes everything with `internal/schema.BuildCatalog`. Failures wrap their cause losslessly in `catalogError` (`could not refresh: <step>: <cause>`) and return the failed `RequestResult`, so health classification (deletion/replacement) wins over ordinary error handling per Issue #7; a cancelled context yields `context.Canceled` preserved through the wrapper. No catalog rules live here — only gathering. See [schema-catalog.md](schema-catalog.md).
+
+
 ## internal/d1
 
 ### internal/d1/discovery.go
