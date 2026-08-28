@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chris/sqloid/internal/querybuilder"
+	"github.com/chris/sqloid/internal/result"
 	"github.com/chris/sqloid/internal/schema"
 )
 
@@ -189,8 +190,10 @@ func TestIdleDiffersFromExecutedEmpty(t *testing.T) {
 			t.Errorf("idle view contains %q: resembles an executed result", marker)
 		}
 	}
-	traced := drive(sized(New(), 80, 24), traceSettledMsg{}).View()
-	if traced == idle {
-		t.Error("settled-tracer presentation identical to idle; states indistinguishable")
+	executedEmpty := drive(sized(New(), 80, 24),
+		SelectSettledMsg{Result: FirstPageResult{Page: &result.Page{Columns: []string{"x"}}}}).
+		View()
+	if executedEmpty == idle {
+		t.Error("executed-empty presentation identical to idle; states indistinguishable")
 	}
 }

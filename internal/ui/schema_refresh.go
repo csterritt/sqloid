@@ -8,7 +8,7 @@
 // advancing builder fields, and continuing toward execution stay blocked
 // until retry succeeds, cancel closes the flow, or terminal health takes
 // precedence. Database work never runs in Update or View: the refresher is
-// invoked only inside returned tea.Cmd functions, mirroring the tracer seam.
+// invoked only inside returned tea.Cmd functions.
 
 package ui
 

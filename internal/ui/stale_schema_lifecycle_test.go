@@ -218,9 +218,6 @@ func TestCancelClosesFlowAndRestoresExactPreOpenState(t *testing.T) {
 		t.Errorf("cancel restored focus=%d (%q), want exact Table opener",
 			after.Focus, after.Fields[after.Focus].Label)
 	}
-	if after.Trace != nil && after.Trace.Settled && after.Trace.Grid != nil {
-		t.Error("cancel executed database work: tracer grid settled")
-	}
 }
 
 // terminalFixture lands the stale flow into one terminal classification by

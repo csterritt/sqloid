@@ -69,10 +69,21 @@ type Model struct {
 	// request. It is invoked as a tea.Cmd, never directly inside Update.
 	CancelCommand func() tea.Msg
 
-	// Trace holds the disposable Issue #10 tracer state (hardcoded SELECT *
-	// integration milestone), isolated from all builder and shell state so
-	// Issue #22 can replace it wholesale. nil before any trace started.
-	Trace *TraceView
+	// Result holds the settled first-page state of the most recent SELECT
+	// execution (Issue #22): a typed result.Page on success or an Err on
+	// ordinary failure, replacing the idle results content once present. Raw
+	// typed rows and warning metadata are preserved here; rendering happens
+	// only in View through the internal/result seam. nil means nothing has
+	// executed since startup.
+	Result *ResultView
+
+	// Select performs one cancellable first-page SELECT execution through the
+	// Connection boundary for the given safely rendered SQL and ordered bound
+	// parameters. It runs only inside tea.Cmd functions — never in Update or
+	// View — and maps health classifications onto the returned FirstPageResult.
+	// nil means no execution is wired: the execution-start message still
+	// appends query history, but no database work is issued.
+	Select SelectExecutor
 
 	// QB is the authoritative query-builder state for command and table
 	// selection. Its transitions own eligibility and downstream clearing;
@@ -192,10 +203,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.applyValidationSettled(msg)
 		m.adjustScroll()
 		return m, cmd
-	case StartTraceMsg:
-		return m, func() tea.Msg { return handleStartTrace(msg) }
-	case traceSettledMsg:
-		return m.applyTraceResult(msg.result), nil
 	case PreExecutionRequestedMsg:
 		// Issue #21 lifecycle: runnable Enter opens the distinct pre-execution
 		// validation workflow and issues the schema-version request. Opening,
@@ -209,7 +216,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ExecutionStartedMsg:
 		m.appendQueryHistoryAtExecutionStart()
-		return m, nil
+		return m, m.startSelectPage()
+	case SelectSettledMsg:
+		return m.applySelectSettled(msg.Result), nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}

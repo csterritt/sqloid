@@ -103,10 +103,9 @@ func (m Model) drawPopupOverlay(base string) string {
 // owned rows are the top/bottom border, one status/count line, and one frozen
 // header row. While the stale-schema flow is active with no popup open it
 // leads content with exactly the persistent stale status and inline cause
-// lines; otherwise settled tracer output or the pre-execution placeholder is
-// shown as before.
+// lines; otherwise settled first-page output or the pre-execution placeholder
+// is shown as before.
 func (m Model) renderResults(width, height int) string {
-	header := ""
 	var content []string
 	if m.schemaStale && m.Popup == nil && !m.validating {
 		content = staleStatusLines(true, m.staleCause)
@@ -116,23 +115,17 @@ func (m Model) renderResults(width, height int) string {
 		// ordinary refresh failure, or `validating…` while a request is in
 		// flight.
 		content = m.validationStatusLines()
-	} else {
-		status := "Select a command (S/U/D/I) to begin"
-		content = []string{status}
-		if m.Trace != nil && m.Trace.Settled {
-			content = []string{"tracer"}
-			if m.Trace.Err != "" {
-				content = append(content, m.Trace.Err)
-			} else if g := m.Trace.Grid; g != nil {
-				header = resultsHeaderStyle.Render(strings.Join(g.Headers, " | "))
-				if header != "" {
-					content = append(content, header)
-				}
-				for _, row := range g.Rows {
-					content = append(content, strings.Join(row, " | "))
-				}
-			}
+	} else if m.Result != nil {
+		// Issue #22: the settled first page owns the results content — frozen
+		// deduplicated header, absolute range status, typed rows, or the
+		// ordinary execution error — all through the internal/result seam.
+		status, lines := renderResultContent(m.Result)
+		if status != "" {
+			content = append(content, status)
 		}
+		content = append(content, lines...)
+	} else {
+		content = []string{"Select a command (S/U/D/I) to begin"}
 	}
 	box := resultsStyle.
 		Width(width - resultsBorderRows).

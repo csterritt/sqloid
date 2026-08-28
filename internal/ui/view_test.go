@@ -8,6 +8,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/chris/sqloid/internal/result"
 )
 
 // IdlePrompt is the exact startup results-region content before any execution
@@ -81,14 +83,14 @@ func TestIdleLayoutArithmeticUnchanged(t *testing.T) {
 	}
 }
 
-// TestIdleDistinctFromTracerGrid contrasts the idle prompt with a settled
-// tracer grid so executed-result presentation can never be confused with it.
-func TestIdleDistinctFromTracerGrid(t *testing.T) {
+// TestIdleDistinctFromSettledGrid contrasts the idle prompt with a settled
+// first-page grid so executed-result presentation can never be confused with it.
+func TestIdleDistinctFromSettledGrid(t *testing.T) {
 	idle := sized(New(), 80, 24).View()
 	settled := drive(sized(New(), 80, 24),
-		StartTraceMsg{}, traceSettledMsg{result: TraceResult{Grid: &TraceGrid{
-			Headers: []string{"id"},
-			Rows:    [][]string{{"1"}},
+		SelectSettledMsg{Result: FirstPageResult{Page: &result.Page{
+			Columns: []string{"id"},
+			Rows:    [][]result.Value{{result.NewInteger(1)}},
 		}}}).
 		View()
 	if settled == idle || !strings.Contains(settled, "id") {

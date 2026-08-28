@@ -85,11 +85,25 @@ Opener integration: real databases open read-write and answer queries; journal m
 
 Connection-boundary behavior of catalog reads: success settles `OutcomeSuccess` with a populated catalog and positive schema version; two concurrent reads lease distinct pooled connections without blocking; an already-cancelled context fails with `context.Canceled` preserved through the refresh wrapper; and a same-path replacement at the boundary classifies typed `HealthReplaced` instead of ordinary SQLite error handling.
 
-### internal/connection/tracer.go (Issue #10, disposable)
+### internal/connection/firstpage.go (Issue #22)
 
-Disposable tracer execution path (replaced by Issue #22): `TracerResult{Columns []string, Rows [][]any}` typed transport (`nil`/`int64`/`float64`/`string`/`[]byte` values; copied row slices); `DB.RunTraceSelectAll(parent, target)` executes exactly one hardcoded quoted `SELECT *` from `schema.SelectAllSQL(target)` as one complete `RunRequest` — boundary identity checks, dedicated lease, cancellable read, settlement, post-error reclassification — without schema revalidation or query building. Failures wrap causes in neutral `tracerError` ("could not trace …") and return no result. See [early-integration-tracer.md](early-integration-tracer.md).
+Production first-page SELECT execution, documented in [first-select-result-grid.md](first-select-result-grid.md): `DB.RunFirstPage(parent, statement, params)` runs exactly one bound SELECT — always the QueryBuilder-rendered SQL and ordered parameters — as one complete `RunRequest` on its own dedicated lease, applying the Issue #6 request lifecycle and Issue #7 health classification unchanged. Eager scanning copies each row once and converts exactly once into the shared `internal/result` representation via `result.FromDriver`; failures wrap causes in neutral `firstPageError` ("could not run select — …") and return no page. No count request, later paging, cache, or finalization behavior.
 
-### internal/connection/tracer_test.go (Issue #10)
+### internal/connection/firstpage_test.go (Issue #22)
+
+SQLite-backed coverage of the first-page boundary: typed NULL/INTEGER/REAL/TEXT/BLOB rows with original driver labels crossing into `result.Page` without string coercion, typed NULLs, zero rows, an ordinary query failure (`no such table` cause preserved, no terminal claim), ordered parameter binding, a pre-cancelled context, and scan-level typing without loss.
+
+## internal/result
+
+Shared UI-independent result representation (Issue #22), documented in [first-select-result-grid.md](first-select-result-grid.md):
+
+### internal/result/result.go
+
+The single result seam consumed by `internal/ui`'s grid and future CSV/JSON exporters: typed `Value`/`Kind` (NULL, INTEGER, REAL, TEXT, BLOB never collapsed), `RealToken` (exact finite-REAL shortest round-trip token with `.0` restoration, locale-independent), `GridText`/`DecodeText` (visible tab/newline symbols and maximal invalid-UTF-8 replacement to one U+FFFD each), `DeduplicateNames` (full-set left-to-right collision-safe output-name rule), `Page` with original `Columns` beside `HeaderNames()` deduplicated display/export names, `InvalidUTF` warning metadata, and `FromDriver` converting the plain driver value set once at the Connection boundary with BLOB bytes retained exactly. Independent of Bubble Tea, driver concrete types, and exporter formats; non-finite REAL rendering policy deferred to Issue #23.
+
+### internal/result/result_test.go and architecture_test.go (Issue #22)
+
+Table-driven contract tests for full-set name deduplication (empty labels, pre-suffixed labels, repeated `COUNT(*)`, collision chains), finite REAL tokens (integral-looking values, signed zero, exponents, precision edges, locale independence, round-tripping), control-character transformation, maximal invalid-UTF-8 replacement with warning metadata, exact BLOB retention and `[BLOB n bytes]` display, typed-cell distinction (numeric-looking TEXT never coerced), and driver conversion including unsupported-value rejection. `architecture_test.go` parses repository source to pin that `internal/result` imports neither Bubble Tea nor the driver, that `internal/ui` owns no private REAL/BLOB/UTF-8/deduplication formatting, and that no tracer execution route survives.
 
 ## internal/schema
 
@@ -106,14 +120,6 @@ Pure catalog rules over gathered metadata rows: `MasterRow`/`ColumnRow`/`Input` 
 ### internal/connection/schema.go (Issue #9)
 
 In the Connection module: `DB.ReadCatalog(ctx)` runs one `RunRequest` that reads `PRAGMA schema_version`, eligible rows from `main.sqlite_master` (`WHERE type IN ('table','view') ORDER BY name`), and each object's columns from the bound-parameter pragma function `main.pragma_table_xinfo(?)`, then decodes everything with `internal/schema.BuildCatalog`. Failures wrap their cause losslessly in `catalogError` (`could not refresh: <step>: <cause>`) and return the failed `RequestResult`, so health classification (deletion/replacement) wins over ordinary error handling per Issue #7; a cancelled context yields `context.Canceled` preserved through the wrapper. No catalog rules live here — only gathering. See [schema-catalog.md](schema-catalog.md).
-
-### internal/schema/tracer.go (Issue #10, disposable)
-
-Catalog-to-tracer composition seam (replaced by Issue #22): `ChooseTracerTarget(cat, name)` returns the cataloged object (any selected kind — SELECT-only usage) or typed `*TracerError` (`"%q": not present in the refreshed schema catalog`) so execution never runs against stale identifiers; `SelectAllSQL(obj)` renders the one hardcoded `SELECT * FROM "<name>"` with embedded double quotes doubled. No revalidation, parameters, predicates, or builder behavior; see [early-integration-tracer.md](early-integration-tracer.md).
-
-### internal/schema/tracer_test.go / tracer_integration_test.go (Issue #10)
-
-Unit tests for safe identifier quoting (embedded quotes, spaces), catalog selection and typed rejection; Unix-tagged SQLite integration proving the chosen fixture table executes through Connection into typed headers/rows, an unusual identifier (`odd "name`), and a basic failure after a post-selection drop.
 
 ### internal/schema/refresh.go (Issue #13)
 
@@ -157,7 +163,7 @@ Universal parsing and SQL-safety atoms, documented in [sql-atoms-and-literals.md
 
 ### internal/ui/model.go
 
-The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); a terminal health classification (Issue #13) consumes every key so no workflow revives; otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll — blocked while the stale-schema flow is active — and Issue #11 routes plain S/U/D/I through `internal/ui/command_table.go` while Command holds focus. Issue #10 adds the isolated disposable tracer state field `Trace *TraceView` plus `StartTraceMsg`/`traceSettledMsg` handling. Issue #13 adds the wired `Refresher CatalogRefresher`, stale/pending attempt fields, terminal-state handling of `SchemaRefreshSettledMsg`/`RetrySchemaRefreshMsg`/`CancelStaleRefreshMsg`, and stale navigation gating; see [stale-schema-refresh.md](stale-schema-refresh.md).
+The top-level Bubble Tea model (Issue #8): `Field` (labeled builder field with counted display lines), `Model` (`Width`/`Height`, `Fields`, `Focus`, `Scroll`, cancellable-request ownership via `ActiveCancellable` plus a `CancelCommand func() tea.Msg` seam, and the unexported suspension copy `suspendedModel`). `Update` handles `tea.WindowSizeMsg` through `resize` — which freezes the entire model unchanged behind the undersized message and restores it exactly on return to supported dimensions after clamping scroll — and contextual key handling in `handleKey`: while suspended only Ctrl+W routes (and only when hidden state owns active cancellable work); a terminal health classification (Issue #13) consumes every key so no workflow revives; otherwise Tab/Shift+Tab/Up/Down move focus then adjust scroll — blocked while the stale-schema flow is active — and Issue #11 routes plain S/U/D/I through `internal/ui/command_table.go` while Command holds focus. Issue #10 adds the isolated disposable tracer state field `Trace *TraceView` plus `StartTraceMsg`/`traceSettledMsg` handling, removed wholesale by Issue #22 (documented in [first-select-result-grid.md](first-select-result-grid.md)), which replaces it with the settled first-page `Result *ResultView` state and the wired `Select SelectExecutor` field: `ExecutionStartedMsg` now appends query history and issues the one first-page request via `startSelectPage()`, and `SelectSettledMsg` stores the typed page or ordinary execution error as fresh result state. Issue #13 adds the wired `Refresher CatalogRefresher`, stale/pending attempt fields, terminal-state handling of `SchemaRefreshSettledMsg`/`RetrySchemaRefreshMsg`/`CancelStaleRefreshMsg`, and stale navigation gating; see [stale-schema-refresh.md](stale-schema-refresh.md).
 
 ### internal/ui/runnable_feedback.go (Issue #19)
 
@@ -197,11 +203,15 @@ Column(s) popup wiring, documented in [projection-count-star.md](projection-coun
 
 ### internal/ui/view.go
 
-Deterministic Lip Gloss composition: results box on top owning border/status/header, bordered padded builder below showing the visible field-line window starting at `Scroll` with `>` focused markers, one global footer row last, joining to exactly H rendered rows. While suspended, `View` returns exactly `terminal too small`. Issue #13 adds terminal-health precedence after suspension: a deletion/replacement state renders the whole shell as exactly `Database file no longer exists — session ended` or `Database file was replaced — session ended`, overriding every region and overlay. While the stale-schema flow is active with no popup open, `renderResults` leads content with exactly the persistent stale status plus inline cause lines; otherwise tracer/placeholder rendering is unchanged. Styles are centralized; color never carries meaning alone.
+Deterministic Lip Gloss composition: results box on top owning border/status/header, bordered padded builder below showing the visible field-line window starting at `Scroll` with `>` focused markers, one global footer row last, joining to exactly H rendered rows. While suspended, `View` returns exactly `terminal too small`. Issue #13 adds terminal-health precedence after suspension: a deletion/replacement state renders the whole shell as exactly `Database file no longer exists — session ended` or `Database file was replaced — session ended`, overriding every region and overlay. While the stale-schema flow is active with no popup open, `renderResults` leads content with exactly the persistent stale status plus inline cause lines; Issue #22 routes a settled first page through `renderResultContent` (deduplicated frozen header, absolute range status, typed rows, or the ordinary execution error) while the pre-execution placeholder remains otherwise. Styles are centralized; color never carries meaning alone.
 
-### internal/ui/tracer.go (Issue #10, disposable)
+### internal/ui/first_select.go and results_grid.go (Issue #22)
 
-Bubble Tea composition path for the disposable tracer (replaced wholesale by Issue #22): `TraceGrid{Headers, Rows}` string cells; `TraceResult{Grid, Err}` typed completion translated at the composition seam (no connection/driver type crosses into UI); `StartTraceMsg{Execute func(ctx) TraceResult}` whose injected Schema/Connection-facing executor always runs inside a returned command; `traceSettledMsg`; isolated `TraceView{Grid, Err, Settled}` state; `SettledTracer()`; and nil-executor safety. No SQL, handles, or catalog queries here.
+The production SELECT orchestration and grid documented in [first-select-result-grid.md](first-select-result-grid.md): the `SelectExecutor`/`FirstPageResult`/`SelectSettledMsg`/`ResultView` seam (no database or driver type crosses into Bubble Tea state), `startSelectPage` capturing the builder's exact SQL/parameters at the actual-execution boundary, and `renderResultPage`/`renderResultContent` rendering the frozen deduplicated header, absolute range status, typed cells, invalid-UTF warning, exact `No rows`, and ordinary execution errors — every display token through `internal/result`, with no UI-private formatting.
+
+### internal/ui/first_select_test.go and results_grid_test.go (Issue #22)
+
+Scripted model coverage of the builder→validation→execution→settlement route (including history timing and consecutive-identical suppression at the actual-execution boundary, failed validation running no execution, and ordinary error settlement) and focused view coverage of deduplicated frozen headers, absolute `rows 1-N` range, typed cell distinctions, visible control characters, the persistent invalid-UTF warning, exact `No rows`, startup-prompt distinction, and the result-error boundary.
 
 ### internal/ui/where_popup.go (Issue #17)
 
@@ -253,7 +263,7 @@ The session-only history store documented in [query-history-append.md](query-his
 
 ### internal/ui/model.go history seam (Issue #20)
 
-The execution-start timing seam documented in [query-history-append.md](query-history-append.md): the `History *history.Store` model field (nil = unwired no-op), `ExecutionStartedMsg` routed in `Update` to `appendQueryHistoryAtExecutionStart()` which appends through `AppendExecution` only for SELECT and INSERT, `PreExecutionRequestedMsg` explicitly appending nothing, and UPDATE/DELETE intentionally never appending through this seam until their confirmation-driven write flow exists (Issues #37/#38); Issue #22 owns emitting the start message after successful validation, so failed executions retain their start append.
+The execution-start timing seam documented in [query-history-append.md](query-history-append.md): the `History *history.Store` model field (nil = unwired no-op), `ExecutionStartedMsg` routed in `Update` to `appendQueryHistoryAtExecutionStart()` which appends through `AppendExecution` only for SELECT and INSERT, `PreExecutionRequestedMsg` explicitly appending nothing, and UPDATE/DELETE intentionally never appending through this seam until their confirmation-driven write flow exists (Issues #37/#38); Issue #22 owns emitting the start message after successful validation, so failed executions retain their start append; the settled result is stored separately in `Result *ResultView`.
 
 ### internal/schema/revalidate.go, internal/querybuilder/revalidate.go, internal/connection/schema.go revalidation, and internal/ui/schema_validation.go (Issue #21)
 
