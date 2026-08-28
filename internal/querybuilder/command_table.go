@@ -57,6 +57,16 @@ const (
 	// FieldColumns is the Column(s) field a SELECT acquires after its table
 	// selection; projection transitions focus it.
 	FieldColumns
+	// FieldGroupBy is the GROUP BY field a SELECT acquires after its table
+	// selection; assisted grouping selection stays on it while the popup is
+	// open and its base context owns removal.
+	FieldGroupBy
+	// FieldOrderBy is the ORDER BY field; its base context owns direction
+	// toggling and whole-value clearing.
+	FieldOrderBy
+	// FieldLimit is the Limit field; its base context owns whole-value
+	// clearing and the value-entry prompt seam.
+	FieldLimit
 )
 
 // QueryBuilder is one immutable snapshot of builder state. Copies share the
@@ -72,6 +82,16 @@ type QueryBuilder struct {
 	tableSet bool   // distinguishes a real selection from the empty name
 
 	projection []ProjectionEntry // committed SELECT projection entries in insertion order
+
+	groups []string // committed GROUP BY column names in selection order
+
+	orderKey string    // committed ORDER BY candidate identity; ordered only when set
+	orderDir Direction // closed ASC/DESC; ASC default at every fresh acceptance
+	orderSet bool
+
+	limitInput string // entered Limit representation, byte-for-byte
+	limitVal   int64  // accepted limit integer when limitHas
+	limitHas   bool   // distinguishes an accepted integer from empty/invalid input
 
 	where         WherePredicate // completed optional WHERE predicate for S/U/D
 	whereSet      bool           // distinguishes a real completion from no predicate
@@ -108,6 +128,19 @@ func (q QueryBuilder) SelectedTable() (string, bool) {
 	return q.table, q.tableSet
 }
 
+// discardSelectors drops every downstream command-specific selection at once:
+// projection, GROUP BY, ORDER BY, Limit, and the WHERE predicate/draft. It
+// backs the wholesale clearing rule that a command replacement or a vanished
+// table leaves nothing stale below Table.
+func (q *QueryBuilder) discardSelectors() {
+	q.projection = nil
+	q.groups = nil
+	q.orderKey, q.orderDir, q.orderSet = "", 0, false
+	q.limitInput = ""
+	q.limitVal, q.limitHas = 0, false
+	q.discardWhere()
+}
+
 // EligibleTables returns the objects of the latest refresh that are offered to
 // the current command: every object for SELECT, only Schema-declared
 // write-eligible kinds for UPDATE/DELETE/INSERT. The returned slice is fresh;
@@ -134,8 +167,7 @@ func (q QueryBuilder) RefreshSchema(c *schema.Catalog) QueryBuilder {
 	}
 	if q.tableSet && q.findObject(q.table) == nil {
 		q.table, q.tableSet = "", false
-		q.projection = nil // the projection follows the selected object's columns
-		q.discardWhere()   // so does the optional single WHERE predicate and any draft
+		q.discardSelectors() // the vanished table drops every downstream state
 	}
 	return q
 }
@@ -149,8 +181,7 @@ func (q QueryBuilder) SelectCommand(cmd Command) QueryBuilder {
 	q.command = cmd
 	q.focus = FieldTable
 	q.downstreamG++
-	q.projection = nil // command replacement clears everything below Table
-	q.discardWhere()   // including the optional single WHERE predicate and any draft
+	q.discardSelectors() // command replacement clears everything below Table
 	if q.tableSet && !q.selectedEligibleFor(cmd) {
 		q.table, q.tableSet = "", false
 	}

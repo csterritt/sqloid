@@ -231,14 +231,24 @@ func openWhereValuePrompt(m *Model, applied qb.QueryBuilder) {
 func (m Model) handleValuePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEnter:
+		opener := m.ValuePrompt.Opener
 		text := m.ValuePrompt.Buffer()
 		m.closeValuePrompt()
-		whereValueAccepted(&m, text)
+		if opener == limitFieldLabel {
+			limitPromptAccepted(&m, text)
+		} else {
+			whereValueAccepted(&m, text)
+		}
 		m.adjustScroll()
 		return m, nil
 	case tea.KeyEsc:
+		opener := m.ValuePrompt.Opener
 		m.closeValuePrompt()
-		whereValueCancelled(&m)
+		if opener == limitFieldLabel {
+			limitPromptCancelled(&m)
+		} else {
+			whereValueCancelled(&m)
+		}
 		m.adjustScroll()
 		return m, nil
 	}

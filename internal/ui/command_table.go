@@ -63,12 +63,27 @@ func builderFields(q qb.QueryBuilder) []Field {
 		fields = append(fields, Field{Label: tableFieldLabel, Content: table})
 	}
 	_, tableSet := q.SelectedTable()
-	if q.Command() == qb.CommandSelect && tableSet {
+	isSelect := q.Command() == qb.CommandSelect && tableSet
+	if isSelect {
 		fields = append(fields, Field{Label: columnsFieldLabel,
 			Content: projectionEntryLabels(q.ProjectionEntries())})
+		if q.WhereReady() {
+			// Query Grammar order: WHERE filters rows before grouping, ordering,
+			// and limiting apply.
+			fields = append(fields, Field{Label: whereFieldLabel,
+				Content: q.WherePredicate().SQL()})
+		}
+		// Issue #18 fields: GROUP BY, ORDER BY, and LIMIT join the bar in
+		// Query Grammar order after the projection they transform.
+		fields = append(fields, Field{Label: groupByFieldLabel,
+			Content: groupByEntryLabels(q.GroupByEntries())})
+		fields = append(fields, Field{Label: orderByFieldLabel,
+			Content: orderByFieldContent(q)})
+		fields = append(fields, Field{Label: limitFieldLabel,
+			Content: limitFieldContent(q)})
 	}
-	if q.WhereReady() {
-		// Query Grammar order: WHERE trails every projected field it filters.
+	if !isSelect && q.WhereReady() {
+		// UPDATE and DELETE keep their optional Where field after Table.
 		fields = append(fields, Field{Label: whereFieldLabel,
 			Content: q.WherePredicate().SQL()})
 	}
@@ -108,6 +123,12 @@ func wantFocusLabel(f qb.Field) string {
 		return tableFieldLabel
 	case qb.FieldColumns:
 		return columnsFieldLabel
+	case qb.FieldGroupBy:
+		return groupByFieldLabel
+	case qb.FieldOrderBy:
+		return orderByFieldLabel
+	case qb.FieldLimit:
+		return limitFieldLabel
 	default:
 		return commandFieldLabel
 	}

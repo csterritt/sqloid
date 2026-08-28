@@ -66,6 +66,18 @@ func (m *Model) openPopupCmd(msg tea.KeyMsg) tea.Cmd {
 	if m.columnsFocused() {
 		return m.beginColumnsPopup()
 	}
+	if m.groupByFocused() {
+		m.beginGroupByPopup()
+		return nil
+	}
+	if m.orderByFocused() {
+		m.beginOrderByPopup()
+		return nil
+	}
+	if m.limitFocused() {
+		m.beginLimitPrompt()
+		return nil
+	}
 	if m.whereFocused() {
 		m.beginWhereEdit()
 		return nil

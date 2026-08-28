@@ -243,13 +243,49 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.adjustScroll()
 			return m, nil
 		}
+		if m.groupByFocused() {
+			// Base Group By field owns removal (Issue #18): one accepted group
+			// column per press, in reverse selection order.
+			removeLatestGroup(&m)
+			m.adjustScroll()
+			return m, nil
+		}
+		if m.orderByFocused() {
+			// Base Order By field owns whole-value clearing (Issue #18).
+			clearOrderByField(&m)
+			m.adjustScroll()
+			return m, nil
+		}
+		if m.limitFocused() {
+			// Base Limit field owns whole-value clearing (Issue #18).
+			clearLimitField(&m)
+			m.adjustScroll()
+			return m, nil
+		}
 	case "tab":
 		m.setFocus(m.Focus + 1)
 	case "shift+tab":
 		m.setFocus(m.Focus - 1)
 	case "up":
+		if m.orderByFocused() {
+			// Focused base Order By field toggles ASC/DESC deterministically
+			// when a selection is committed, without opening a popup or moving
+			// popup selection; uncommitted Up falls through to navigation.
+			if _, _, ok := m.QB.OrderBySelection(); ok {
+				toggleOrderDirectionInBaseField(&m)
+				m.adjustScroll()
+				return m, nil
+			}
+		}
 		m.setFocus(m.Focus - 1)
 	case "down":
+		if m.orderByFocused() {
+			if _, _, ok := m.QB.OrderBySelection(); ok {
+				toggleOrderDirectionInBaseField(&m)
+				m.adjustScroll()
+				return m, nil
+			}
+		}
 		m.setFocus(m.Focus + 1)
 	default:
 		if handleCommandKey(&m, msg) {

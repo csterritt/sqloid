@@ -47,11 +47,17 @@ import {
 
 const execFileP = promisify(execFile);
 
+process.on("SIGUSR1", () => {
+  console.log("--- Process Interrupted: Current Stack Trace ---");
+  console.trace();
+});
+
 const ROOT = join(import.meta.dir, "..");
 const TASKS_DIR = join(ROOT, "Notes", "tasks");
 const WALKTHROUGHS_DIR = join(ROOT, "Notes", "walkthroughs");
 const SKILLS_CODE_WRITING_DIR = join(ROOT, "Notes", "skills", "code-writing");
 const NOTIFY_APP = "/home/chris/notify-app";
+const STOP_FILE = join(ROOT, "stop");
 
 /** Model the pi agent uses, as a "<provider>/<model>" or "<provider>/<model>:<thinking>" string. */
 const PI_MODEL = "z-ai/glm-5.3-flash";
@@ -70,6 +76,13 @@ const REVIEW_RE = /\*\*type\*\*\s*:\s*review/i;
 async function run(cmd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileP(cmd, args, { cwd: ROOT });
   return stdout.toString().trim();
+}
+
+/** Log a line with a "dd HH:MM" timestamp prefix. */
+function log(msg: string): void {
+  const now = new Date();
+  const ts = `${String(now.getMonth() + 1)}/${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  console.log(`[${ts}] ${msg}`);
 }
 
 /** Recursively list all files under a directory as relative POSIX paths. */
@@ -258,19 +271,23 @@ async function runPi(prompt: string): Promise<void> {
 
   const session = runtime.session;
 
-  // Stream assistant text deltas and tool activity to stdout as they happen.
+  // Stream assistant text deltas to stdout as they happen.
+  // Skip tool activity events and blank-only lines.
+  let lineBuf = "";
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "message_update") {
       const ame = event.assistantMessageEvent;
       if (ame.type === "text_delta") {
-        process.stdout.write(ame.delta);
-      } else if (ame.type === "text_end") {
-        process.stdout.write("\n");
-      } else if (ame.type === "toolcall_start") {
-        process.stdout.write(`\n[tool call starting]\n`);
+        lineBuf += ame.delta;
+        let nl: number;
+        while ((nl = lineBuf.indexOf("\n")) >= 0) {
+          const line = lineBuf.slice(0, nl);
+          lineBuf = lineBuf.slice(nl + 1);
+          if (line.trim().length > 0) {
+            process.stdout.write(line + "\n");
+          }
+        }
       }
-    } else if (event.type === "tool_execution_end") {
-      process.stdout.write(`[tool done: ${event.toolName}]\n`);
     }
   });
 
@@ -306,9 +323,18 @@ async function runTestSuite(): Promise<{ ok: true } | { ok: false; output: strin
 
 async function main() {
   for (;;) {
+    // Check for a "stop" file in the project root to break the loop early.
+    try {
+      await stat(STOP_FILE);
+      log("Stop file detected; breaking out of loop.");
+      break;
+    } catch {
+      // No stop file — continue.
+    }
+
     const task = await nextTask();
     if (!task) {
-      console.log("All tasks are implemented. Nothing to do.");
+      log("All tasks are implemented. Nothing to do.");
       return;
     }
 
@@ -316,74 +342,74 @@ async function main() {
     const taskText = await readFile(taskPath, "utf8");
     const prompt = buildPrompt(task, taskText);
 
-    console.log(`Next task: ${task.file} (prefix ${task.prefix})`);
-    console.log(`Task file: ${taskPath}`);
-    console.log(`Model: ${PI_MODEL}`);
-    console.log(`Skills dir: ${SKILLS_CODE_WRITING_DIR}`);
-    console.log(`Prompt (${prompt.length} chars):`);
+    log(`Next task: ${task.file} (prefix ${task.prefix})`);
+    log(`Task file: ${taskPath}`);
+    log(`Model: ${PI_MODEL}`);
+    log(`Skills dir: ${SKILLS_CODE_WRITING_DIR}`);
+    log(`Prompt (${prompt.length} chars):`);
     console.log(prompt);
-    console.log("---");
+    log("---");
 
     if (DRY_RUN) {
-      console.log("[dry-run] stopping here; would invoke pi agent session next.");
-      console.log("[dry-run] after pi, would run: go test ./...");
-      console.log("[dry-run] after tests, would verify a new walkthrough dir/file >=10 lines.");
-      console.log(`[dry-run] on success: jj describe -m "Task ${task.name} implemented by ${PI_MODEL_NAME}." && jj new`);
-      console.log("[dry-run] on failure: /home/chris/notify-app \"<message>\"");
+      log("[dry-run] stopping here; would invoke pi agent session next.");
+      log("[dry-run] after pi, would run: go test ./...");
+      log("[dry-run] after tests, would verify a new walkthrough dir/file >=10 lines.");
+      log(`[dry-run] on success: jj describe -m "Task ${task.name} implemented by ${PI_MODEL_NAME}." && jj new`);
+      log("[dry-run] on failure: /home/chris/notify-app \"<message>\"");
       return;
     }
 
     const before = await snapshotWalkthroughs();
 
-    console.log("Invoking pi agent session...");
+    log("Invoking pi agent session...");
     try {
       await runPi(prompt);
     } catch (err) {
       const message = `pi agent session failed for task ${task.file}: ${err}`;
-      console.error(message);
+      log(message);
       await notify(message);
       break;
     }
-    console.log("pi agent session finished.");
-    console.log("---");
+    log("pi agent session finished.");
+    log("---");
 
-    console.log("Running all tests: go test ./...");
+    log("Running all tests: go test ./...");
     const testResult = await runTestSuite();
     if (!testResult.ok) {
       const message = `tests failed for task ${task.file}:\n${testResult.output}`;
-      console.error(message);
+      log(message);
       await notify(message);
       break;
     }
-    console.log("All tests passed.");
-    console.log("---");
+    log("All tests passed.");
+    log("---");
 
     const result = await verifyWalkthrough(task.prefix, before);
     if (!result.ok) {
       const message = `pi agent did not write a walkthrough for task ${task.file}: ${result.reason}`;
-      console.error(message);
+      log(message);
       await notify(message);
       break;
     }
 
-    console.log(`Walkthrough verified: ${result.dir}/${result.file}`);
+    log(`Walkthrough verified: ${result.dir}/${result.file}`);
 
     const describeMsg = `Task ${task.name} implemented by ${PI_MODEL_NAME}.`;
-    console.log(`Running: jj describe -m "${describeMsg}"`);
+    log(`Running: jj describe -m "${describeMsg}"`);
     await run("jj", ["describe", "-m", describeMsg]);
-    console.log("Running: jj new");
+    log("Running: jj new");
     await run("jj", ["new"]);
-    console.log(`Task ${task.name} done.`);
-    console.log("===");
+    log(`Task ${task.name} done.`);
+    log("===");
 
     if (REVIEW_RE.test(taskText)) {
       const message = `Reached REVIEW task ${task.file}; stopping loop for human review.`;
-      console.log(message);
+      log(message);
       await notify(message);
       break;
     }
   }
-  console.log("Done.");
+  log("Done.");
 }
 
 main().catch((err) => {

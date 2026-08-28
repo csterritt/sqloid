@@ -51,12 +51,12 @@ func openColumnsPopup(t *testing.T) Model {
 	if name, ok := m.QB.SelectedTable(); !ok || name != "users" {
 		t.Fatalf("setup selected (%q,%v), want users", name, ok)
 	}
-	// Issue #17 legitimately extends the SELECT field bar with a trailing
-	// Where entry; Column(s) keeps its position ahead of it.
-	if got := len(m.Fields); got != 4 || m.Fields[2].Label != columnsFieldLabel ||
-		m.Fields[3].Label != whereFieldLabel {
-		t.Fatalf("field bar=%v, want %s:%s:%s:%s order ending in %v",
-			labels(m.Fields), commandFieldLabel, tableFieldLabel, columnsFieldLabel, whereFieldLabel, whereFieldLabel)
+	// Issues #17 and #18 extend the SELECT field bar with Where, Group By,
+	// Order By, and Limit entries; Column(s) keeps its position at index 2.
+	wantBar := []string{commandFieldLabel, tableFieldLabel, columnsFieldLabel,
+		whereFieldLabel, groupByFieldLabel, orderByFieldLabel, limitFieldLabel}
+	if !slices.Equal(labels(m.Fields), wantBar) {
+		t.Fatalf("field bar=%v, want %v", labels(m.Fields), wantBar)
 	}
 	m = drive(m, tea.KeyMsg{Type: tea.KeyTab}).(Model)
 	if m.Focus != 2 {
