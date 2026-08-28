@@ -63,5 +63,8 @@ func (m *Model) openPopupCmd(msg tea.KeyMsg) tea.Cmd {
 	if msg.Type != tea.KeyEnter {
 		return nil
 	}
+	if m.columnsFocused() {
+		return m.beginColumnsPopup()
+	}
 	return m.beginTablePopup()
 }

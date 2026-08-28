@@ -54,6 +54,9 @@ const (
 	FieldCommand Field = iota
 	// FieldTable is the table field newly required once a command is chosen.
 	FieldTable
+	// FieldColumns is the Column(s) field a SELECT acquires after its table
+	// selection; projection transitions focus it.
+	FieldColumns
 )
 
 // QueryBuilder is one immutable snapshot of builder state. Copies share the
@@ -67,6 +70,8 @@ type QueryBuilder struct {
 	command  Command
 	table    string // selected object name exactly as cataloged; "" when none
 	tableSet bool   // distinguishes a real selection from the empty name
+
+	projection []ProjectionEntry // committed SELECT projection entries in insertion order
 
 	objects []*schema.Object // latest refreshed catalog snapshot
 
@@ -124,6 +129,7 @@ func (q QueryBuilder) RefreshSchema(c *schema.Catalog) QueryBuilder {
 	}
 	if q.tableSet && q.findObject(q.table) == nil {
 		q.table, q.tableSet = "", false
+		q.projection = nil // the projection follows the selected object's columns
 	}
 	return q
 }
@@ -137,6 +143,7 @@ func (q QueryBuilder) SelectCommand(cmd Command) QueryBuilder {
 	q.command = cmd
 	q.focus = FieldTable
 	q.downstreamG++
+	q.projection = nil // command replacement clears everything below Table
 	if q.tableSet && !q.selectedEligibleFor(cmd) {
 		q.table, q.tableSet = "", false
 	}

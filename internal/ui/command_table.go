@@ -22,6 +22,9 @@ const (
 	tableFieldLabel   = "Table"
 )
 
+// columnsFieldLabel is defined in projection_popup.go as both the field-bar
+// label of the SELECT Column(s) field and the popup opener identity.
+
 // SchemaRefreshedMsg carries a freshly refreshed schema catalog into the model
 // so the builder's eligible-object list follows the latest Schema metadata.
 type SchemaRefreshedMsg struct {
@@ -47,7 +50,8 @@ func commandKey(s string) (qb.Command, bool) {
 }
 
 // builderFields renders the builder's current state as field-bar entries: the
-// Command field always exists, and Table appears once any command is chosen.
+// Command field always exists, Table appears once any command is chosen, and
+// a SELECT gains its Column(s) entry once a table is selected.
 func builderFields(q qb.QueryBuilder) []Field {
 	fields := []Field{{Label: commandFieldLabel, Content: q.Command().String()}}
 	name, ok := q.SelectedTable()
@@ -57,6 +61,11 @@ func builderFields(q qb.QueryBuilder) []Field {
 	}
 	if q.Command().Selected() {
 		fields = append(fields, Field{Label: tableFieldLabel, Content: table})
+	}
+	_, tableSet := q.SelectedTable()
+	if q.Command() == qb.CommandSelect && tableSet {
+		fields = append(fields, Field{Label: columnsFieldLabel,
+			Content: projectionEntryLabels(q.ProjectionEntries())})
 	}
 	return fields
 }
@@ -92,6 +101,8 @@ func wantFocusLabel(f qb.Field) string {
 	switch f {
 	case qb.FieldTable:
 		return tableFieldLabel
+	case qb.FieldColumns:
+		return columnsFieldLabel
 	default:
 		return commandFieldLabel
 	}
