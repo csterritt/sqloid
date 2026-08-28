@@ -9,6 +9,7 @@ package ui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
 )
 
@@ -76,6 +77,13 @@ type Model struct {
 	// selection. Its transitions own eligibility and downstream clearing;
 	// Fields below re-render from it whenever a transition applies.
 	QB qb.QueryBuilder
+
+	// History owns the session-only query-history store (Issue #20). Nil
+	// means no history is wired; execution-start appends then no-op. Append
+	// happens only through the ExecutionStartedMsg seam — never during
+	// runnable evaluation, validation, estimation, cancellation, or
+	// confirmation dismissal.
+	History *history.Store
 
 	// Refresher performs one main-schema catalog refresh through the
 	// Connection boundary per Table-popup open (Issue #13). It is invoked
@@ -167,6 +175,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return handleStartTrace(msg) }
 	case traceSettledMsg:
 		return m.applyTraceResult(msg.result), nil
+	case PreExecutionRequestedMsg:
+		// Issue #20 lifecycle: runnable evaluation and the pre-execution seam
+		// append nothing. Schema validation, destructive estimation, and
+		// confirmation (Issue #22 onward) must settle before any history
+		// entry exists.
+		return m, nil
+	case ExecutionStartedMsg:
+		m.appendQueryHistoryAtExecutionStart()
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -325,4 +342,33 @@ func (m *Model) setFocus(i int) {
 		i = len(m.Fields) - 1
 	}
 	m.Focus = i
+}
+
+// ExecutionStartedMsg is the actual-execution-start lifecycle seam (Issue
+// #20): emitted only when a real SELECT/INSERT begins after successful
+// pre-execution validation, or when a confirmed UPDATE/DELETE begins its sole
+// actual write. Issue #22 owns emitting it; until then the message exists so
+// the append entry point, suppression policy, and timing rules are wired and
+// testable without any database execution.
+
+type ExecutionStartedMsg struct{}
+
+// appendQueryHistoryAtExecutionStart appends the current normalized builder
+// state to the query-history store through the single append entry point,
+// which suppresses consecutive-identical states without allocating an ID.
+// SELECT and INSERT append here; UPDATE and DELETE append only at their
+// confirmation-driven write start, which no implemented flow can emit yet, so
+// those commands never append through this seam. A nil store is an unchanged
+// no-op. Failed execution outcomes arrive later and cannot undo the append.
+func (m *Model) appendQueryHistoryAtExecutionStart() {
+	if m.History == nil {
+		return
+	}
+	switch m.QB.Command() {
+	case qb.CommandSelect, qb.CommandInsert:
+		m.History.AppendExecution(m.QB.HistoryState())
+	default:
+		// UPDATE/DELETE: confirmation begins the sole actual write (Issues
+		// #37/#38); estimation and dismissal append nothing.
+	}
 }

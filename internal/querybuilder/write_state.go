@@ -189,6 +189,14 @@ type InsertColumn struct {
 // Choice reports the column's typed choice.
 func (c InsertColumn) Choice() InsertChoice { return c.choice }
 
+// Entered reports the exact entered text behind a submitted Value choice.
+func (c InsertColumn) Entered() (string, bool) {
+	if c.choice != InsertChoiceValue || !c.submitted {
+		return "", false
+	}
+	return c.input, true
+}
+
 // SubmittedValue reports the parsed submission for a submitted Value choice;
 // NULL, Default/Omit, and unsubmitted entries never report one.
 func (c InsertColumn) SubmittedValue() (Value, bool) {
