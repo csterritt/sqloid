@@ -158,3 +158,15 @@ Deterministic Lip Gloss composition: results box on top owning border/status/hea
 ### internal/ui/tracer.go (Issue #10, disposable)
 
 Bubble Tea composition path for the disposable tracer (replaced wholesale by Issue #22): `TraceGrid{Headers, Rows}` string cells; `TraceResult{Grid, Err}` typed completion translated at the composition seam (no connection/driver type crosses into UI); `StartTraceMsg{Execute func(ctx) TraceResult}` whose injected Schema/Connection-facing executor always runs inside a returned command; `traceSettledMsg`; isolated `TraceView{Grid, Err, Settled}` state; `SettledTracer()`; and nil-executor safety. No SQL, handles, or catalog queries here.
+
+### internal/ui/popup.go (Issue #12)
+
+Reusable popup interaction state: `PopupMode` (searchable versus scroll-only), `PopupCandidate` pairing identity with displayed text, `EnterResult{Outcome, ID}` over `EnterNone/Accepted/Added/Duplicate`, and `Popup` with `install`-based constructors (`NewSearchablePopup`, `NewMultiSearchablePopup`, `NewScrollOnlyPopup`). `matchesSubsequence` implements the case-insensitive subsequence rule; filtering preserves source order; empty search shows everything; exhausted filters and empty candidate data stay open with exactly `no matches`. Every actual search-text change (`SetSearch`, rune append, Backspace) resets highlight to the first visible result and viewport top to zero; Up/Down clamp at both boundaries and shift `viewportTop` minimally via `scrollIntoView`; `viewportHeight <= 0` is unwindowed. Enter: single-select accepts the highlighted ID; multi-select adds a nonduplicate completion in insertion order and stays open (duplicate becomes `EnterDuplicate`); no-match Enters are ignored. Esc closes while `Completed()` keeps finished selections for preservation. Model routing lives here too: `handlePopupKey` consumes Up/Down/Enter/Esc/printables before base-context handling (scroll-only variants ignore appends), restoring exact opener focus through `closePopupRestore` on cancel and close-then-commit on accept.
+
+### internal/ui/popup_view.go (Issue #12)
+
+Deterministic popup presentation: `RenderPopup` draws a rounded-bordered box with one `Search: <text>_` line for searchable variants only, status lines such as exact `no matches`, then the visible candidate window with `> `/`  ` prefixes for highlighted/plain rows; lines truncate by whole runes at interior width and window clipping respects viewport height. `composeOverlay` splices overlay text onto composed shell lines at row/col without reflowing anything outside its extent. Cell-width math uses go-runewidth so glyphs never split mid-sequence.
+
+### internal/ui/table_popup.go (Issue #12)
+
+Table as first end-to-end searchable single-select consumer: Enter on the focused Table field installs a fresh popup from `QueryBuilder.EligibleTables()` — eligibility filtered entirely through builder rules — mapping each cataloged object name to both candidate identity and display, capping the viewport at 8 rows. The accept hook commits identity via `QB.SelectTable(id)` then `applyBuilder`; `tableFocused` guards against popups already open or suspension.

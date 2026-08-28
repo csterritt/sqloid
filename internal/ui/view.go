@@ -32,11 +32,29 @@ func (m Model) View() string {
 		return ""
 	}
 	l := CalculateLayout(m.Height, m.Fields)
-	return strings.Join([]string{
+	out := strings.Join([]string{
 		m.renderResults(m.Width, l.ResultsHeight),
 		m.renderBuilder(m.Width, l.BuilderHeight),
 		m.renderFooter(m.Width),
 	}, "\n")
+	if m.Popup != nil {
+		// Issue #8 overlay pattern: the popup draws over the results region
+		// and never reflows any region's border or content rows.
+		out = m.drawPopupOverlay(out)
+	}
+	return out
+}
+
+// drawPopupOverlay composites the open popup box over the composed shell,
+// anchored inside the results region just below its top border.
+func (m Model) drawPopupOverlay(base string) string {
+	maxWidth := m.Width - popupBorderCols
+	if maxWidth < 1 {
+		maxWidth = 1
+	}
+	content := renderPopupLines(m.Popup, maxWidth)
+	box := RenderPopup(m.Popup, maxWidth, len(content)+popupBorderRows)
+	return composeOverlay(base, box, 1, 1)
 }
 
 // renderResults renders the independently bordered results region. Its fixed

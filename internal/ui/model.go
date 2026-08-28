@@ -79,6 +79,17 @@ type Model struct {
 
 	suspended      bool   // true while the terminal is below minimum size
 	suspendedModel *Model // exact copy retained across the undersized period
+
+	// Popup is the currently open reusable popup list (Issue #12), or nil
+	// when closed. While non-nil it consumes navigation, Enter, Esc, and —
+	// for searchable variants — printable search input before any
+	// base-context handling. openerFocus records the exact UI focus captured
+	// at open so both accept and cancel paths restore that opener rather
+	// than inferring a default; popupAccept commits an accepted candidate ID
+	// to its owning feature after close. Installed only via installPopup.
+	Popup       *Popup
+	openerFocus int
+	popupAccept func(*Model, string)
 }
 
 // New returns the initial model focused on the Command field with an idle,
@@ -90,6 +101,27 @@ func New() Model {
 		QB:     q,
 		Focus:  0,
 	}
+}
+
+// installPopup opens p over the current focus, capturing it as the exact
+// opener to restore, and installs accept as the commit hook invoked with the
+// accepted candidate ID after the popup closes.
+func (m *Model) installPopup(p *Popup, accept func(mm *Model, id string)) {
+	m.Popup = p
+	m.popupAccept = accept
+	m.openerFocus = m.Focus
+}
+
+// closePopupRestore removes the open popup and restores the given opener
+// focus index exactly (clamped only to remain valid). Completed multi-
+// selections stay available on the dismissed value until callers drop it.
+func (m *Model) closePopupRestore(opener int) {
+	if m.Popup != nil {
+		m.Popup.Esc()
+	}
+	m.Popup = nil
+	m.popupAccept = nil
+	m.setFocus(opener)
 }
 
 // Init implements tea.Model. Terminal dimensions arrive via WindowSizeMsg.
@@ -154,6 +186,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.Popup != nil {
+		return m.handlePopupKey(msg)
+	}
 	switch msg.String() {
 	case "tab":
 		m.setFocus(m.Focus + 1)
@@ -166,6 +201,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		if handleCommandKey(&m, msg) {
 			return m, nil
+		}
+		if m.openPopupKey(msg) {
+			m.adjustScroll()
 		}
 		return m, nil
 	}
