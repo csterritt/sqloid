@@ -36,9 +36,13 @@ type FirstPageResult struct {
 }
 
 // SelectSettledMsg carries one settled first-page execution back through
-// Update. Produced only by commands this package created.
+// Update with the two-level identity (Issue #24) that guards it: the SELECT
+// execution ID that produced it and the first-page request ID. Produced only
+// by commands this package created.
 type SelectSettledMsg struct {
-	Result FirstPageResult
+	ExecutionID uint64
+	RequestID   uint64
+	Result      FirstPageResult
 }
 
 // ResultView is the model's complete settled first-page state. Page is
@@ -49,21 +53,57 @@ type ResultView struct {
 	Err  error
 }
 
-// startSelectPage returns the command that issues the one first-page request
-// at the actual-execution boundary. The builder's SQL and parameters are
-// captured here, after history has already appended for this execution, so
-// the request carries exactly the validated builder state. A nil executor
-// yields no command because there is no database work to do.
+// startSelectPage returns the commands that issue the two concurrent
+// requests of one actual SELECT execution (Issue #24): the first page and the
+// complete-limited-result count. One fresh nonzero execution ID and two
+// distinct role-specific request IDs are assigned here, the tracker guarding
+// both completions is installed, and the executed builder's user Limit is
+// captured as count metadata for the exact after-Limit wording. The page and
+// count requests are launched in one batch without waiting for either result;
+// each acquires its own dedicated lease and runs as an independent autocommit
+// read. The builder's SQL and parameters are captured here, after history has
+// already appended for this execution, so the requests carry exactly the
+// validated builder state. A nil page executor yields no command because
+// there is no database work to do; a nil count executor leaves the count
+// state unset (page-only fixtures from Issue #22 are unaffected).
 func (m *Model) startSelectPage() tea.Cmd {
 	if m.Select == nil {
 		return nil
 	}
-	exec := m.Select
+	exec := result.NextSelectExecutionID()
+	pageID := result.NextSelectRequestID()
+	countID := result.NextSelectRequestID()
+	m.selectTracker = result.NewSelectTracker(exec, pageID, countID)
+
+	pageFn := m.Select
 	sql := m.QB.SelectSQL()
 	params := m.QB.SelectParams()
-	return func() tea.Msg {
-		return SelectSettledMsg{Result: exec(context.Background(), sql, params)}
+	pageCmd := func() tea.Msg {
+		return SelectSettledMsg{
+			ExecutionID: exec,
+			RequestID:   pageID,
+			Result:      pageFn(context.Background(), sql, params),
+		}
 	}
+	countFn := m.Count
+	if countFn == nil {
+		// No count executor wired: page-only execution as in Issue #22.
+		return pageCmd
+	}
+	countSQL := m.QB.CountSQL()
+	countCmd := func() tea.Msg {
+		return CountSettledMsg{
+			ExecutionID: exec,
+			RequestID:   countID,
+			Result:      countFn(context.Background(), countSQL, params),
+		}
+	}
+	m.countState = result.CountState{Status: result.CountPending}
+	if limit, has := m.QB.LimitValue(); has {
+		m.countState.HasLimit, m.countState.Limit = true, limit
+	}
+	// Issue #24: both requests launch now, neither waiting for the other.
+	return tea.Batch(pageCmd, countCmd)
 }
 
 // applySelectSettled stores the settled completion as fresh result state,

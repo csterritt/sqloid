@@ -11,6 +11,7 @@ import (
 
 	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
+	"github.com/chris/sqloid/internal/result"
 	"github.com/chris/sqloid/internal/schema"
 )
 
@@ -84,6 +85,26 @@ type Model struct {
 	// nil means no execution is wired: the execution-start message still
 	// appends query history, but no database work is issued.
 	Select SelectExecutor
+
+	// Count performs one cancellable complete-SELECT count execution through
+	// the Connection boundary (Issue #24) for the safely rendered count SQL
+	// and ordered parameters, concurrently with the first page on its own
+	// dedicated lease. It runs only inside tea.Cmd functions and maps health
+	// classifications onto the returned CountResult. nil leaves the count
+	// state unset (page-only fixtures).
+	Count CountExecutor
+
+	// selectTracker guards the current SELECT execution's two concurrent
+	// completions (Issue #24): a page or count completion mutates state only
+	// when both its execution ID and role-specific request ID match, and each
+	// role is consumed at most once.
+	selectTracker result.SelectTracker
+
+	// countState is the independent result-count presentation state (Issue
+	// #24): pending, successful (with the executed builder's Limit metadata
+	// for the exact wording), or unavailable. Rendering reads it explicitly
+	// and never infers it from row length.
+	countState result.CountState
 
 	// QB is the authoritative query-builder state for command and table
 	// selection. Its transitions own eligibility and downstream clearing;
@@ -218,7 +239,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendQueryHistoryAtExecutionStart()
 		return m, m.startSelectPage()
 	case SelectSettledMsg:
-		return m.applySelectSettled(msg.Result), nil
+		// Issue #24: a page completion mutates active state only when both its
+		// SELECT execution ID and its first-page request ID match the current
+		// identities and the role is unconsumed; stale, duplicated, or
+		// wrong-role responses are discarded untouched.
+		req := result.SelectRequest{ExecutionID: msg.ExecutionID, Role: result.RoleFirstPage, RequestID: msg.RequestID}
+		if m.selectTracker.Accept(req) {
+			return m.applySelectSettled(msg.Result), nil
+		}
+		return m, nil
+	case CountSettledMsg:
+		// Issue #24: the count role has its own request ID and the same
+		// two-level guard; it settles into its own presentation state without
+		// ever converting into a page failure.
+		req := result.SelectRequest{ExecutionID: msg.ExecutionID, Role: result.RoleCount, RequestID: msg.RequestID}
+		if m.selectTracker.Accept(req) {
+			return m.applyCountSettled(msg.Result), nil
+		}
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}

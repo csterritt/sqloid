@@ -119,7 +119,7 @@ func (m Model) renderResults(width, height int) string {
 		// Issue #22: the settled first page owns the results content — frozen
 		// deduplicated header, absolute range status, typed rows, or the
 		// ordinary execution error — all through the internal/result seam.
-		status, lines := renderResultContent(m.Result)
+		status, lines := renderResultContent(m.Result, m.countState)
 		if status != "" {
 			content = append(content, status)
 		}

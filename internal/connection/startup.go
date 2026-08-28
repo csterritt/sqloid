@@ -160,6 +160,14 @@ type DB struct {
 	startDev uint64
 	startIno uint64
 
+	// beforeFirstPage and beforeCount are test-only barrier seams for the
+	// Issue #24 concurrency capability suite: when non-nil, each is invoked
+	// inside the named request's operation after its lease is acquired and
+	// before its statement runs, so tests can hold both concurrent requests
+	// simultaneously and capture physical-connection identity. Production
+	// control flow leaves both nil and never reads them elsewhere.
+	beforeFirstPage, beforeCount func(ctx context.Context, conn *sql.Conn)
+
 	// identityChecks counts VerifyHealth invocations so tests can prove the
 	// exactly-one-pre-BEGIN-check contract for phased writes without hooks;
 	// reading it is test observability of the boundary, not production state.

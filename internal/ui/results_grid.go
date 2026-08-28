@@ -27,31 +27,56 @@ const gridColumnCap = 32
 const gridEllipsis = "…"
 
 // renderResultPage renders the settled first page as the results content:
-// the status/count line (absolute inclusive displayed range plus the
-// persistent invalid-UTF warning where applicable), the frozen deduplicated
-// header, and one line per row. An executed-empty SELECT renders exactly
-// `No rows` with no data range. Column widths derive from the complete
-// visible rows (complete-row sizing) and apply uniformly to header and cells
-// so columns stay aligned.
-func renderResultPage(p *result.Page) (status string, content []string) {
+// the status/count line, the frozen deduplicated header, and one line per
+// row. An executed-empty SELECT renders exactly `No rows` with no data range.
+// Column widths derive from the complete visible rows (complete-row sizing)
+// and apply uniformly to header and cells so columns stay aligned.
+func renderResultPage(p *result.Page, count result.CountState) (status string, content []string) {
 	names := p.HeaderNames()
+	var rangeStatus string
 	if len(p.Rows) == 0 {
 		// Executed-empty state: exact `No rows`, no misleading data range.
 		if p.InvalidUTF {
-			status = result.UTFWarning
+			rangeStatus = result.UTFWarning
 		}
-		return status, []string{"No rows"}
+		lines := []string{"No rows"}
+		if count.Status != 0 {
+			// Issue #24: the independent count wording leads the status/count
+			// line even with zero displayed rows; rows are never inferred from
+			// the count nor the count from rows.
+			rangeStatus = joinStatusParts(count.Header(), rangeStatus)
+		}
+		return rangeStatus, lines
 	}
-	status = "rows 1-" + strconv.Itoa(len(p.Rows))
+	rangeStatus = "rows 1-" + strconv.Itoa(len(p.Rows))
 	if p.InvalidUTF {
-		status += " — " + result.UTFWarning
+		rangeStatus += " — " + result.UTFWarning
+	}
+	if count.Status != 0 {
+		// Issue #24: the exact count wording (`Result count: N`,
+		// `Result count: N (after Limit M)`, or `Count unavailable`) leads the
+		// status/count line, composed with — never replacing or clamping the
+		// independently displayed range.
+		rangeStatus = joinStatusParts(count.Header(), rangeStatus)
 	}
 	widths := gridColumnWidths(names, p.Rows)
 	lines := []string{resultsHeaderStyle.Render(renderGridRow(names, widths))}
 	for _, row := range p.Rows {
 		lines = append(lines, renderGridRow(gridCellTexts(row), widths))
 	}
-	return status, lines
+	return rangeStatus, lines
+}
+
+// joinStatusParts composes the status/count line from its independent parts,
+// skipping empty ones, joined by the designated separator.
+func joinStatusParts(parts ...string) string {
+	var kept []string
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, " — ")
 }
 
 // gridCellTexts renders one row's typed values through the shared seam only.
@@ -121,12 +146,12 @@ func fitGridCell(cell string, w int) string {
 // renderResultContent splits the settled result view into its status line
 // and body content, routing ordinary execution errors to the ordinary
 // result-error boundary exactly like successful pages.
-func renderResultContent(v *ResultView) (status string, content []string) {
+func renderResultContent(v *ResultView, count result.CountState) (status string, content []string) {
 	if v.Err != nil {
 		return "", []string{v.Err.Error()}
 	}
 	if v.Page == nil {
 		return "", nil
 	}
-	return renderResultPage(v.Page)
+	return renderResultPage(v.Page, count)
 }

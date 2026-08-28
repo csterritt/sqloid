@@ -89,17 +89,33 @@ Connection-boundary behavior of catalog reads: success settles `OutcomeSuccess` 
 
 Production first-page SELECT execution, documented in [first-select-result-grid.md](first-select-result-grid.md): `DB.RunFirstPage(parent, statement, params)` runs exactly one bound SELECT — always the QueryBuilder-rendered SQL and ordered parameters — as one complete `RunRequest` on its own dedicated lease, applying the Issue #6 request lifecycle and Issue #7 health classification unchanged. Eager scanning copies each row once and converts exactly once into the shared `internal/result` representation via `result.FromDriver`; failures wrap causes in neutral `firstPageError` ("could not run select — …") and return no page. No count request, later paging, cache, or finalization behavior.
 
+### internal/connection/count.go (Issue #24)
+
+Independent complete-SELECT result count execution, documented in [concurrent-page-count.md](concurrent-page-count.md): `DB.RunCount(parent, statement, params)` runs exactly one bound count statement — always the complete-SELECT subquery with the user's Limit inside it — as one complete `RunRequest` on its own dedicated leased connection, concurrent with (never serialized behind) the first page as an independent autocommit read. Failures wrap causes in neutral `countError` ("could not run count — …") and return the total zero plus the failed `RequestResult`; a count failure is never reinterpreted as a page failure.
+
+### internal/connection/count_overlap_test.go (Issue #24)
+
+Mandatory release- and dependency-upgrade-blocking capability suite: WAL and rollback-journal fixtures with mode recorded before opening, simultaneous barrier-held overlap via the documented test-only hooks (`DB.beforeFirstPage`/`DB.beforeCount`), two distinct physical connections from the exact-two pool, third-lease blocking, unchanged journal mode, independent-snapshot drift across an interleaved external writer, rollback-journal delay or ordinary `database is locked` error, count-failure isolation, and clean lease release on success and error.
+
 ### internal/connection/firstpage_test.go (Issue #22)
 
 SQLite-backed coverage of the first-page boundary: typed NULL/INTEGER/REAL/TEXT/BLOB rows with original driver labels crossing into `result.Page` without string coercion, typed NULLs, zero rows, an ordinary query failure (`no such table` cause preserved, no terminal claim), ordered parameter binding, a pre-cancelled context, and scan-level typing without loss.
 
 ## internal/result
 
-Shared UI-independent result representation (Issue #22), documented in [first-select-result-grid.md](first-select-result-grid.md):
+Shared UI-independent result representation (Issue #22), documented in [first-select-result-grid.md](first-select-result-grid.md) and [concurrent-page-count.md](concurrent-page-count.md):
 
 ### internal/result/result.go
 
 The single result seam consumed by `internal/ui`'s grid and future CSV/JSON exporters: typed `Value`/`Kind` (NULL, INTEGER, REAL, TEXT, BLOB never collapsed), `RealToken` (exact finite-REAL shortest round-trip token with `.0` restoration, locale-independent; Issue #23 adds the exact non-finite tokens `Inf`/`-Inf`/`NaN`, one token for every NaN payload, selected only after the REAL kind is known), `GridText`/`DecodeText` (visible tab/newline symbols and maximal invalid-UTF-8 replacement to one U+FFFD each), `DeduplicateNames` (full-set left-to-right collision-safe output-name rule), `Page` with original `Columns` beside `HeaderNames()` deduplicated display/export names, `InvalidUTF` warning metadata, and `FromDriver` converting the plain driver value set once at the Connection boundary with BLOB bytes retained exactly. Independent of Bubble Tea, driver concrete types, and exporter formats; see [non-finite-real-grid.md](non-finite-real-grid.md).
+
+### internal/result/count.go and select_identity.go (Issue #24)
+
+The independent result-count lifecycle state (`CountStatus` pending/success/unavailable; `CountState` with `Header()` rendering exactly `Counting rows…`, `Result count: N`, `Result count: N (after Limit M)`, or `Count unavailable`, with HasLimit/Limit as executed metadata and a zero value rendering nothing) and the SELECT execution identity seam (`NextSelectExecutionID`/`NextSelectRequestID` monotonic nonzero IDs, `SelectRole` first-page/count with no interchangeable identity, `SelectRequest`, `SelectTracker` enforcing the two-level identity rule with at-most-once role consumption). Documented in [concurrent-page-count.md](concurrent-page-count.md).
+
+### internal/result/count_test.go and select_identity_test.go (Issue #24)
+
+Exact wording variants plus zero-value emptiness, and distinct monotonic execution/request IDs with exact-acceptance, wrong-role, stale-execution, duplicate, and swapped-role rejection.
 
 ### internal/result/result_test.go and architecture_test.go (Issue #22)
 
@@ -207,7 +223,15 @@ Deterministic Lip Gloss composition: results box on top owning border/status/hea
 
 ### internal/ui/first_select.go and results_grid.go (Issue #22)
 
-The production SELECT orchestration and grid documented in [first-select-result-grid.md](first-select-result-grid.md): the `SelectExecutor`/`FirstPageResult`/`SelectSettledMsg`/`ResultView` seam (no database or driver type crosses into Bubble Tea state), `startSelectPage` capturing the builder's exact SQL/parameters at the actual-execution boundary, and `renderResultPage`/`renderResultContent` rendering the frozen deduplicated header, absolute range status, typed cells, invalid-UTF warning, exact `No rows`, and ordinary execution errors — every display token through `internal/result`, with no UI-private formatting.
+The production SELECT orchestration and grid documented in [first-select-result-grid.md](first-select-result-grid.md): the `SelectExecutor`/`FirstPageResult`/`SelectSettledMsg`/`ResultView` seam (no database or driver type crosses into Bubble Tea state), `startSelectPage` capturing the builder's exact SQL/parameters at the actual-execution boundary, and `renderResultPage`/`renderResultContent` rendering the frozen deduplicated header, absolute range status, typed cells, invalid-UTF warning, exact `No rows`, and ordinary execution errors — every display token through `internal/result`, with no UI-private formatting. Issue #24 extends this: `startSelectPage` assigns one execution ID plus distinct first-page/count request IDs, installs the `SelectTracker`, captures the executed Limit as count metadata, and issues both requests together via `tea.Batch` without waiting for either; `SelectSettledMsg`/`CountSettledMsg` carry both identity levels and Update gates every completion through the tracker; `internal/ui/count.go` adds the `CountExecutor`/`CountResult`/`CountSettledMsg` seam, `applyCountSettled` explicit count state, and `CountHelpLines` help; the status/count line composes the exact count wording with the independently displayed range. Documented in [concurrent-page-count.md](concurrent-page-count.md).
+
+### internal/ui/count.go (Issue #24)
+
+See the Issue #24 additions above; the count lifecycle state, executor seam, settlement, and help live here.
+
+### internal/ui/concurrent_count_test.go (Issue #24)
+
+Scripted model coverage of the concurrent launch (one execution ID, two distinct nonzero role request IDs, exact count SQL/parameters), count-before-page and after-page settlement, after-Limit wording with no clamping, `Count unavailable` isolation with retained rows, page-failure independence, wrong-role/duplicate/superseded/delayed-count rejection, and the help content.
 
 ### internal/ui/first_select_test.go and results_grid_test.go (Issue #22)
 
@@ -247,7 +271,7 @@ LIMIT state documented in [group-order-limit.md](group-order-limit.md): verbatim
 
 ### internal/querybuilder/select_sql.go and validation.go (Issue #18)
 
-`SelectSQL()` assembles the deterministic statement — quoted projection over the quoted table, then WHERE, GROUP BY (commit order), ORDER BY (one committed expression with direction), and LIMIT in grammar order — refusing to render any piece whose identity no longer resolves, and `SelectParams()` returning only the WHERE predicate's parameters (projection, grouping, ordering, and LIMIT contribute none). `validation.go` defines the first-invalid contract types (`InvalidIssue{Field, Reason}`, `FieldIdentityGroupBy/OrderBy/Limit`) consumed by `FirstInvalidIssue()` in fixed rule order: grouping, then ORDER BY, then LIMIT.
+`SelectSQL()` assembles the deterministic statement — quoted projection over the quoted table, then WHERE, GROUP BY (commit order), ORDER BY (one committed expression with direction), and LIMIT in grammar order — refusing to render any piece whose identity no longer resolves, and `SelectParams()` returning only the WHERE predicate's parameters (projection, grouping, ordering, and LIMIT contribute none). Issue #24 adds `CountSQL()` (`SELECT COUNT(*) FROM (<SelectSQL()>)` with the user's Limit inside the subquery) and `CountParams()` (exactly `SelectParams()`, order preserved) in `count_sql.go`, documented in [concurrent-page-count.md](concurrent-page-count.md). `validation.go` defines the first-invalid contract types (`InvalidIssue{Field, Reason}`, `FieldIdentityGroupBy/OrderBy/Limit`) consumed by `FirstInvalidIssue()` in fixed rule order: grouping, then ORDER BY, then LIMIT.
 
 ### internal/ui/group_by_popup.go, order_by_popup.go, limit_field.go (Issue #18)
 

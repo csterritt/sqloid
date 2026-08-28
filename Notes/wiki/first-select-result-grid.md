@@ -37,4 +37,4 @@ The hardcoded Issue #10 runtime path is fully removed: `internal/ui/tracer.go`, 
 
 ## Deferred contracts
 
-Independent concurrent count/later paging/cache caps (Issue #24), CSV/JSON export escaping, result history navigation, and horizontal scrolling are deliberately absent; `internal/result` is shaped so exporters extend rather than copy it. Non-finite REAL grid rendering was completed by Issue #23 (see [non-finite-real-grid.md](non-finite-real-grid.md)).
+Independent concurrent count (Issue #24) was completed — see [concurrent-page-count.md](concurrent-page-count.md). Later paging/cache caps and viewport generations (Issue #26), CSV/JSON export escaping, result history navigation, and horizontal scrolling are deliberately absent; `internal/result` is shaped so exporters extend rather than copy it. Non-finite REAL grid rendering was completed by Issue #23 (see [non-finite-real-grid.md](non-finite-real-grid.md)).

@@ -4,7 +4,7 @@ How `internal/connection` owns the exact-two SQLite pool, dedicated leases, per-
 
 ## Pool ownership
 
-`Open` owns the pool: after validation succeeds it configures the wrapped `*sql.DB` with `SetMaxOpenConns(2)` and `SetMaxIdleConns(2)`, so the pool's minimum and maximum are both exactly two (constant `poolSize`). Two connections exist because two concurrent page/count requests must each lease a distinct physical connection without serializing or growing beyond two. Closing the session (`DB.Close`) releases the whole pool regardless of outstanding leases.
+`Open` owns the pool: after validation succeeds it configures the wrapped `*sql.DB` with `SetMaxOpenConns(2)` and `SetMaxIdleConns(2)`, so the pool's minimum and maximum are both exactly two (constant `poolSize`). Two connections exist because two concurrent page/count requests must each lease a distinct physical connection without serializing or growing beyond two. Closing the session (`DB.Close`) releases the whole pool regardless of outstanding leases. Issue #24 realizes this capability end to end — concurrent first-page and count requests each holding a distinct dedicated lease as independent autocommit reads — and its capability suite proves the distinctness, genuine overlap, and unchanged journal mode in both WAL and rollback-journal fixtures; see [concurrent-page-count.md](concurrent-page-count.md).
 
 ## Lease lifecycle
 

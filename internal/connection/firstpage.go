@@ -31,6 +31,9 @@ func (db *DB) RunFirstPage(parent context.Context, statement string, params []an
 	var page *result.Page
 
 	res := db.RunRequest(parent, func(ctx context.Context, conn *sql.Conn) error {
+		if db.beforeFirstPage != nil {
+			db.beforeFirstPage(ctx, conn) // test-only barrier seam (see DB doc)
+		}
 		p, err := runFirstPage(ctx, conn, statement, params)
 		if err != nil {
 			return err
