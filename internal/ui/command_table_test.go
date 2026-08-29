@@ -190,9 +190,7 @@ func TestIdleDiffersFromExecutedEmpty(t *testing.T) {
 			t.Errorf("idle view contains %q: resembles an executed result", marker)
 		}
 	}
-	executedEmpty := drive(sized(New(), 80, 24),
-		SelectSettledMsg{Result: FirstPageResult{Page: &result.Page{Columns: []string{"x"}}}}).
-		View()
+	executedEmpty := executedResultModel(t, &result.Page{Columns: []string{"x"}}).View()
 	if executedEmpty == idle {
 		t.Error("executed-empty presentation identical to idle; states indistinguishable")
 	}

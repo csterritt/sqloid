@@ -66,6 +66,10 @@ func stateSnapshot(m Model) Model {
 	copied.suspendedModel = nil
 	copied.suspended = false
 	copied.Width, copied.Height = 0, 0
+	// Issue #26: the viewport generation is internal identity bookkeeping,
+	// not user-visible context. Restoring visibility is itself a resize and
+	// legitimately advances it, so it is excluded from the exactness scan.
+	copied.viewportGen = 0
 	// Cancellation commands are never deep-comparable; routing is asserted
 	// separately through explicit command invocation.
 	copied.CancelCommand = nil

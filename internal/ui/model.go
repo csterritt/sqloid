@@ -109,18 +109,27 @@ type Model struct {
 	// range of the in-flight request for boundary arithmetic at settlement;
 	// pageExhausted marks the known high boundary once a page returned fewer
 	// rows than requested. Only the paging seam in this package mutates them.
-	pageOffset        int64
-	pageRequested     int64
-	pageRequestedSize int64
-	pagePending       bool
-	pageRequestID     uint64
-	pageExhausted     bool
+	pageOffset            int64
+	pageRequested         int64
+	pageRequestedSize     int64
+	pagePending           bool
+	pageRequestID         uint64
+	pageExhausted         bool
+	pageRequestExecution  uint64 // execution ID captured at page dispatch (Issue #26)
+	pageRequestGeneration uint64 // viewport generation captured at page dispatch (Issue #26)
 
 	// selectTracker guards the current SELECT execution's two concurrent
 	// completions (Issue #24): a page or count completion mutates state only
 	// when both its execution ID and role-specific request ID match, and each
 	// role is consumed at most once.
 	selectTracker result.SelectTracker
+
+	// viewportGen is the current viewport generation (Issue #26): page
+	// requests capture it at dispatch and their responses mutate state only
+	// while it is still current. Resize, SELECT deactivation/finalization,
+	// and each new execution advance it. Count responses track only their
+	// Issue #24 identity; the generation is page-request state.
+	viewportGen uint64
 
 	// countState is the independent result-count presentation state (Issue
 	// #24): pending, successful (with the executed builder's Limit metadata
@@ -261,35 +270,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendQueryHistoryAtExecutionStart()
 		return m, m.startSelectPage()
 	case SelectSettledMsg:
-		// Issue #24: a page completion mutates active state only when both its
-		// SELECT execution ID and its first-page request ID match the current
-		// identities and the role is unconsumed; stale, duplicated, or
-		// wrong-role responses are discarded untouched.
+		// Issues #24 and #26: a page completion mutates active state only when
+		// its SELECT execution ID and first-page request ID match the current
+		// identities, the role is unconsumed, and the viewport generation is
+		// still current; stale, duplicated, wrong-role, superseded-generation,
+		// and cancellation-classified responses are discarded untouched.
 		req := result.SelectRequest{ExecutionID: msg.ExecutionID, Role: result.RoleFirstPage, RequestID: msg.RequestID}
-		if m.selectTracker.Accept(req) {
+		if m.selectTracker.Accept(req) &&
+			msg.Generation == m.viewportGen &&
+			!msg.Result.Cancelled {
 			return m.applySelectSettled(msg.Result), nil
 		}
 		return m, nil
 	case CountSettledMsg:
 		// Issue #24: the count role has its own request ID and the same
 		// two-level guard; it settles into its own presentation state without
-		// ever converting into a page failure.
+		// ever converting into a page failure. Issue #26: cancellation-
+		// classified counts are equally inert — they are neither a total nor
+		// the exact failure wording.
 		req := result.SelectRequest{ExecutionID: msg.ExecutionID, Role: result.RoleCount, RequestID: msg.RequestID}
-		if m.selectTracker.Accept(req) {
+		if m.selectTracker.Accept(req) && !msg.Result.Cancelled {
 			return m.applyCountSettled(msg.Result), nil
 		}
 		return m, nil
 	case PageSettledMsg:
-		// Issue #25: a page completion mutates state only while the one
-		// pending page request was issued under this ID; stale or duplicated
-		// responses are discarded. The count's independent settlement above
-		// is unaffected either way.
-		return m.applyPageSettled(msg.RequestID, msg.Result), nil
+		// Issues #25 and #26: a page completion mutates state only under the
+		// full identity rule in applyPageSettled; the count's independent
+		// settlement above is unaffected either way.
+		return m.applyPageSettled(msg), nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
 }
+
+// bumpViewportGeneration advances the viewport generation so every page
+// response dispatched under an older generation becomes inert (Issue #26).
+func (m *Model) bumpViewportGeneration() { m.viewportGen++ }
 
 // resize applies new terminal dimensions. Below minimum it preserves the
 // entire current model unchanged behind TooSmallMessage; returning to
@@ -310,12 +327,22 @@ func (m Model) resize(w, h int) Model {
 			restored.suspended = false
 			restored.suspendedModel = nil
 			restored.Width, restored.Height = w, h
+			// Issue #26: becoming visible again is a resize — the viewport
+			// generation advances so page responses from the hidden period
+			// become inert.
+			restored.bumpViewportGeneration()
 			restored.clampScroll()
 			return restored
 		}
 		m.suspended = false
 		m.suspendedModel = nil
 	}
+	// Issue #26: resizing the visible shell advances the viewport generation,
+	// so every page response dispatched before the resize — first or later
+	// page — becomes inert regardless of its other identities. (Entering
+	// suspension leaves hidden state exactly frozen; the restore above is the
+	// generation-advancing resize.)
+	m.bumpViewportGeneration()
 	m.clampScroll()
 	return m
 }

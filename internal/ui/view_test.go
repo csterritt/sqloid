@@ -87,12 +87,10 @@ func TestIdleLayoutArithmeticUnchanged(t *testing.T) {
 // first-page grid so executed-result presentation can never be confused with it.
 func TestIdleDistinctFromSettledGrid(t *testing.T) {
 	idle := sized(New(), 80, 24).View()
-	settled := drive(sized(New(), 80, 24),
-		SelectSettledMsg{Result: FirstPageResult{Page: &result.Page{
-			Columns: []string{"id"},
-			Rows:    [][]result.Value{{result.NewInteger(1)}},
-		}}}).
-		View()
+	settled := executedResultModel(t, &result.Page{
+		Columns: []string{"id"},
+		Rows:    [][]result.Value{{result.NewInteger(1)}},
+	}).View()
 	if settled == idle || !strings.Contains(settled, "id") {
 		t.Error("settled grid state failed to differ meaningfully from idle")
 	}

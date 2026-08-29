@@ -25,11 +25,14 @@ type CountExecutor func(ctx context.Context, sql string, params []any) CountResu
 
 // CountResult is one settled count execution: Total is meaningful exactly on
 // success (Err nil); Err is non-nil exactly on failure with its cause
-// preserved. Cancelled counts are not yet producible: Ctrl+W routing for
-// SELECT requests arrives with later issues.
+// preserved. Cancelled records the Connection boundary's cancellation
+// classification (Issue #26): a post-cancellation success or cancellation
+// error is classified cancelled and stays fully inert at the response
+// boundary — it is neither an exact total nor the exact failure wording.
 type CountResult struct {
-	Total int64
-	Err   error
+	Total     int64
+	Err       error
+	Cancelled bool
 }
 
 // CountSettledMsg carries one settled count execution back through Update
@@ -63,7 +66,12 @@ func CountHelpLines() []string {
 // Limit metadata captured at launch; failure records the exact
 // `Count unavailable` state. Neither outcome ever touches page rows, errors,
 // history, or builder state, and rows are never clamped to the total.
+// Responses classified cancelled by the Connection boundary never reach this
+// seam: the Update guard rejects them so the pending presentation stays.
 func (m Model) applyCountSettled(res CountResult) Model {
+	if res.Err == nil && res.Cancelled {
+		return m // defensive: cancellation classification is fully inert here
+	}
 	if res.Err != nil {
 		m.countState.Status = result.CountUnavailable
 		return m

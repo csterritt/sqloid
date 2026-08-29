@@ -28,20 +28,26 @@ type SelectExecutor func(ctx context.Context, sql string, params []any) FirstPag
 
 // FirstPageResult is one settled first-page execution: exactly one of Page
 // (non-nil on OutcomeSuccess) or Err (non-nil on failure, cause preserved)
-// is meaningful. Cancelled requests are not yet producible: Ctrl+W routing
-// for SELECT pages arrives with later issues.
+// is meaningful. Cancelled records the Connection boundary's cancellation
+// classification (Issue #26): a success arriving after cancellation was
+// requested, or the work failing with a cancellation error, is classified
+// cancelled and stays fully inert at the response boundary — it can never
+// mutate rows, range, or retained cache.
 type FirstPageResult struct {
-	Page *result.Page
-	Err  error
+	Page      *result.Page
+	Err       error
+	Cancelled bool
 }
 
 // SelectSettledMsg carries one settled first-page execution back through
-// Update with the two-level identity (Issue #24) that guards it: the SELECT
-// execution ID that produced it and the first-page request ID. Produced only
-// by commands this package created.
+// Update with the full identity (Issues #24 and #26) that guards it: the
+// SELECT execution ID that produced it, the first-page request ID, and the
+// viewport generation current at dispatch. Produced only by commands this
+// package created.
 type SelectSettledMsg struct {
 	ExecutionID uint64
 	RequestID   uint64
+	Generation  uint64
 	Result      FirstPageResult
 }
 
@@ -73,11 +79,15 @@ func (m *Model) startSelectPage() tea.Cmd {
 	if m.Select == nil {
 		return nil
 	}
+	// Issue #26: starting an actual new execution finalizes the previous
+	// active SELECT, so the generation advances before anything dispatches.
+	m.deactivateActiveSelect()
 	m.resetPagingState() // a fresh execution pages from its first page again
 	exec := result.NextSelectExecutionID()
 	pageID := result.NextSelectRequestID()
 	countID := result.NextSelectRequestID()
 	m.selectTracker = result.NewSelectTracker(exec, pageID, countID)
+	generation := m.viewportGen
 
 	pageFn := m.Select
 	sql := m.QB.SelectSQL()
@@ -86,6 +96,7 @@ func (m *Model) startSelectPage() tea.Cmd {
 		return SelectSettledMsg{
 			ExecutionID: exec,
 			RequestID:   pageID,
+			Generation:  generation,
 			Result:      pageFn(context.Background(), sql, params),
 		}
 	}
@@ -113,8 +124,13 @@ func (m *Model) startSelectPage() tea.Cmd {
 // applySelectSettled stores the settled completion as fresh result state,
 // replacing any previous result outright. Ordinary failures land on the
 // result-error boundary exactly like successes; no history entry is undone
-// and no builder state changes.
+// and no builder state changes. Responses classified cancelled by the
+// Connection boundary never reach this seam: the Update guard rejects them
+// so rows, cache, and pending feedback stay untouched.
 func (m Model) applySelectSettled(res FirstPageResult) Model {
+	if res.Err == nil && res.Cancelled {
+		return m // defensive: cancellation classification is fully inert here
+	}
 	m.Result = &ResultView{Page: res.Page, Err: res.Err}
 	return m
 }

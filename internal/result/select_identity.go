@@ -79,6 +79,10 @@ func NewSelectTracker(executionID, pageID, countID uint64) SelectTracker {
 	return SelectTracker{executionID: executionID, pageID: pageID, countID: countID}
 }
 
+// ExecutionID returns the execution identity this tracker guards. The zero
+// value means no execution is tracked.
+func (t *SelectTracker) ExecutionID() uint64 { return t.executionID }
+
 // Accept reports whether req exactly matches a still-unconsumed role of this
 // execution; on true it consumes that role so a duplicate is rejected later.
 func (t *SelectTracker) Accept(req SelectRequest) bool {

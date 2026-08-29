@@ -30,11 +30,16 @@ import (
 type PageExecutor func(ctx context.Context, sql string, params []any) FirstPageResult
 
 // PageSettledMsg carries one settled paged-page execution back through
-// Update. Produced only by commands this package created; it mutates state
-// only while the one pending page request's ID still matches.
+// Update with the full identity (Issues #25 and #26) that guards it: the
+// SELECT execution ID it ran under, its page request ID, and the viewport
+// generation current at dispatch. Produced only by commands this package
+// created; it mutates state only while every applicable identity is still
+// current.
 type PageSettledMsg struct {
-	RequestID uint64
-	Result    FirstPageResult
+	ExecutionID uint64
+	RequestID   uint64
+	Generation  uint64
+	Result      FirstPageResult
 }
 
 // PageLoadingIndicator is the exact page-loading feedback rendered in the
@@ -65,12 +70,22 @@ func (m *Model) handlePageKey(up bool) tea.Cmd {
 	requestID := result.NextSelectRequestID()
 	m.pagePending = true
 	m.pageRequestID = requestID
+	// Issue #26: the request's execution and viewport-generation identities
+	// are immutable once captured; the response carries them back verbatim.
+	m.pageRequestExecution = m.selectTracker.ExecutionID()
+	m.pageRequestGeneration = m.viewportGen
 	m.pageRequested = offset
 	m.pageRequestedSize = size
 	params := m.QB.PageParams()
 	exec := m.Page
+	execution, generation := m.pageRequestExecution, m.pageRequestGeneration
 	return func() tea.Msg {
-		return PageSettledMsg{RequestID: requestID, Result: exec(context.Background(), statement, params)}
+		return PageSettledMsg{
+			ExecutionID: execution,
+			RequestID:   requestID,
+			Generation:  generation,
+			Result:      exec(context.Background(), statement, params),
+		}
 	}
 }
 
@@ -100,25 +115,34 @@ func (m Model) pageRange(up bool) (size, offset int64, ok bool) {
 	return pageSize, m.pageOffset + int64(len(m.Result.Page.Rows)), true
 }
 
-// applyPageSettled applies a matched page completion. Success installs the
-// page with its absolute logical range; a page shorter than the requested
-// size marks the known high boundary. Ordinary failures keep the previous
-// page displayed (their error boundary is owned by later issues). Any
-// settled outcome, matched or not, clears exactly one pending slot: a
-// mismatched ID can never release the current request's guard, so the
-// pending flag is only cleared by the request it was issued under.
-func (m Model) applyPageSettled(requestID uint64, res FirstPageResult) Model {
-	if !m.pagePending || m.pageRequestID != requestID {
+// applyPageSettled applies a matched page completion under the full identity
+// rule (Issue #26). Only a response whose request ID matches the one pending
+// request settles its guard; a mismatched response — stale, duplicated, or
+// from a replaced request — can never clear the newer request's pending
+// feedback. Within that, rows, absolute range, and the exhausted boundary
+// mutate only when the response's execution ID and viewport generation are
+// also still current and the boundary has not classified it cancelled; any
+// other settled outcome is inert except for releasing the pending slot.
+func (m Model) applyPageSettled(msg PageSettledMsg) Model {
+	if !m.pagePending || m.pageRequestID != msg.RequestID {
 		return m // stale, duplicated, or wrong-request response: discarded
 	}
+	requested, requestedSize := m.pageRequested, m.pageRequestedSize
 	m.pagePending = false
 	m.pageRequestID = 0
-	if res.Err != nil {
-		return m
+	m.pageRequestExecution = 0
+	m.pageRequestGeneration = 0
+	if msg.Result.Err != nil {
+		return m // ordinary failure keeps the previous page displayed
 	}
-	m.Result = &ResultView{Page: res.Page, Offset: m.pageRequested}
-	m.pageOffset = m.pageRequested // the displayed start moves to the requested range
-	if int64(len(res.Page.Rows)) < m.pageRequestedSize {
+	if msg.Result.Cancelled ||
+		msg.ExecutionID != m.selectTracker.ExecutionID() ||
+		msg.Generation != m.viewportGen {
+		return m // cancelled or stale identity: rows, range, and cache unchanged
+	}
+	m.Result = &ResultView{Page: msg.Result.Page, Offset: requested}
+	m.pageOffset = requested // the displayed start moves to the requested range
+	if int64(len(msg.Result.Page.Rows)) < requestedSize {
 		m.pageExhausted = true
 	}
 	return m
@@ -133,5 +157,17 @@ func (m *Model) resetPagingState() {
 	m.pageRequestedSize = 0
 	m.pagePending = false
 	m.pageRequestID = 0
+	m.pageRequestExecution = 0
+	m.pageRequestGeneration = 0
 	m.pageExhausted = false
+}
+
+// deactivateActiveSelect finalizes the active SELECT response window
+// (Issue #26): advancing the viewport generation makes every in-flight
+// first-page and later-page response inert. The finalization paths — result
+// history entry, accepted quit, and any ending cancellation/failure — call
+// this when they deactivate the SELECT; starting a new execution finalizes
+// it here first.
+func (m *Model) deactivateActiveSelect() {
+	m.bumpViewportGeneration()
 }
