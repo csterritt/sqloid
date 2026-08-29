@@ -18,7 +18,7 @@
  * Usage: json-watch.ts <directory>
  */
 
-import { watchFile } from "node:fs";
+import { unwatchFile, watchFile, type StatWatcher } from "node:fs";
 import { open, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
@@ -110,9 +110,9 @@ async function main() {
   let size = 0;
   let buf = "";
   let fd: Awaited<ReturnType<typeof open>> | undefined;
-  let watcher: typeof watchFile | undefined;
+  let watcher: StatWatcher | undefined;
 
-  // On an existing file, show the last 5 lines before tailing.
+  /** Read and print the last 5 lines of a file; sets `size` to its length. */
   async function loadInitial(path: string) {
     try {
       const s = await stat(path);
@@ -133,6 +133,7 @@ async function main() {
     }
   }
 
+  /** Read any bytes appended to currentPath since the last read. */
   async function readNew() {
     if (!currentPath) return;
     try {
@@ -160,8 +161,26 @@ async function main() {
     }
   }
 
+  /** Stop watching the current file and begin tailing `path` instead. */
   async function switchTo(path: string) {
-    if (watcher) watcher.unwatchFile(currentPath!);
+    // Stop the previous watcher. StatWatcher has no unwatchFile method, so
+    // use the module-level unwatchFile (removes all listeners for the path)
+    // and stop the watcher handle to be safe.
+    if (watcher) {
+      try {
+        watcher.stop();
+      } catch {
+        // ignore
+      }
+      watcher = undefined;
+    }
+    if (currentPath) {
+      try {
+        unwatchFile(currentPath);
+      } catch {
+        // ignore
+      }
+    }
     if (fd) {
       await fd.close().catch(() => {});
       fd = undefined;
