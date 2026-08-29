@@ -54,7 +54,9 @@ const PageLoadingIndicator = "loading next page…"
 // boundary after a page shorter than the requested size, and the user's
 // Limit — the key is likewise consumed without a request.
 func (m *Model) handlePageKey(up bool) tea.Cmd {
-	if m.Page == nil || m.pagePending || m.validating ||
+	// Issue #34: page requests belong only to the active SELECT; after
+	// finalization/deactivation no further page mutation may start.
+	if !m.selectActive || m.Page == nil || m.pagePending || m.validating ||
 		m.Result == nil || m.Result.Page == nil {
 		return nil
 	}

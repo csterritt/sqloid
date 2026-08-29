@@ -18,7 +18,7 @@
  * Usage: json-watch.ts <directory>
  */
 
-import { unwatchFile, watchFile, type StatWatcher } from "node:fs";
+import { unwatchFile, watchFile } from "node:fs";
 import { open, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
@@ -110,7 +110,6 @@ async function main() {
   let size = 0;
   let buf = "";
   let fd: Awaited<ReturnType<typeof open>> | undefined;
-  let watcher: StatWatcher | undefined;
 
   /** Read and print the last 5 lines of a file; sets `size` to its length. */
   async function loadInitial(path: string) {
@@ -163,17 +162,8 @@ async function main() {
 
   /** Stop watching the current file and begin tailing `path` instead. */
   async function switchTo(path: string) {
-    // Stop the previous watcher. StatWatcher has no unwatchFile method, so
-    // use the module-level unwatchFile (removes all listeners for the path)
-    // and stop the watcher handle to be safe.
-    if (watcher) {
-      try {
-        watcher.stop();
-      } catch {
-        // ignore
-      }
-      watcher = undefined;
-    }
+    // Remove the previous watcher. unwatchFile clears all listeners for the
+    // path (both Bun and Node support this).
     if (currentPath) {
       try {
         unwatchFile(currentPath);
@@ -191,7 +181,7 @@ async function main() {
     console.log("--------------------");
     await loadInitial(path);
     await readNew();
-    watcher = watchFile(path, { interval: 200 }, () => {
+    watchFile(path, { interval: 200 }, () => {
       readNew().catch(() => {});
     });
   }
@@ -199,7 +189,7 @@ async function main() {
   if (currentPath) {
     await loadInitial(currentPath);
     await readNew();
-    watcher = watchFile(currentPath, { interval: 200 }, () => {
+    watchFile(currentPath, { interval: 200 }, () => {
       readNew().catch(() => {});
     });
     console.log(`Watching ${currentPath}...`);

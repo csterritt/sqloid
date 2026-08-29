@@ -1,0 +1,138 @@
+// Immutable result-history entries (Issues #33 and #34), per the Cache and
+// snapshot invariant and History Module Design decisions in
+// Notes/PRD-sqloid.md. Every actual SELECT execution is finalized exactly
+// once into one entry: a tabular snapshot whose retained rows, columns, and
+// Issue #33 metadata are captured immutably, or — when cancellation or
+// first-page failure occurs before any row is retained — a non-tabular
+// Cancelled or error entry. AppendFinalized is the single entry point; it
+// rejects a second entry for an already-finalized execution ID, so duplicate
+// or late finalization messages can never append a second entry or mutate the
+// first. The package has no database and no Bubble Tea dependency.
+
+package history
+
+import (
+	"fmt"
+
+	"github.com/chris/sqloid/internal/result"
+)
+
+// ResultKind is the entry kind of one finalized SELECT execution: a tabular
+// snapshot (success, count failure with rows, or partial page failure with
+// rows) or one of the defined non-tabular terminal entries.
+type ResultKind int
+
+const (
+	// KindTabular marks a tabular snapshot carrying captured rows.
+	KindTabular ResultKind = iota
+	// KindCancelled marks the non-tabular Cancelled entry created when the
+	// execution was cancelled before any row was retained.
+	KindCancelled
+	// KindError marks the non-tabular error entry created when the first page
+	// failed before any row was retained.
+	KindError
+)
+
+// String renders the result-kind name for tests and diagnostics.
+func (k ResultKind) String() string {
+	switch k {
+	case KindTabular:
+		return "tabular"
+	case KindCancelled:
+		return "cancelled"
+	case KindError:
+		return "error"
+	default:
+		return fmt.Sprintf("ResultKind(%d)", int(k))
+	}
+}
+
+// ResultEntry is one immutable finalized SELECT snapshot. For KindTabular,
+// Columns and Rows carry the captured rows in ascending logical position
+// order with their Issue #33 Metadata and Completeness classification; Rows
+// is freshly copied at append, so later caller or source mutation can never
+// alter the retained data. For KindCancelled and KindError, Reason carries
+// the verbatim cancellation or failure reason and Rows is empty. ExecutionID
+// records the one execution this entry belongs to.
+type ResultEntry struct {
+	ID           EntryID
+	ExecutionID  uint64
+	Kind         ResultKind
+	Columns      []string
+	Rows         [][]result.Value
+	Metadata     SnapshotMetadata
+	Completeness Completeness
+	Reason       string
+}
+
+// ResultStore is the in-memory result-history list of finalized SELECT
+// entries. Append and retrieval always deep-copy mutable slices, so retained
+// entries never alias caller storage. It is not safe for concurrent use; the
+// single Bubble Tea update loop is its only expected caller.
+type ResultStore struct {
+	nextID    EntryID
+	entries   []ResultEntry
+	finalized map[uint64]struct{} // execution IDs already finalized
+}
+
+// NewResultStore returns an empty result-history store.
+func NewResultStore() *ResultStore {
+	return &ResultStore{finalized: make(map[uint64]struct{})}
+}
+
+// Len reports the number of retained result entries.
+func (s *ResultStore) Len() int { return len(s.entries) }
+
+// copyRows deep-copies a captured rows slice so the retained entry never
+// aliases caller storage and later source mutation cannot reach the snapshot.
+func copyRows(rows [][]result.Value) [][]result.Value {
+	out := make([][]result.Value, len(rows))
+	for i, row := range rows {
+		copied := make([]result.Value, len(row))
+		for j, v := range row {
+			if v.Kind == result.KindBlob {
+				v.Bytes = append([]byte(nil), v.Bytes...)
+			}
+			copied[j] = v
+		}
+		out[i] = copied
+	}
+	return out
+}
+
+// AppendFinalized retains entry as the newest result-history entry under a
+// fresh stable ID and returns it. It rejects — deterministically, with the
+// original entry untouched — a second entry for an execution ID that has
+// already been finalized in this store, so replayed duplicate finalizer
+// messages and repeated history-entry commands are no-ops. Columns and Rows
+// are deep-copied on retention; later caller or cache mutation cannot change
+// a finalized entry.
+func (s *ResultStore) AppendFinalized(entry ResultEntry) (ResultEntry, bool) {
+	if entry.ExecutionID == 0 {
+		return ResultEntry{}, false
+	}
+	if _, done := s.finalized[entry.ExecutionID]; done {
+		return ResultEntry{}, false
+	}
+	s.finalized[entry.ExecutionID] = struct{}{}
+	s.nextID++
+	retained := entry
+	retained.ID = s.nextID
+	retained.Columns = append([]string(nil), entry.Columns...)
+	retained.Rows = copyRows(entry.Rows)
+	s.entries = append(s.entries, retained)
+	return retained, true
+}
+
+// Entries returns the retained entries oldest first as a fresh slice; the
+// entries' rows are deep-copied too, so callers may mutate them freely.
+func (s *ResultStore) Entries() []ResultEntry {
+	out := make([]ResultEntry, len(s.entries))
+	for i, e := range s.entries {
+		copied := e
+		copied.Columns = append([]string(nil), e.Columns...)
+		copied.Rows = copyRows(e.Rows)
+		out[i] = copied
+	}
+	return out
+}

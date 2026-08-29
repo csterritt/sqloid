@@ -143,10 +143,9 @@ func (m *Model) openQuitConfirmation() tea.Model {
 func (m *Model) handleQuitConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter", "y", "ctrl+c":
-		// Accepted quit performs the lifecycle cleanup first: the active
-		// SELECT response window closes so no settlement can mutate state
-		// during teardown (Issue #26 guards make the bump sufficient).
-		m.deactivateActiveSelect()
+		// Issue #34: accepted quit finalizes the active SELECT once — with
+		// required cancellation of still-owned read requests — before exit.
+		m.acceptedQuitCleanup()
 		return *m, tea.Quit
 	case "esc", "n":
 		restored := *m.quitSuspended

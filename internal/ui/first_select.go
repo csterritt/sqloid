@@ -98,11 +98,11 @@ func (m *Model) startSelectPage() tea.Cmd {
 	if m.Select == nil {
 		return nil
 	}
-	// Issue #26: starting an actual new execution finalizes the previous
-	// active SELECT, so the generation advances before anything dispatches.
-	m.deactivateActiveSelect()
-	m.resetPagingState() // a fresh execution pages from its first page again
 	exec := result.NextSelectExecutionID()
+	// Issue #34: starting an actual new execution finalizes the previous
+	// active SELECT (if any) before the active lifetime moves to the new ID.
+	m.activateSelect(exec)
+	m.resetPagingState() // a fresh execution pages from its first page again
 	pageID := result.NextSelectRequestID()
 	countID := result.NextSelectRequestID()
 	m.selectTracker = result.NewSelectTracker(exec, pageID, countID)

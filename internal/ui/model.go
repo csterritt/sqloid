@@ -217,6 +217,24 @@ type Model struct {
 	// confirmation dismissal.
 	History *history.Store
 
+	// ResultHistory owns the session-only result-history store of finalized
+	// SELECT snapshots (Issue #34). Non-nil even before any execution so
+	// finalization has an append target; only the single idempotent
+	// finalizeActiveSelect seam appends to it, exactly once per execution ID.
+	ResultHistory *history.ResultStore
+
+	// Active-SELECT lifetime state (Issue #34), kept distinct from request
+	// identity: selectActive reports the active lifetime (not any request's
+	// flight), activeExecID the owning execution ID, and finalizedExecID the
+	// most recently finalized execution. pendingCancelReason/pendingFailure
+	// carry a recorded ending cancellation or failure until finalization
+	// consumes them into the snapshot's terminal outcome.
+	selectActive        bool
+	activeExecID        uint64
+	finalizedExecID     uint64
+	pendingCancelReason string
+	pendingFailure      *selectFailure
+
 	// Refresher performs one main-schema catalog refresh through the
 	// Connection boundary per Table-popup open (Issue #13). It is invoked
 	// only inside returned tea.Cmd functions; nil means no database work is
@@ -254,9 +272,10 @@ type Model struct {
 func New() Model {
 	q := qb.NewQuery()
 	return Model{
-		Fields: builderFields(q),
-		QB:     q,
-		Focus:  0,
+		Fields:        builderFields(q),
+		QB:            q,
+		Focus:         0,
+		ResultHistory: history.NewResultStore(),
 	}
 }
 
@@ -339,7 +358,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.firstPageCancel = nil // Issue #28: the handle retires with the request
 			m.clearSelectCancellingIfSettled()
 			m.inFlightNotice = ""
-			if msg.Generation == m.viewportGen && !msg.Result.Cancelled {
+			if msg.Generation == m.viewportGen {
+				if msg.Result.Cancelled {
+					// Issue #34: a first-page settlement classified cancelled
+					// ended the execution before any row was retained — the
+					// cancellation finalizer runs once, after settlement.
+					m.noteSelectCancelled()
+					m.finalizeActiveSelect()
+					return m, nil
+				}
+				if msg.Result.Err != nil {
+					// Issue #34: an ordinary first-page failure before rows ends
+					// the SELECT and finalizes it with one error entry; the
+					// ordinary result-error boundary still renders the cause.
+					m.noteSelectFailed(msg.Result.Err.Error())
+					m = m.applySelectSettled(msg.Result)
+					m.finalizeActiveSelect()
+					return m, nil
+				}
 				return m.applySelectSettled(msg.Result), nil
 			}
 		}
@@ -369,7 +405,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// settlement above is unaffected either way. Issue #27: the pending
 		// slot's release inside applyPageSettled also settles the generic
 		// gate's cancelling feedback once nothing remains pending.
+		current := msg.ExecutionID == m.selectTracker.ExecutionID() && m.pagePending && m.pageRequestID == msg.RequestID
 		next := m.applyPageSettled(msg)
+		if current {
+			switch {
+			case msg.Result.Err != nil:
+				// Issue #34: a later-page ordinary failure after retained rows is
+				// recorded as the execution's recorded ending; the SELECT stays
+				// active across remaining events, and finalization classifies the
+				// snapshot as failed while preserving the captured rows.
+				next.noteSelectFailed(msg.Result.Err.Error())
+			case msg.Result.Cancelled:
+				// Issue #34: an interrupted later page after rows records the
+				// ending; a later healthy page settlement clears it, and a
+				// finalizer meanwhile types the snapshot cancelled-after-rows.
+				next.noteSelectCancelled()
+			default:
+				// A healthy page means the execution continued past any recorded
+				// ending: the terminal outcome returns to undecided.
+				next.clearPendingEnding()
+			}
+		}
 		next.clearSelectCancellingIfSettled()
 		next.inFlightNotice = ""
 		// Issue #32: once the cancelled/invalidated old-size page work has
@@ -411,7 +467,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // clearSelectCancellingIfSettled drops the SELECT cancelling feedback once
 // every owned read request has settled; while any request remains in flight
-// the `cancelling…` handoff stays visible exactly until settlement.
+// the `cancelling…` handoff stays visible exactly until settlement. Issue
+// #34: when the user requested cancellation through the generic Ctrl+W seam
+// and every owned request has then settled, the cancellation ended the
+// SELECT — the execution finalizes once (its snapshot carrying the recorded
+// terminal outcome) instead of merely closing the cancellation seam.
 func (m *Model) clearSelectCancellingIfSettled() {
 	if !m.selectRequestPending() {
 		m.selectCancelling = false

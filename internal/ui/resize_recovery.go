@@ -42,7 +42,8 @@ func (m *Model) applyResizeRecovery() tea.Cmd {
 	if m.suspended || m.terminalState != TerminalNone || m.validating {
 		return nil
 	}
-	if m.Result == nil || m.Result.Page == nil {
+	// Issue #34: inactive/finalized SELECTs never fetch recovery pages.
+	if !m.selectActive || m.Result == nil || m.Result.Page == nil {
 		return nil
 	}
 	pageSize := int64(CalculateLayout(m.Height, m.Fields).PageRows)
@@ -135,7 +136,8 @@ func (m *Model) rebuildRetainedView(action RecoveryAction, firstRow, size int64)
 // firstRow, through the same identity/generation/cancellation lifecycle as
 // ordinary serialized paging (Issues #25/#26/#28).
 func (m *Model) requestRecoveryPage(firstRow, size int64) tea.Cmd {
-	if size < 1 {
+	// Issue #34: a finalized or inactive SELECT issues no further page work.
+	if !m.selectActive || size < 1 {
 		return nil
 	}
 	offset := firstRow - 1 // the statement is LIMIT size OFFSET firstRow-1
