@@ -170,4 +170,9 @@ func (m *Model) resetPagingState() {
 // it here first.
 func (m *Model) deactivateActiveSelect() {
 	m.bumpViewportGeneration()
+	// Issue #27: finalization releases the generic gate's first-page claim
+	// and cancelling handoff; any late settlement cannot re-claim them.
+	m.firstPagePending = false
+	m.countPendingFlag = false
+	m.selectCancelling = false
 }

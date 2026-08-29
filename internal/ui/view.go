@@ -48,6 +48,12 @@ func (m Model) View() string {
 		m.renderBuilder(m.Width, l.BuilderHeight),
 		m.renderFooter(m.Width),
 	}, "\n")
+	if m.quitConfirm {
+		// Issue #27: the shared quit confirmation draws over the shell and
+		// suspends the exact current context behind it.
+		out = m.drawQuitOverlay(out)
+		return out
+	}
 	if m.Popup != nil {
 		// Issue #8 overlay pattern: the popup draws over the results region
 		// and never reflows any region's border or content rows.
@@ -58,6 +64,19 @@ func (m Model) View() string {
 		out = m.drawValuePromptOverlay(out)
 	}
 	return out
+}
+
+// drawQuitOverlay composites the shared quit confirmation box over the
+// composed shell inside the results region. Enter/y/Ctrl+C confirms, Esc/n
+// restores the exact suspended context, and no other key leaks through.
+func (m Model) drawQuitOverlay(base string) string {
+	lines := []string{
+		"Quit Sqloid?",
+		"",
+		"Enter/y/Ctrl+C confirm quit — Esc/n cancel",
+	}
+	box := valuePromptStyle.Width(len(lines[2]) + 2).Height(len(lines)).Render(strings.Join(lines, "\n"))
+	return composeOverlay(base, box, 1, 1)
 }
 
 // drawValuePromptOverlay composites the universal-entry box over the composed
@@ -119,11 +138,17 @@ func (m Model) renderResults(width, height int) string {
 		// Issue #22: the settled first page owns the results content — frozen
 		// deduplicated header, absolute range status, typed rows, or the
 		// ordinary execution error — all through the internal/result seam.
-		status, lines := renderResultContent(m.Result, m.countState, m.pagePending)
+		status, lines := renderResultContent(m.Result, m.countState, m.pagePending, m.firstPagePending, m.selectCancelling)
 		if status != "" {
 			content = append(content, status)
 		}
 		content = append(content, lines...)
+	} else if m.firstPagePending || m.selectCancelling {
+		// Issue #27: the first read request of a fresh execution is in flight
+		// before any settled result exists — exactly `Running…` while the
+		// first page is pending, plus the `cancelling…` handoff once a Ctrl+W
+		// cancellation has been requested.
+		content = []string{joinStatusParts(runningText(m.firstPagePending), cancellingText(m.selectCancelling))}
 	} else {
 		content = []string{"Select a command (S/U/D/I) to begin"}
 	}
@@ -179,8 +204,13 @@ func renderFieldLines(f Field) []string {
 	return out
 }
 
-// renderFooter renders the single global footer row.
+// renderFooter renders the single global footer row. While the in-flight
+// gate has recorded a blocked-action explanation, the footer shows exactly
+// that feedback instead of the default key hints.
 func (m Model) renderFooter(width int) string {
 	text := " q quit   ? help "
+	if m.inFlightNotice != "" {
+		text = " " + m.inFlightNotice + " "
+	}
 	return lipgloss.PlaceHorizontal(width, lipgloss.Left, text)
 }

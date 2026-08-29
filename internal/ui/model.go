@@ -118,6 +118,21 @@ type Model struct {
 	pageRequestExecution  uint64 // execution ID captured at page dispatch (Issue #26)
 	pageRequestGeneration uint64 // viewport generation captured at page dispatch (Issue #26)
 
+	// Generic in-flight gate state (Issue #27): firstPagePending records
+	// ownership of the first-page request of the current SELECT execution,
+	// selectCancelling is set from the Ctrl+W request until every owned read
+	// request settles, and inFlightNotice holds the exact blocked-action
+	// feedback rendered by View. quitConfirm/quitSuspended implement the
+	// shared quit confirmation, which suspends the exact current context and
+	// restores it on cancel. The gate reads these flags only — never rendered
+	// phase-label strings.
+	firstPagePending bool
+	countPendingFlag bool // generic-gate claim on the independent count request
+	selectCancelling bool
+	inFlightNotice   string
+	quitConfirm      bool
+	quitSuspended    *Model
+
 	// selectTracker guards the current SELECT execution's two concurrent
 	// completions (Issue #24): a page or count completion mutates state only
 	// when both its execution ID and role-specific request ID match, and each
@@ -276,10 +291,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// still current; stale, duplicated, wrong-role, superseded-generation,
 		// and cancellation-classified responses are discarded untouched.
 		req := result.SelectRequest{ExecutionID: msg.ExecutionID, Role: result.RoleFirstPage, RequestID: msg.RequestID}
-		if m.selectTracker.Accept(req) &&
-			msg.Generation == m.viewportGen &&
-			!msg.Result.Cancelled {
-			return m.applySelectSettled(msg.Result), nil
+		if m.selectTracker.Accept(req) {
+			// Issue #27: the first-page ownership slot is released exactly when
+			// the tracker consumes the role, so the generic gate settles with
+			// the request whatever the outcome classification is.
+			m.firstPagePending = false
+			m.clearSelectCancellingIfSettled()
+			m.inFlightNotice = ""
+			if msg.Generation == m.viewportGen && !msg.Result.Cancelled {
+				return m.applySelectSettled(msg.Result), nil
+			}
 		}
 		return m, nil
 	case CountSettledMsg:
@@ -289,19 +310,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// classified counts are equally inert — they are neither a total nor
 		// the exact failure wording.
 		req := result.SelectRequest{ExecutionID: msg.ExecutionID, Role: result.RoleCount, RequestID: msg.RequestID}
-		if m.selectTracker.Accept(req) && !msg.Result.Cancelled {
-			return m.applyCountSettled(msg.Result), nil
+		if m.selectTracker.Accept(req) {
+			// Issue #27: count settlement is request-ownership settlement for
+			// the generic gate regardless of the outcome classification.
+			m.countPendingFlag = false
+			m.clearSelectCancellingIfSettled()
+			m.inFlightNotice = ""
+			if !msg.Result.Cancelled {
+				return m.applyCountSettled(msg.Result), nil
+			}
 		}
 		return m, nil
 	case PageSettledMsg:
 		// Issues #25 and #26: a page completion mutates state only under the
 		// full identity rule in applyPageSettled; the count's independent
-		// settlement above is unaffected either way.
-		return m.applyPageSettled(msg), nil
+		// settlement above is unaffected either way. Issue #27: the pending
+		// slot's release inside applyPageSettled also settles the generic
+		// gate's cancelling feedback once nothing remains pending.
+		next := m.applyPageSettled(msg)
+		next.clearSelectCancellingIfSettled()
+		next.inFlightNotice = ""
+		return next, nil
+	case SelectCancelRequestedMsg:
+		// Produced by the generic cancellation closure dispatched at Ctrl+W
+		// (Issue #27); the model already entered its cancelling state before
+		// dispatching, so this settles nothing on its own. Real interrupt
+		// semantics remain with Issue #28.
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+// clearSelectCancellingIfSettled drops the SELECT cancelling feedback once
+// every owned read request has settled; while any request remains in flight
+// the `cancelling…` handoff stays visible exactly until settlement.
+func (m *Model) clearSelectCancellingIfSettled() {
+	if !m.selectRequestPending() {
+		m.selectCancelling = false
+	}
 }
 
 // bumpViewportGeneration advances the viewport generation so every page
@@ -363,11 +411,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// popups, move builder state, or start any further database work.
 		return m, nil
 	}
+	if m.quitConfirm {
+		// Issue #27: the shared quit confirmation sits above every other
+		// context and consumes all keys with no leakage until resolved.
+		return m.handleQuitConfirmKey(msg)
+	}
 	if m.Popup != nil {
 		return m.handlePopupKey(msg)
 	}
 	if m.ValuePrompt != nil {
 		return m.handleValuePromptKey(msg)
+	}
+	// Issue #27: the generic request-in-flight gate sits between focused
+	// input/overlays and base-context handling. Permitted local interaction
+	// (horizontal one-column movement, serialized page keys, field navigation)
+	// falls through to base handling; the gate itself derives pending state
+	// from request ownership, not rendered labels.
+	if m.selectRequestPending() {
+		if next, cmd, handled := m.handleInFlightGate(msg); handled {
+			return next, cmd
+		}
+	} else {
+		// Issue #27: with no request in flight the base context owns every
+		// key, so any gate feedback from a settled phase clears immediately.
+		m.inFlightNotice = ""
 	}
 	if m.schemaStale {
 		// Stale-schema flow owns the context: navigating to another builder
@@ -379,6 +446,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg.String() {
+	case "q", "ctrl+c":
+		// Idle base context (Issue #27): both keys open the shared quit
+		// confirmation, suspending the exact current context.
+		return m.openQuitConfirmation(), nil
 	case "pgup", "pgdown":
 		// Issue #25: serialized adjacent-page navigation. While a page is
 		// pending this consumes repeated and opposite keys without stacking

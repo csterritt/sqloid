@@ -74,7 +74,10 @@ type ResultView struct {
 // already appended for this execution, so the requests carry exactly the
 // validated builder state. A nil page executor yields no command because
 // there is no database work to do; a nil count executor leaves the count
-// state unset (page-only fixtures from Issue #22 are unaffected).
+// state unset (page-only fixtures from Issue #22 are unaffected). Issue
+// #27: opening the execution claims the first-page slot for the generic
+// in-flight gate (firstPagePending) and marks the model as owning
+// cancellable work so Ctrl+W routes to the scoped cancellation seam.
 func (m *Model) startSelectPage() tea.Cmd {
 	if m.Select == nil {
 		return nil
@@ -88,6 +91,11 @@ func (m *Model) startSelectPage() tea.Cmd {
 	countID := result.NextSelectRequestID()
 	m.selectTracker = result.NewSelectTracker(exec, pageID, countID)
 	generation := m.viewportGen
+	// Issue #27: claim the first-page slot and the generic cancellation seam
+	// before anything dispatches; both release at their request's settlement.
+	m.firstPagePending = true
+	m.ActiveCancellable = true
+	m.CancelCommand = func() tea.Msg { return SelectCancelRequestedMsg{} }
 
 	pageFn := m.Select
 	sql := m.QB.SelectSQL()
@@ -114,6 +122,7 @@ func (m *Model) startSelectPage() tea.Cmd {
 		}
 	}
 	m.countState = result.CountState{Status: result.CountPending}
+	m.countPendingFlag = true // Issue #27: the gate owns the count claim too
 	if limit, has := m.QB.LimitValue(); has {
 		m.countState.HasLimit, m.countState.Limit = true, limit
 	}

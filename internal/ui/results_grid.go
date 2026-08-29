@@ -33,7 +33,7 @@ const gridEllipsis = "…"
 // paging state, Issue #25): rows offset+1 through offset+row count. Column
 // widths derive from the complete visible rows (complete-row sizing) and
 // apply uniformly to header and cells so columns stay aligned.
-func renderResultPage(p *result.Page, offset int64, count result.CountState, loading bool) (status string, content []string) {
+func renderResultPage(p *result.Page, offset int64, count result.CountState, loading, running, cancelling bool) (status string, content []string) {
 	names := p.HeaderNames()
 	var rangeStatus string
 	if len(p.Rows) == 0 {
@@ -41,7 +41,7 @@ func renderResultPage(p *result.Page, offset int64, count result.CountState, loa
 		if p.InvalidUTF {
 			rangeStatus = result.UTFWarning
 		}
-		rangeStatus = joinStatusParts(count.Header(), loadingText(loading), rangeStatus)
+		rangeStatus = joinStatusParts(count.Header(), runningText(running), cancellingText(cancelling), loadingText(loading), rangeStatus)
 		return rangeStatus, []string{"No rows"}
 	}
 	rangeStatus = "rows " + strconv.Itoa(int(offset+1)) + "-" +
@@ -49,13 +49,15 @@ func renderResultPage(p *result.Page, offset int64, count result.CountState, loa
 	if p.InvalidUTF {
 		rangeStatus += " — " + result.UTFWarning
 	}
-	if count.Status != 0 || loading {
+	if count.Status != 0 || loading || running || cancelling {
 		// Issue #24: the exact count wording (`Result count: N`,
 		// `Result count: N (after Limit M)`, or `Count unavailable`) leads the
 		// status/count line; Issue #25 appends the exact loading feedback while
-		// a page request is pending. Neither replaces or clamps the
-		// independently displayed absolute range.
-		rangeStatus = joinStatusParts(count.Header(), loadingText(loading), rangeStatus)
+		// a page request is pending. Issue #27 adds `Running…` while the
+		// first-page request is in flight and the `cancelling…` handoff after a
+		// Ctrl+W request. Neither replaces or clamps the independently displayed
+		// absolute range.
+		rangeStatus = joinStatusParts(count.Header(), runningText(running), cancellingText(cancelling), loadingText(loading), rangeStatus)
 	}
 	widths := gridColumnWidths(names, p.Rows)
 	lines := []string{resultsHeaderStyle.Render(renderGridRow(names, widths))}
@@ -70,6 +72,25 @@ func renderResultPage(p *result.Page, offset int64, count result.CountState, loa
 func loadingText(loading bool) string {
 	if loading {
 		return PageLoadingIndicator
+	}
+	return ""
+}
+
+// runningText returns the exact `Running…` feedback while a first-page
+// request is in flight, or empty text otherwise (Issue #27).
+func runningText(running bool) string {
+	if running {
+		return SelectRunningIndicator
+	}
+	return ""
+}
+
+// cancellingText returns the exact `cancelling…` handoff from a Ctrl+W
+// cancellation request until settlement, or empty text otherwise (Issue
+// #27). It mirrors the established validation wording without changing it.
+func cancellingText(cancelling bool) string {
+	if cancelling {
+		return SelectCancellingIndicator
 	}
 	return ""
 }
@@ -155,12 +176,12 @@ func fitGridCell(cell string, w int) string {
 // result-error boundary exactly like successful pages. loading adds the
 // exact Issue #25 page-loading feedback to the status line while the one
 // paged-page request is pending; it never changes the displayed rows.
-func renderResultContent(v *ResultView, count result.CountState, loading bool) (status string, content []string) {
+func renderResultContent(v *ResultView, count result.CountState, loading, running, cancelling bool) (status string, content []string) {
 	if v.Err != nil {
 		return "", []string{v.Err.Error()}
 	}
 	if v.Page == nil {
 		return "", nil
 	}
-	return renderResultPage(v.Page, v.Offset, count, loading)
+	return renderResultPage(v.Page, v.Offset, count, loading, running, cancelling)
 }
