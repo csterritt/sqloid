@@ -172,6 +172,9 @@ func (m *Model) resetPagingState() {
 	m.pageRequestGeneration = 0
 	m.pageRequestCancel = nil // Issue #28: no page request owns a handle yet
 	m.pageExhausted = false
+	// Issue #29: a fresh execution displays its first page from its first
+	// whole column again.
+	m.firstColumn = 0
 }
 
 // deactivateActiveSelect finalizes the active SELECT response window

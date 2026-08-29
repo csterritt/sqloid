@@ -32,8 +32,11 @@ const gridEllipsis = "…"
 // The status range is the page's absolute logical range (offset from the
 // paging state, Issue #25): rows offset+1 through offset+row count. Column
 // widths derive from the complete visible rows (complete-row sizing) and
-// apply uniformly to header and cells so columns stay aligned.
-func renderResultPage(p *result.Page, offset int64, count result.CountState, loading, running, cancelling bool) (status string, content []string) {
+// apply uniformly to header and cells so columns stay aligned. Issue #29:
+// only the whole columns of the pure horizontal layout starting at the
+// first-visible output-column index are rendered; availWidth is the grid's
+// interior width and first that clamped index.
+func renderResultPage(p *result.Page, offset int64, count result.CountState, loading, running, cancelling bool, availWidth, first int) (status string, content []string) {
 	names := p.HeaderNames()
 	var rangeStatus string
 	if len(p.Rows) == 0 {
@@ -59,10 +62,18 @@ func renderResultPage(p *result.Page, offset int64, count result.CountState, loa
 		// absolute range.
 		rangeStatus = joinStatusParts(count.Header(), runningText(running), cancellingText(cancelling), loadingText(loading), rangeStatus)
 	}
-	widths := gridColumnWidths(names, p.Rows)
-	lines := []string{resultsHeaderStyle.Render(renderGridRow(names, widths))}
-	for _, row := range p.Rows {
-		lines = append(lines, renderGridRow(gridCellTexts(row), widths))
+	// Issue #29: recompute the visible columns and widths afresh from the
+	// rendered cells and the current available width, starting at the
+	// first-visible output-column index.
+	cells := make([][]string, len(p.Rows))
+	for i, row := range p.Rows {
+		cells[i] = gridCellTexts(row)
+	}
+	layout := visibleGridLayout(names, cells, availWidth, first)
+	visibleNames := names[layout.First : layout.First+len(layout.Widths)]
+	lines := []string{resultsHeaderStyle.Render(renderGridRow(visibleNames, layout.Widths))}
+	for _, row := range cells {
+		lines = append(lines, renderGridRow(row[layout.First:layout.First+len(layout.Widths)], layout.Widths))
 	}
 	return rangeStatus, lines
 }
@@ -116,30 +127,6 @@ func gridCellTexts(row []result.Value) []string {
 	return cells
 }
 
-// gridColumnWidths computes per-column display widths as the natural width of
-// the widest rendered cell (header included), capped at gridColumnCap.
-func gridColumnWidths(names []string, rows [][]result.Value) []int {
-	widths := make([]int, len(names))
-	for i, n := range names {
-		widths[i] = runewidth.StringWidth(n)
-	}
-	for _, row := range rows {
-		for i, v := range gridCellTexts(row) {
-			if i < len(widths) {
-				if w := runewidth.StringWidth(v); w > widths[i] {
-					widths[i] = w
-				}
-			}
-		}
-	}
-	for i, w := range widths {
-		if w > gridColumnCap {
-			widths[i] = gridColumnCap
-		}
-	}
-	return widths
-}
-
 // renderGridRow pads or caps each cell to its column width and joins the row
 // with the grid separator.
 func renderGridRow(cells []string, widths []int) string {
@@ -176,12 +163,14 @@ func fitGridCell(cell string, w int) string {
 // result-error boundary exactly like successful pages. loading adds the
 // exact Issue #25 page-loading feedback to the status line while the one
 // paged-page request is pending; it never changes the displayed rows.
-func renderResultContent(v *ResultView, count result.CountState, loading, running, cancelling bool) (status string, content []string) {
+// Issue #29: availWidth and first are the results grid's interior width and
+// first-visible output-column index for the pure horizontal layout.
+func renderResultContent(v *ResultView, count result.CountState, loading, running, cancelling bool, availWidth, first int) (status string, content []string) {
 	if v.Err != nil {
 		return "", []string{v.Err.Error()}
 	}
 	if v.Page == nil {
 		return "", nil
 	}
-	return renderResultPage(v.Page, v.Offset, count, loading, running, cancelling)
+	return renderResultPage(v.Page, v.Offset, count, loading, running, cancelling, availWidth, first)
 }

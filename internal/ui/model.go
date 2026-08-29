@@ -80,6 +80,13 @@ type Model struct {
 	// executed since startup.
 	Result *ResultView
 
+	// firstColumn is the first-visible output-column index of the result
+	// grid (Issue #29) — the grid's only horizontal position. It is moved
+	// one whole column per accepted horizontal key press, recomputed into
+	// visible widths at every render pass, and clamped to the current
+	// output columns on resize. No intra-cell offset exists.
+	firstColumn int
+
 	// Select performs one cancellable first-page SELECT execution through the
 	// Connection boundary for the given safely rendered SQL and ordered bound
 	// parameters. It runs only inside tea.Cmd functions — never in Update or
@@ -361,6 +368,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	default:
+		// Issue #29: the terminal driver reports the raw xterm shift+Page
+		// Down/Up CSI sequences as unknown messages rather than KeyMsgs; the
+		// bridge routes them onto the same one-column bindings. Every other
+		// message is inert here, as before.
+		if dir, ok := shiftPageDirection(msg); ok {
+			m.handleHorizontalKey(dir)
+			return m, nil
+		}
 	}
 	return m, nil
 }
@@ -407,6 +423,9 @@ func (m Model) resize(w, h int) Model {
 			// become inert.
 			restored.bumpViewportGeneration()
 			restored.clampScroll()
+			// Issue #29: becoming visible again is a resize — the first-visible
+			// output-column index is preserved when valid and clamped otherwise.
+			restored.clampFirstColumnModel()
 			return restored
 		}
 		m.suspended = false
@@ -419,6 +438,9 @@ func (m Model) resize(w, h int) Model {
 	// generation-advancing resize.)
 	m.bumpViewportGeneration()
 	m.clampScroll()
+	// Issue #29: resize preserves the first-visible output-column index when
+	// valid and clamps it to the nearest valid boundary otherwise.
+	m.clampFirstColumnModel()
 	return m
 }
 
@@ -484,6 +506,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// consumes the key without issuing anything.
 		cmd := m.handlePageKey(msg.String() == "pgup")
 		return m, cmd
+	case ".":
+		// Issue #29: portable Shift+Page Down alternate — one whole column
+		// per press, purely local, boundary presses consumed as no-ops.
+		m.handleHorizontalKey(1)
+		return m, nil
+	case ",":
+		// Issue #29: portable Shift+Page Up alternate.
+		m.handleHorizontalKey(-1)
+		return m, nil
 	case "ctrl+w":
 		if m.validating {
 			// Issue #21: connection-scoped cancellation requested exactly once
