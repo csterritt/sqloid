@@ -209,7 +209,11 @@ func renderFieldLines(f Field) []string {
 // that feedback instead of the default key hints.
 func (m Model) renderFooter(width int) string {
 	text := " q quit   ? help "
-	if m.inFlightNotice != "" {
+	switch {
+	case m.historyNotice != "":
+		// Issue #35: the exact eviction feedback replaces the default hints.
+		text = " " + m.historyNotice + " "
+	case m.inFlightNotice != "":
 		text = " " + m.inFlightNotice + " "
 	}
 	return lipgloss.PlaceHorizontal(width, lipgloss.Left, text)

@@ -223,6 +223,15 @@ type Model struct {
 	// finalizeActiveSelect seam appends to it, exactly once per execution ID.
 	ResultHistory *history.ResultStore
 
+	// Query-history browsing state (Issue #35): historyMode is true while a
+	// history entry is selected for viewing; historyCursorID is that entry's
+	// stable ID (never a slice index), and historyNotice holds the exact
+	// eviction feedback when the selected entry was evicted externally.
+	// Browsing is read-only: nothing here appends or allocates IDs.
+	historyMode     bool
+	historyCursorID history.EntryID
+	historyNotice   string
+
 	// Active-SELECT lifetime state (Issue #34), kept distinct from request
 	// identity: selectActive reports the active lifetime (not any request's
 	// flight), activeExecID the owning execution ID, and finalizedExecID the
@@ -306,6 +315,12 @@ func (m Model) Init() tea.Cmd { return nil }
 // Update implements tea.Model. It handles window resizes, builder focus
 // movement, and the gated input allowed while the terminal is undersized.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Issue #35: defensively resolve the selected stable ID after every
+	// possible store mutation — including externally driven appends — so an
+	// evicted entry is never rendered, restored, or executed through.
+	if m.historyMode {
+		m.validateHistorySelection()
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		next := m.resize(msg.Width, msg.Height)
@@ -341,6 +356,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// settles nothing on its own (the workflow closes at true settlement).
 		return m, nil
 	case ExecutionStartedMsg:
+		// Issue #35: an actual execution exits history mode first, keeping the
+		// current restored-and-possibly-edited builder state as the execution
+		// input, then runs the unchanged Issue #20 append seam.
+		m.exitHistoryMode()
 		m.appendQueryHistoryAtExecutionStart()
 		return m, m.startSelectPage()
 	case SelectSettledMsg:
@@ -559,6 +578,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.ValuePrompt != nil {
 		return m.handleValuePromptKey(msg)
 	}
+	// Issue #35: query-history mode owns Ctrl+P/N and Esc while browsing;
+	// every other key falls through so the restored builder stays editable.
+	if m.historyMode {
+		switch msg.String() {
+		case "ctrl+p":
+			return m.historyStep(false)
+		case "ctrl+n":
+			return m.historyStep(true)
+		case "esc":
+			m.exitHistoryMode()
+			m.adjustScroll()
+			return m, nil
+		}
+	}
 	// Issue #27: the generic request-in-flight gate sits between focused
 	// input/overlays and base-context handling. Permitted local interaction
 	// (horizontal one-column movement, serialized page keys, field navigation)
@@ -612,6 +645,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.ActiveCancellable && m.CancelCommand != nil {
 			return m, m.CancelCommand
 		}
+	case "ctrl+p", "ctrl+n":
+		// Issue #35: entering query-history browsing from the base context
+		// selects the newest retained entry; with no retained entries the key
+		// is a no-op. While a request is in flight the gate above blocks this
+		// first, as before.
+		return m.enterHistoryMode()
 	case "esc":
 		if m.validating && m.schemaStale && !m.validationCancelling {
 			// Cancel closes the stale validation flow with the exact
