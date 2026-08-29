@@ -312,3 +312,11 @@ The execution-start timing seam documented in [query-history-append.md](query-hi
 ### internal/schema/revalidate.go, internal/querybuilder/revalidate.go, internal/connection/schema.go revalidation, and internal/ui/schema_validation.go (Issue #21)
 
 Pre-execution schema-version validation documented in [schema-validation-workflow.md](schema-validation-workflow.md): pure `schema.Revalidate`/`Revalidation`/`VersionAttempt` typed outcomes, `ReadSchemaVersion` as one cancellable request, the immutable `QueryBuilder.Revalidate` repair transition with dependent-only clearing and the authoritative post-repair runnable report, and the `internal/ui` validation workflow (`VersionReader` seam, preparation identities, `ValidationSettledMsg`/`CancelValidationMsg`, unchanged cache reuse, changed-version repair with first-reason focus, stale retry/cancel, exact `cancelling…`, terminal precedence, execution-start route only on settled success).
+
+## internal/resultcache
+
+The UI-independent positional result cache (Issue #30), documented in [positional-result-cache.md](positional-result-cache.md):
+
+### internal/resultcache/cache.go
+
+One active SELECT's fetched rows as a single contiguous inclusive range of absolute logical positions: `Position` as one-based absolute identity keeping duplicate-valued rows distinct, `Page`/`Row` over `result.Value` payloads copied at acceptance, `Merge(page, dir)` accepting exactly when the page/retained union stays contiguous after accounting for overlap (two-way sorted merge preserving ascending order for backward prepends, same-position overlap replacement without duplication, atomic rejection of stale gap-forming pages), the independent `MaxPositions` cap with deterministic low-end (forward) versus high-end (backward) eviction and cumulative `RowCapEvictions` metadata, and `Start()`/`End()`/`Len()`/`Rows()` range metadata for `internal/ui` and later immutable snapshots. The 64 MiB byte cap is deferred to Issue #31.
