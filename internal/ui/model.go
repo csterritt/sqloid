@@ -232,6 +232,19 @@ type Model struct {
 	historyCursorID history.EntryID
 	historyNotice   string
 
+	// Result-history browsing state (Issue #36): resultHistoryMode is true
+	// while a finalized result snapshot is selected for viewing;
+	// resultHistoryCursorID is its stable ID (never a slice index),
+	// resultHistoryView the pure local projection of that entry at the
+	// current terminal height, and resultHistoryNotice the exact eviction
+	// feedback when the selected entry was evicted externally. Browsing is
+	// read-only: it never appends, never consults the live result cache, and
+	// issues zero database requests.
+	resultHistoryMode     bool
+	resultHistoryCursorID history.EntryID
+	resultHistoryView     *ResultView
+	resultHistoryNotice   string
+
 	// Active-SELECT lifetime state (Issue #34), kept distinct from request
 	// identity: selectActive reports the active lifetime (not any request's
 	// flight), activeExecID the owning execution ID, and finalizedExecID the
@@ -315,11 +328,14 @@ func (m Model) Init() tea.Cmd { return nil }
 // Update implements tea.Model. It handles window resizes, builder focus
 // movement, and the gated input allowed while the terminal is undersized.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Issue #35: defensively resolve the selected stable ID after every
+	// Issue #36: defensively resolve the selected stable ID after every
 	// possible store mutation — including externally driven appends — so an
 	// evicted entry is never rendered, restored, or executed through.
 	if m.historyMode {
 		m.validateHistorySelection()
+	}
+	if m.resultHistoryMode {
+		m.validateResultHistorySelection()
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -358,8 +374,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ExecutionStartedMsg:
 		// Issue #35: an actual execution exits history mode first, keeping the
 		// current restored-and-possibly-edited builder state as the execution
-		// input, then runs the unchanged Issue #20 append seam.
+		// input, then runs the unchanged Issue #20 append seam. Issue #36:
+		// result-history selection and stale displayed rows clear before the
+		// execution and its Issue #34 finalization proceed.
 		m.exitHistoryMode()
+		m.exitResultHistoryMode()
 		m.appendQueryHistoryAtExecutionStart()
 		return m, m.startSelectPage()
 	case SelectSettledMsg:
@@ -548,6 +567,12 @@ func (m Model) resize(w, h int) Model {
 	// Issue #29: resize preserves the first-visible output-column index when
 	// valid and clamps it to the nearest valid boundary otherwise.
 	m.clampFirstColumnModel()
+	// Issue #36: while browsing result history, resize reslices the selected
+	// immutable snapshot locally for the new complete-row capacity; no
+	// snapshot is rewritten and no request is issued.
+	if m.resultHistoryMode {
+		m.projectSelectedHistoryEntry()
+	}
 	return m
 }
 
@@ -588,6 +613,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.historyStep(true)
 		case "esc":
 			m.exitHistoryMode()
+			m.adjustScroll()
+			return m, nil
+		}
+	}
+	// Issue #36: result-history mode owns Ctrl+E/Y and Esc while browsing a
+	// finalized snapshot; every other key falls through. Nothing here can
+	// issue a request — the only fresh-data path remains an actual rerun.
+	if m.resultHistoryMode {
+		switch msg.String() {
+		case "ctrl+e":
+			m.resultHistoryStep(false)
+			return m, nil
+		case "ctrl+y":
+			m.resultHistoryStep(true)
+			return m, nil
+		case "esc":
+			m.exitResultHistoryMode()
 			m.adjustScroll()
 			return m, nil
 		}
@@ -651,6 +693,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// is a no-op. While a request is in flight the gate above blocks this
 		// first, as before.
 		return m.enterHistoryMode()
+	case "ctrl+e", "ctrl+y":
+		// Issue #36: entering result-history browsing from the base context
+		// finalizes the active SELECT once (the Issue #34 seam) and selects
+		// the newest finalized snapshot; with no retained entries it is a
+		// no-op. While a request is in flight the gate above blocks first.
+		m.enterResultHistoryMode()
+		m.adjustScroll()
+		return m, nil
 	case "esc":
 		if m.validating && m.schemaStale && !m.validationCancelling {
 			// Cancel closes the stale validation flow with the exact
@@ -659,6 +709,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.adjustScroll()
 			return m, nil
 		}
+		// Issue #36: Esc dismisses the displayed ordinary query error to the
+		// base builder/result context without deleting any retained history.
+		if m.Result != nil && m.Result.Err != nil {
+			m.Result = nil
+		}
+		m.adjustScroll()
+		return m, nil
 	case "backspace", "delete":
 		if m.columnsFocused() {
 			// Base Column(s) field owns removal (Issue #16): the immutable

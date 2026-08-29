@@ -47,6 +47,11 @@ func (k ResultKind) String() string {
 	}
 }
 
+// ResultCapacity is the exact number of finalized result entries the store
+// retains at once (Issue #36). Each append beyond it evicts exactly the oldest
+// retained entry first; surviving IDs are never changed.
+const ResultCapacity = 20
+
 // ResultEntry is one immutable finalized SELECT snapshot. For KindTabular,
 // Columns and Rows carry the captured rows in ascending logical position
 // order with their Issue #33 Metadata and Completeness classification; Rows
@@ -121,6 +126,11 @@ func (s *ResultStore) AppendFinalized(entry ResultEntry) (ResultEntry, bool) {
 	retained.Columns = append([]string(nil), entry.Columns...)
 	retained.Rows = copyRows(entry.Rows)
 	s.entries = append(s.entries, retained)
+	// Issue #36: exactly the newest ResultCapacity entries are retained;
+	// eviction is oldest-first and never changes surviving IDs.
+	if len(s.entries) > ResultCapacity {
+		s.entries = s.entries[len(s.entries)-ResultCapacity:]
+	}
 	return retained, true
 }
 

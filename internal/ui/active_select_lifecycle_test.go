@@ -174,8 +174,15 @@ func TestNonFinalizingEventsPreserveActiveSelect(t *testing.T) {
 		{
 			name: "gated result history keys",
 			apply: func(t *testing.T, m Model, _ SelectSettledMsg, _ PageSettledMsg, _ CountSettledMsg) Model {
-				afterNewer := pressKeyLifecycle(t, m, tea.KeyMsg{Type: tea.KeyCtrlE})
-				return pressKeyLifecycle(t, afterNewer, tea.KeyMsg{Type: tea.KeyCtrlY})
+				// Issue #36: while any request is in flight the gate rejects
+				// Ctrl+E/Y with feedback and no state change; when nothing is in
+				// flight the key finalizes the active SELECT (entering result
+				// history is a finalizing event), which requireActive forbids.
+				if m.selectRequestPending() {
+					afterNewer := pressKeyLifecycle(t, m, tea.KeyMsg{Type: tea.KeyCtrlE})
+					return pressKeyLifecycle(t, afterNewer, tea.KeyMsg{Type: tea.KeyCtrlY})
+				}
+				return m
 			},
 		},
 		{

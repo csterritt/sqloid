@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/chris/sqloid/internal/result"
 )
 
 // Semantic styles. Color is never the only signal; borders and labels keep the
@@ -134,6 +136,17 @@ func (m Model) renderResults(width, height int) string {
 		// ordinary refresh failure, or `validating…` while a request is in
 		// flight.
 		content = m.validationStatusLines()
+	} else if m.resultHistoryMode && m.resultHistoryView != nil {
+		// Issue #36: the selected immutable result-history snapshot owns the
+		// results content, rendered through the same internal/result seam as
+		// live results — tabular rows at the current terminal height's
+		// complete-row capacity, or the finalized error/cancelled reason on
+		// the ordinary result-error boundary. Rendering never fetches.
+		status, lines := renderResultContent(m.resultHistoryView, result.CountState{}, false, false, false, width-resultsBorderRows, m.firstColumn)
+		if status != "" {
+			content = append(content, status)
+		}
+		content = append(content, lines...)
 	} else if m.Result != nil {
 		// Issue #22: the settled first page owns the results content — frozen
 		// deduplicated header, absolute range status, typed rows, or the
@@ -210,6 +223,10 @@ func renderFieldLines(f Field) []string {
 func (m Model) renderFooter(width int) string {
 	text := " q quit   ? help "
 	switch {
+	case m.resultHistoryNotice != "":
+		// Issue #36: the exact result-eviction feedback replaces the default
+		// hints while a defensive eviction reconciliation is visible.
+		text = " " + m.resultHistoryNotice + " "
 	case m.historyNotice != "":
 		// Issue #35: the exact eviction feedback replaces the default hints.
 		text = " " + m.historyNotice + " "
