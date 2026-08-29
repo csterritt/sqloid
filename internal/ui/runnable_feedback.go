@@ -50,7 +50,7 @@ func (m *Model) focusedFieldHasOpener() bool {
 		return false
 	}
 	switch m.Fields[m.Focus].Label {
-	case tableFieldLabel, columnsFieldLabel, whereFieldLabel,
+	case tableFieldLabel, columnsFieldLabel, setFieldLabel, whereFieldLabel,
 		groupByFieldLabel, orderByFieldLabel, limitFieldLabel:
 		return true
 	default:
@@ -102,7 +102,7 @@ func (m *Model) handleBaseEnter() tea.Cmd {
 }
 
 // runnableFieldLabel maps a report field identity onto its exact visual field
-// -bar label, including the future UPDATE/INSERT write prompt targets.
+// -bar label, including UPDATE and the future INSERT prompt target.
 func runnableFieldLabel(f qb.RunField) string {
 	switch f {
 	case qb.RunFieldCommand:
@@ -132,6 +132,12 @@ func runnableFieldLabel(f qb.RunField) string {
 // typed field; a field the current builder does not render is ignored so
 // stale reports can never land focus outside the field bar.
 func (m *Model) focusRunnableField(f qb.RunField) {
+	if f == qb.RunFieldSetAssignments {
+		assignments := m.QB.SetAssignments()
+		if len(assignments) > 0 {
+			m.setCursor = firstIncompleteSetIndex(assignments, m.setCursor)
+		}
+	}
 	label := runnableFieldLabel(f)
 	for i := range m.Fields {
 		if m.Fields[i].Label == label {

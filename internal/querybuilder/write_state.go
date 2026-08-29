@@ -1,7 +1,6 @@
-// Placeholder write-state seam (Issue #19): typed immutable UPDATE SET
-// assignment and INSERT per-column choice state, sufficient for the
-// authoritative runnable report to represent every write-command contract
-// before the end-to-end write flows land (Issues #37 and #39).
+// Typed immutable write state: Issue #37's complete UPDATE SET assignments and
+// Issue #19's forward-compatible INSERT per-column choices used by the
+// authoritative runnable report until the INSERT flow lands in Issue #39.
 //
 // Choices are structural, never booleans: UPDATE offers exactly
 // {Value, NULL} per SET column (Default/Omit is never offered), and INSERT
@@ -71,6 +70,15 @@ func (a SetAssignment) Entered() (string, bool) {
 	return a.input, true
 }
 
+// SetCandidates returns the refreshed visible columns eligible for UPDATE SET
+// assignment, in schema order. The returned slice is fresh.
+func (q QueryBuilder) SetCandidates() []schema.Column {
+	if q.command != CommandUpdate || !q.tableSet {
+		return nil
+	}
+	return q.selectedColumns()
+}
+
 // SetAssignments returns the committed SET assignments in selection order as
 // a fresh slice; callers may mutate it freely.
 func (q QueryBuilder) SetAssignments() []SetAssignment {
@@ -80,9 +88,9 @@ func (q QueryBuilder) SetAssignments() []SetAssignment {
 }
 
 // WithSetAssignments installs an arbitrary assignment slice as the committed
-// SET state, without eligibility filtering. This is the forward-compatible
-// seam Issues #37/#39 and tests use to represent states — including duplicate
-// SET columns — that the guided flow itself would never construct.
+// SET state, without eligibility filtering. The runnable and restoration tests
+// use this defensive seam to represent malformed states — including duplicate
+// SET columns — that the guided flow itself never constructs.
 func (q QueryBuilder) WithSetAssignments(as []SetAssignment) QueryBuilder {
 	next := q
 	next.sets = append([]SetAssignment(nil), as...)
@@ -96,7 +104,12 @@ func (q QueryBuilder) AcceptSetColumn(name string) (QueryBuilder, bool) {
 	if q.command != CommandUpdate || !q.tableSet || name == "" {
 		return q, false
 	}
-	for _, col := range q.selectedColumns() {
+	for _, assignment := range q.sets {
+		if assignment.Column == name {
+			return q, false
+		}
+	}
+	for _, col := range q.SetCandidates() {
 		if col.Name == name {
 			next := q
 			next.sets = append(append([]SetAssignment(nil), q.sets...), SetAssignment{Column: name})
@@ -135,6 +148,7 @@ func (q QueryBuilder) ChooseSetAssignment(column string, choice SetChoice) (Quer
 // onto NULL choices or already-submitted entries are ignored.
 func (q QueryBuilder) SubmitSetValue(column, text string) (QueryBuilder, bool) {
 	next := q
+	next.sets = append([]SetAssignment(nil), q.sets...)
 	for i := range next.sets {
 		a := &next.sets[i]
 		if a.Column == column && a.choice == SetChoiceValue && !a.submitted {

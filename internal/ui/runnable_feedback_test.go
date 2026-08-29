@@ -93,21 +93,6 @@ func TestEnterOnInvalidLimitFocusesLimitWithExactReason(t *testing.T) {
 func TestEnterOnInvalidWriteStatesFocusesWriteTargets(t *testing.T) {
 	updateQB := qb.NewQuery().RefreshSchema(whereUICatalog()).
 		SelectCommand(qb.CommandUpdate).SelectTable("users")
-	for i := 0; i < 2; i++ {
-		var ok bool
-		updateQB, ok = updateQB.AcceptSetColumn("email")
-		if !ok {
-			panic("setup: AcceptSetColumn failed")
-		}
-		updateQB, ok = updateQB.ChooseSetAssignment("email", qb.SetChoiceValue)
-		if !ok {
-			panic("setup: ChooseSetAssignment failed")
-		}
-		updateQB, ok = updateQB.SubmitSetValue("email", "x")
-		if !ok {
-			panic("setup: SubmitSetValue failed")
-		}
-	}
 	deleteQB := func() qb.QueryBuilder {
 		next, _ := qb.NewQuery().RefreshSchema(whereUICatalog()).
 			SelectCommand(qb.CommandDelete).SelectTable("users").StartWhere("email")
@@ -121,7 +106,7 @@ func TestEnterOnInvalidWriteStatesFocusesWriteTargets(t *testing.T) {
 		wantField string
 		want      string
 	}{
-		{"duplicate SET columns", updateQB, setFieldLabel, qb.ReasonDuplicateSetColumns},
+		{"missing SET columns", updateQB, setFieldLabel, qb.ReasonNoSetAssignments},
 		{"incomplete DELETE WHERE", deleteQB, whereFieldLabel, qb.ReasonIncompletePrompt},
 		{"zero insertable columns", insertQB, insertFieldLabel, qb.ReasonNoInsertableColumns},
 	}

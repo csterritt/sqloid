@@ -287,6 +287,7 @@ type Model struct {
 	// popup or base-context handling; Enter submits the verbatim buffer to the
 	// owning feature's hook and Esc cancels its whole open draft.
 	ValuePrompt *ValuePrompt
+	setCursor   int
 }
 
 // New returns the initial model focused on the Command field with an idle,
@@ -717,6 +718,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 		return m, nil
 	case "backspace", "delete":
+		if m.setFocused() {
+			m.clearCurrentSetValue()
+			m.adjustScroll()
+			return m, nil
+		}
 		if m.columnsFocused() {
 			// Base Column(s) field owns removal (Issue #16): the immutable
 			// remove-latest transition deletes exactly one committed entry per
@@ -771,6 +777,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.setFocus(m.Focus - 1)
 	case "up":
+		if m.moveSetCursor(-1) {
+			m.adjustScroll()
+			return m, nil
+		}
 		if m.orderByFocused() {
 			// Focused base Order By field toggles ASC/DESC deterministically
 			// when a selection is committed, without opening a popup or moving
@@ -783,6 +793,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setFocus(m.Focus - 1)
 	case "down":
+		if m.moveSetCursor(1) {
+			m.adjustScroll()
+			return m, nil
+		}
 		if m.orderByFocused() {
 			if _, _, ok := m.QB.OrderBySelection(); ok {
 				toggleOrderDirectionInBaseField(&m)

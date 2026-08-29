@@ -66,6 +66,10 @@ func (m *Model) openPopupCmd(msg tea.KeyMsg) tea.Cmd {
 	if m.columnsFocused() {
 		return m.beginColumnsPopup()
 	}
+	if m.setFocused() {
+		m.beginSetEdit()
+		return nil
+	}
 	if m.groupByFocused() {
 		m.beginGroupByPopup()
 		return nil

@@ -89,6 +89,9 @@ const (
 	ReasonNoSetAssignments = "add at least one SET assignment"
 	// ReasonDuplicateSetColumns reports an UPDATE whose SET columns repeat.
 	ReasonDuplicateSetColumns = "SET columns must be unique"
+	// ReasonStaleSetColumn reports an UPDATE assignment whose column is absent
+	// from the selected table's refreshed visible columns.
+	ReasonStaleSetColumn = "the SET column no longer exists"
 	// ReasonNoInsertableColumns reports an INSERT onto a table with zero
 	// insertable columns; the exact PRD wording.
 	ReasonNoInsertableColumns = "table has no insertable columns"
@@ -170,8 +173,15 @@ func (q QueryBuilder) reportUpdate() RunnableReport {
 	if len(q.sets) == 0 {
 		return RunnableReport{Field: RunFieldSetAssignments, Reason: ReasonNoSetAssignments}
 	}
+	eligible := make(map[string]bool, len(q.SetCandidates()))
+	for _, column := range q.SetCandidates() {
+		eligible[column.Name] = true
+	}
 	seen := make(map[string]bool, len(q.sets))
 	for _, a := range q.sets {
+		if !eligible[a.Column] {
+			return RunnableReport{Field: RunFieldSetAssignments, Reason: ReasonStaleSetColumn}
+		}
 		if seen[a.Column] {
 			return RunnableReport{Field: RunFieldSetAssignments, Reason: ReasonDuplicateSetColumns}
 		}
@@ -179,7 +189,7 @@ func (q QueryBuilder) reportUpdate() RunnableReport {
 	}
 	for _, a := range q.sets {
 		switch {
-		case a.choice == SetChoiceNone:
+		case a.choice != SetChoiceValue && a.choice != SetChoiceNull:
 			return RunnableReport{Field: RunFieldSetAssignments,
 				Reason: fmt.Sprintf(ReasonIncompleteChoiceFmt, a.Column)}
 		case a.choice == SetChoiceValue && !a.submitted:

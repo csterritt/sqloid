@@ -169,7 +169,7 @@ QueryBuilder module (Issues #11+), documented in [builder-command-table.md](buil
 
 ### internal/querybuilder/builder.go
 
-Package comment and scope: the QueryBuilder module stores command-specific structured state as UI-independent data with immutable value-level transitions. It consumes object kinds and eligibility from `internal/schema` instead of duplicating catalog rules; at this milestone it never imports `internal/ui`, renders no copy, implements popups, or builds SQL.
+Package comment and scope: the QueryBuilder module stores command-specific structured state as UI-independent data with immutable value-level transitions. It consumes object kinds and eligibility from `internal/schema` instead of duplicating catalog rules; it never imports `internal/ui`, renders copy, or implements popup behavior. Command-specific SQL construction now includes SELECT and Issue #37 UPDATE.
 
 ### internal/querybuilder/command_table.go (Issue #11)
 
@@ -207,9 +207,13 @@ Guided WHERE predicate state documented in [where-guided-predicates.md](where-gu
 
 ### internal/querybuilder/write_state.go (Issue #19)
 
-Placeholder typed write-state seam documented in [runnable-state-feedback.md](runnable-state-feedback.md): `SetAssignment` (UPDATE {Value, NULL} choices with structural `SetChoiceNone/Value/Null`, parsed submission, verbatim entered text, submitted marker) and `InsertColumn` (INSERT {Value, NULL, Default/Omit} with `InsertChoiceOmit`), getters (`Choice()`, `SubmittedValue()`, `Entered()`), and immutable transitions — `AcceptSetColumn`/`ChooseSetAssignment`/`SubmitSetValue` (empty text completes as empty TEXT; typed `NULL` stays TEXT, distinct from the SQL-NULL choice), `BeginInsertPrompts` seeding one incomplete prompt per Schema-derived insertable column, `ChooseInsertColumn`/`SubmitInsertValue`, `InsertableColumns()`, and the forward-compatible `WithSetAssignments` installer used by tests to represent states (duplicate SET columns) the guided flow never constructs. State clears on command replacement and table loss via `discardSelectors`.
+Typed write state documented in [runnable-state-feedback.md](runnable-state-feedback.md) and completed for UPDATE in [update-assignment-builder.md](update-assignment-builder.md): `SetAssignment` (UPDATE {Value, NULL} choices with structural `SetChoiceNone/Value/Null`, parsed submission, verbatim entered text, submitted marker) and `InsertColumn` (INSERT {Value, NULL, Default/Omit} with `InsertChoiceOmit`), getters (`Choice()`, `SubmittedValue()`, `Entered()`), and immutable transitions. `SetCandidates()` derives refreshed visible identities; `AcceptSetColumn` preserves first-acceptance order and rejects duplicates/hidden/unknown identities; `ChooseSetAssignment` and `SubmitSetValue` retain the exact Value/NULL, empty-TEXT, and typed-TEXT-`NULL` distinctions. `BeginInsertPrompts`, `ChooseInsertColumn`/`SubmitInsertValue`, `InsertableColumns()`, and the defensive `WithSetAssignments` seam remain for INSERT and malformed-state tests. State clears on command replacement and table loss via `discardSelectors`.
 
-### internal/querybuilder/runnable.go (Issue #19)
+### internal/querybuilder/update_sql.go (Issue #37)
+
+Pure UPDATE rendering documented in [update-assignment-builder.md](update-assignment-builder.md): `UpdateSQL()` requires an authoritative runnable UPDATE, safely quotes the table and each ordered SET column as one atom, emits `?` only for submitted Value choices and the SQL keyword `NULL` for structural NULL choices, and appends the optional complete shared WHERE. `UpdateParams()` returns a fresh parameter slice containing Value assignments in SET order, skipping NULL, followed by the WHERE value when its operator takes one; invalid or incomplete states produce no executable request.
+
+### internal/querybuilder/runnable.go (Issues #19 and #37)
 
 The authoritative runnable report documented in [runnable-state-feedback.md](runnable-state-feedback.md): `RunField` typed targets in visual builder order (Command, Table, Projection, SetAssignments, InsertColumns, Where, GroupBy, OrderBy, Limit) and `RunnableReport{Runnable, Field, Reason}` from pure `QueryBuilder.RunnableReport()`. Selected-command, refreshed-identifier (table, WHERE column, groups, ordering), and no-incomplete-value-prompt common gates; per-command prerequisites in visual order reusing the Issue #18 grouping/ORDER BY/LIMIT validators; test-asserted reason constants (`ReasonNoCommand` … `ReasonUnsubmittedValueFmt`) plus exact reuse of `LimitInvalidReason`.
 
@@ -217,7 +221,11 @@ The authoritative runnable report documented in [runnable-state-feedback.md](run
 
 Reusable immutable whole-value clearing documented in [runnable-state-feedback.md](runnable-state-feedback.md): `ClearWhereValue()` reopening a completed value-taking committed predicate as an incomplete awaiting-value draft preserving column/operator (absent, null-operator, no-submission, and open-draft no-ops), `ClearLimitValue()` restoring the valid unbounded state, and `ClearSetValue(column)`/`ClearInsertValue(column)` keeping the Value choice and column identity while dropping the whole submission.
 
-### internal/ui/value_input.go (Issue #17)
+### internal/ui/set_popup.go (Issue #37)
+
+Complete UPDATE prompt integration documented in [update-assignment-builder.md](update-assignment-builder.md): the focused Set field opens the shared searchable multi-select from `QueryBuilder.SetCandidates`; accepted identities commit uniquely in order and Esc continues into one scroll-only `{Value, NULL}` popup per assignment. Value alone opens the universal entry seeded from exact prior text while leaving the committed snapshot untouched until submission; NULL completes immediately. A model-owned assignment cursor supports Up/Down base-field selection and Tab/Shift+Tab choice-prompt revision with restored highlights, cancellation restores Set focus without partial state, completion advances to optional Where, and base-field Backspace/Delete clears the selected whole Value through `ClearSetValue`.
+
+### internal/ui/value_input.go (Issues #17 and #37)
 
 The universal value-entry prompt consumed by the WHERE flow: `ValuePrompt` keeps entered text verbatim in a rune buffer with an insertion cursor (runes append/left/right/home/end/backspace/delete/ctrl+u) and hands the exact buffer to the owning feature's hook on Enter while Esc is owned by the model's cancel path. Prompt lines render the labeled buffer row with a reversed cursor cell (never color-only), the caller-supplied inline hint, contextual help lines, and the fixed `Enter submits · Esc cancels` footer; parsing stays entirely inside QueryBuilder so typed `NULL` and empty input remain TEXT by construction.
 

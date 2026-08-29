@@ -7,6 +7,6 @@
 // Every transition is immutable: methods return a new QueryBuilder value and
 // never mutate their receiver. The package consumes object kinds and write
 // eligibility from internal/schema instead of duplicating catalog rules; it
-// never imports internal/ui, renders no copy, implements no popup behavior,
-// and builds no SQL at this milestone.
+// never imports internal/ui, renders no copy, or implements popup behavior;
+// command-specific SQL renderers remain pure functions over this state.
 package querybuilder

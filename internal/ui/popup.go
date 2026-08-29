@@ -342,6 +342,20 @@ func matchesSubsequence(query, display string) bool {
 // accepted candidate ID; multi-select Enter adds and stays open; Esc closes
 // unchanged, preserving completed multi-selections for the caller.
 func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.Popup.Opener == setFieldLabel && !m.Popup.Multi {
+		switch msg.String() {
+		case "tab":
+			if m.setCursor+1 < len(m.QB.SetAssignments()) {
+				m.openSetChoice(m.setCursor + 1)
+			}
+			return m.adjustScrollAndReturn()
+		case "shift+tab":
+			if m.setCursor > 0 {
+				m.openSetChoice(m.setCursor - 1)
+			}
+			return m.adjustScrollAndReturn()
+		}
+	}
 	switch msg.String() {
 	case "up":
 		m.Popup.Up()
@@ -349,6 +363,12 @@ func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.Popup.Down()
 	case "enter":
 		res := m.Popup.Enter()
+		if res.Outcome == EnterAdded && !m.schemaStale && m.Popup.Opener == setFieldLabel {
+			if accept := m.popupAccept; accept != nil {
+				accept(&m, res.ID)
+			}
+			return m.adjustScrollAndReturn()
+		}
 		if res.Outcome == EnterAccepted && !m.schemaStale {
 			opener, id, accept := m.openerFocus, res.ID, m.popupAccept
 			m.closePopupRestore(opener)
@@ -358,12 +378,16 @@ func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.adjustScrollAndReturn()
 		}
 	case "esc":
+		setSelection := !m.schemaStale && m.Popup.Opener == setFieldLabel && m.Popup.Multi
 		if m.schemaStale {
 			// Esc under stale schema is the cancel path: close only the stale
 			// refresh flow and restore the captured pre-open state unchanged.
 			m.applyCancel()
 		} else {
 			m.closePopupRestore(m.openerFocus)
+			if setSelection {
+				m.finishSetSelection()
+			}
 		}
 		return m.adjustScrollAndReturn()
 	case "backspace":

@@ -111,6 +111,7 @@ func (m *Model) applyBuilder(next qb.QueryBuilder) {
 	}
 	m.QB = next
 	m.Fields = builderFields(next)
+	m.clampSetCursor()
 	for i := range m.Fields {
 		if wantFocusLabel(next.Focus()) == m.Fields[i].Label {
 			m.Focus = i
@@ -171,6 +172,7 @@ func (m *Model) applySchemaRefresh(c *schema.Catalog) Model {
 	}
 	m.QB = m.QB.RefreshSchema(c)
 	m.Fields = builderFields(m.QB)
+	m.clampSetCursor()
 	for i := range m.Fields {
 		if previous != "" && m.Fields[i].Label == previous {
 			m.Focus = i

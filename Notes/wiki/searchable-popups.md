@@ -4,7 +4,7 @@ Issue #12 introduced the reusable popup interaction contract described by the Bu
 
 ## Variants
 
-- **Searchable** (`PopupSearchable`): filters candidates against typed case-insensitive subsequence search text; used by Table today and by the later column, GROUP BY, and ORDER BY flows.
+- **Searchable** (`PopupSearchable`): filters candidates against typed case-insensitive subsequence search text; used by Table, SELECT columns, GROUP BY, ORDER BY, WHERE columns, and UPDATE SET columns.
 - **Scroll-only** (`PopupScrollOnly`): presents every candidate in source order with Up/Down navigation and **no search input modality at all** — printable keys are no-ops; reserved for aggregates and operators.
 
 A `Multi` flag turns any searchable list into a multi-select whose Enter adds-and-reopens instead of accepting-and-closing. Candidate identity (`ID`) is kept separate from displayed text so acceptance always commits identity, never presentation.
@@ -50,7 +50,7 @@ Completed multi-selections survive filtering (including temporary no-match state
 - Viewport caps at 8 visible rows so eligible lists longer than the window scroll.
 - Enter commits (e.g. typing `ser` narrows UPDATE's candidates to `users`) and restores exact Table-opener focus; Esc discards without touching builder state; an unrefreshed catalog opens as an open no-match state where Enter is inert.
 
-Later column, GROUP BY, ORDER BY, aggregate, and operator flows are future consumers of the same state/rendering/routing seams — none are implemented for them yet.
+SELECT columns, GROUP BY, ORDER BY, WHERE, and UPDATE SET now consume the same state/rendering/routing seams; UPDATE uses searchable multi-select for ordered columns and scroll-only Value/NULL choices. See [update-assignment-builder.md](update-assignment-builder.md).
 
 ## Rendering
 
