@@ -151,7 +151,16 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 		msg.Generation != m.viewportGen {
 		return m // cancelled or stale identity: rows, range, and cache unchanged
 	}
-	m.Result = &ResultView{Page: msg.Result.Page, Offset: requested}
+	// Issue #31: byte-cap disclosure persists through subsequent traversal —
+	// later pages inherit it so the header keeps showing the shared warning
+	// even after navigation falls below the cap. A settled typed over-limit
+	// failure travels with the view the same way.
+	byteTruncated := m.Result != nil && m.Result.ByteTruncated
+	prevFailure := (*result.LimitFailure)(nil)
+	if m.Result != nil {
+		prevFailure = m.Result.LimitFailure
+	}
+	m.Result = &ResultView{Page: msg.Result.Page, Offset: requested, ByteTruncated: byteTruncated, LimitFailure: prevFailure}
 	m.pageOffset = requested // the displayed start moves to the requested range
 	if int64(len(msg.Result.Page.Rows)) < requestedSize {
 		m.pageExhausted = true

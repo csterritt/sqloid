@@ -34,7 +34,9 @@ func page(start Position, labels ...string) Page {
 // mustMerge merges page in dir and requires acceptance; it seeds cache state.
 func mustMerge(t *testing.T, c *Cache, page Page, dir Direction) {
 	t.Helper()
-	if !c.Merge(page, dir) {
+	if accepted, err := c.Merge(page, dir); err != nil {
+		t.Fatalf("seeding merge of page at %d..%d failed: %v", page.Start, page.End(), err)
+	} else if !accepted {
 		t.Fatalf("seeding merge of page at %d..%d was rejected, want accepted",
 			page.Start, page.End())
 	}
@@ -312,7 +314,11 @@ func TestMerge(t *testing.T) {
 			for _, step := range tc.seed {
 				mustMerge(t, c, step.page, step.dir)
 			}
-			accepted := c.Merge(tc.page, tc.dir)
+			accepted, err := c.Merge(tc.page, tc.dir)
+			if err != nil {
+				t.Fatalf("Merge(%d..%d, %v) returned error %v, want none",
+					tc.page.Start, tc.page.End(), tc.dir, err)
+			}
 			if accepted != tc.wantAccepted {
 				t.Fatalf("Merge(%d..%d, %v) accepted = %v, want %v",
 					tc.page.Start, tc.page.End(), tc.dir, accepted, tc.wantAccepted)
@@ -338,7 +344,7 @@ func TestMergeZeroValueCache(t *testing.T) {
 	if c.Len() != 0 {
 		t.Fatalf("zero-value cache Len() = %d, want 0", c.Len())
 	}
-	if c.Merge(page(5, "v5"), Forward) {
-		t.Fatalf("zero-value cache accepted a page, want rejection so empty caches are populated through New")
+	if accepted, err := c.Merge(page(5, "v5"), Forward); accepted || err != nil {
+		t.Fatalf("zero-value cache accepted a page (%v, %v), want rejection so empty caches are populated through New", accepted, err)
 	}
 }

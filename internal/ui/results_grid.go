@@ -172,5 +172,16 @@ func renderResultContent(v *ResultView, count result.CountState, loading, runnin
 	if v.Page == nil {
 		return "", nil
 	}
-	return renderResultPage(v.Page, v.Offset, count, loading, running, cancelling, availWidth, first)
+	status, lines := renderResultPage(v.Page, v.Offset, count, loading, running, cancelling, availWidth, first)
+	if v.ByteTruncated {
+		// Issue #31: the header renders the single shared byte-cap definition;
+		// the literal is owned by internal/result, never rebuilt here.
+		status = joinStatusParts(status, result.ByteCapWarning)
+	}
+	if v.LimitFailure != nil {
+		// The result view identifies the page as failed at its exact logical
+		// position through the shared typed failure's message.
+		status = joinStatusParts(status, v.LimitFailure.Error())
+	}
+	return status, lines
 }

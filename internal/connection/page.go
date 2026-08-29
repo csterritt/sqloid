@@ -22,17 +22,21 @@ import (
 // ExecutePage executes one paged page SELECT and returns the typed page.
 // The statement and parameters must come from the QueryBuilder page
 // rendering seam; the exact LIMIT/OFFSET range is already inside the
-// statement text. Cancelling parent aborts execution through the leased
-// connection. On success the returned RequestResult has OutcomeSuccess and
-// the populated page; failures return a nil page plus the failed
+// statement text. offset is the count of absolute logical result rows before
+// this page (the requested OFFSET), so Issue #31 value-limit failures report
+// the one-based absolute logical position. Cancelling parent aborts execution
+// through the leased connection. On success the returned RequestResult has
+// OutcomeSuccess and the populated page; failures return the failed
 // RequestResult whose Err preserves the underlying cause and whose Health
 // carries any deletion or replacement classification, exactly like any
-// other database request.
-func (db *DB) ExecutePage(parent context.Context, statement string, params []any) (*result.Page, RequestResult) {
+// other database request. On an Issue #31 value-limit failure the Err is the
+// typed *result.LimitFailure and the returned page holds exactly the earlier
+// complete rows of this page.
+func (db *DB) ExecutePage(parent context.Context, statement string, params []any, offset int64) (*result.Page, RequestResult) {
 	var page *result.Page
 
 	res := db.RunRequest(parent, func(ctx context.Context, conn *sql.Conn) error {
-		p, err := runFirstPage(ctx, conn, statement, params)
+		p, err := runFirstPage(ctx, conn, statement, params, offset)
 		if err != nil {
 			return err
 		}

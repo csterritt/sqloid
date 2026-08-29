@@ -31,6 +31,19 @@ func seedCache(t *testing.T, steps []seedStep) *Cache {
 	return c
 }
 
+// mustMergeChecked merges page in dir and requires acceptance with no typed
+// failure, for byte-cap fixtures.
+func mustMergeChecked(t *testing.T, c *Cache, page Page, dir Direction) {
+	t.Helper()
+	accepted, err := c.Merge(page, dir)
+	if err != nil {
+		t.Fatalf("merge of page at %d..%d failed: %v", page.Start, page.End(), err)
+	}
+	if !accepted {
+		t.Fatalf("merge of page at %d..%d rejected, want accepted", page.Start, page.End())
+	}
+}
+
 // TestPositionCapEviction specifies the independent MaxPositions hard cap:
 // after every accepted merge the retained interval is contiguous with at most
 // MaxPositions positions, eviction is deterministic at the standard opposite
@@ -171,10 +184,10 @@ func TestPositionCapEviction(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := seedCache(t, tc.seed)
 			before := c.Rows()
-			accepted := c.Merge(tc.page, tc.dir)
+			accepted, err := c.Merge(tc.page, tc.dir)
 			if tc.name == "stale gap page after eviction rejected atomically" {
-				if accepted {
-					t.Fatalf("Merge of nonadjacent stale page accepted, want rejection")
+				if accepted || err != nil {
+					t.Fatalf("Merge of nonadjacent stale page accepted (%v, %v), want rejection", accepted, err)
 				}
 				after := c.Rows()
 				if len(before) != len(after) {
@@ -192,6 +205,9 @@ func TestPositionCapEviction(t *testing.T) {
 				}
 				assertContiguousBounded(t, c)
 				return
+			}
+			if err != nil {
+				t.Fatalf("Merge(%d..%d, %v) returned error %v, want none", tc.page.Start, tc.page.End(), tc.dir, err)
 			}
 			if !accepted {
 				t.Fatalf("Merge(%d..%d, %v) rejected, want accepted", tc.page.Start, tc.page.End(), tc.dir)

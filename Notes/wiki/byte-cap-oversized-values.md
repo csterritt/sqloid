@@ -1,0 +1,41 @@
+# Issue #31 — 64 MiB cache cap, retained-payload accounting, and oversized-value handling
+
+Issue #31 completes the Cache and snapshot invariant of `Notes/PRD-sqloid.md` begun by [positional-result-cache.md](positional-result-cache.md) (Issue #30): the active cache is one contiguous inclusive range of absolute logical positions capped **independently at 10,000 positions and 64 MiB of retained payload**. Issue #31 adds the exact payload accounting, the bidirectional byte-cap eviction with persistent disclosure, and the two distinct over-limit failures with their exact messages and no-partial-row guarantees. Cross-references: Issues #5 (connection-local `SQLITE_LIMIT_LENGTH`), #30 (positional cap), and [serialized-vertical-paging.md](serialized-vertical-paging.md) (the page requests admitted into the cache), [session-health.md](session-health.md), [scoped-select-cancellation.md](scoped-select-cancellation.md), and the Cache and snapshot invariant, Errors and cancellation bounds, Connection/UI/History Module Design, and high-risk Testing Decisions sections of `Notes/PRD-sqloid.md`.
+
+## Exact retained-payload accounting
+
+`internal/resultcache/payload.go` is pure and shared:
+
+- **`ValuePayload(v result.Value)`**: raw TEXT `len(Str)`, raw BLOB `len(Bytes)`, **exactly 8 bytes for each INTEGER and REAL**, **0 for NULL**. It never uses display width, formatted token length (REAL tokens, grid control-character symbols), or any other rendering derivative.
+- **`RowPayload(values)`**: the sum of `ValuePayload` across one row. Repeated values count once per position; duplicate-valued rows remain separate positions.
+- **Excludes all model overhead**: Go string/slice headers, `result.Page`/`ResultView` fields, and every cache metadata field are never counted. `Cache.PayloadBytes()` maintains the exact retained total through merges, overlap replacement (both rows are re-priced), and every eviction.
+- **BLOB identity**: accounting never converts, renders, or copies into text; retained BLOB values keep their distinct `KindBlob` and byte-for-byte identity (`ValuePayload` reads `len(Bytes)` only), with caller mutation impossible because the cache copies payloads at acceptance.
+
+## The independent 64 MiB cap and opposite-end eviction
+
+`MaxPayloadBytes int64 = 64 << 20` in `internal/resultcache/cache.go` is cumulative with, and independent of, `MaxPositions`:
+
+- After every accepted merge, both caps are enforced together: position-cap eviction first by the exact excess count, then byte-cap eviction — **complete rows only, one at a time, from the same standard opposite end of the incoming direction** (low end for forward, high end for backward) — until the retained payload fits `MaxPayloadBytes`. A cache exactly at the cap evicts nothing and discloses nothing; one byte more evicts whole rows.
+- **Persistent typed `truncated-by-byte-cap` disclosure**: `Cache.TruncatedByByteCap()` is sticky — set once any byte-cap eviction has occurred and never cleared, including after later overlap replacement or navigation brings the payload below the cap.
+- The shared presentation value lives at the authoritative result metadata boundary, `internal/result`: **`result.ByteCapWarning = "Result truncated: 64 MiB cache limit"`**. `internal/ui` renders exactly this definition (`joinStatusParts` appends it to the results status/count line when the view carries the disclosure); no UI or cmd source may contain a private copy of the literal (enforced by an architecture test).
+- Stale-gap rejection stays atomic after byte eviction: a rejected nonadjacent page changes neither rows, ranges, counters, nor the disclosure.
+
+## The two distinct over-limit failures
+
+`internal/result/limits.go` defines both failure kinds and their exact messages in one place (`LimitFailure{Kind, Position}` implementing `error`); no layer rebuilds the wording:
+
+- **Page-envelope failure (`KindPage`)** at cache admission: a fetched page whose retained rows **collectively** exceed 64 MiB can never fit. `Cache.Merge` admits only the **complete rows nearest the retained range in traversal order** (leading rows for forward pages, trailing rows for backward pages) whose cumulative payload fits, then merges and evicts under both caps so one contiguous range remains. The returned error is exactly `result page exceeds the 64 MiB v1 limit at row N`, where `N` is the one-based absolute logical position of the first nonfitting row — and **no bytes or fields of that row are retained**. Prior valid cache rows are preserved, including after a backward trim (the nonfitting far rows are simply dropped, so the admitted rows stay contiguous with the retained range).
+- **Value-limit failure (`KindValue`)** at the SQLite scan boundary: one value exceeding the connection-local 64 MiB `SQLITE_LIMIT_LENGTH` fails typed with exactly `result value exceeds the 64 MiB v1 limit at row N`. The scan stops **without exposing a partial row**: every earlier complete row of the page comes back (through `RunFirstPage`/`ExecutePage` with exact BLOB bytes), the failing row contributes nothing, and `N` is the one-based absolute logical position including the page offset (`ExecutePage` takes the requested OFFSET so non-first pages report absolute positions). Classification covers both mechanisms: the driver's own `SQLITE_TOOBIG` enforcement (via `errors.As` to the typed driver error code — never string matching) during execute, scan, or iteration, and Sqloid's own raw-value size check after each scan. A value of exactly 64 MiB sits at the boundary and succeeds.
+- **The kinds cannot be conflated**: `KindPage` failures originate only from cache admission and `KindValue` only from the connection scan boundary, with distinct exact messages.
+
+## UI disclosure and persistence
+
+`ResultView` and `FirstPageResult` carry `ByteTruncated` and `LimitFailure` typed metadata: `applySelectSettled` maps them from the settled executor result, `applyPageSettled` **inherits them across subsequent traversal** so the disclosure survives navigation after the failure or eviction, and `renderResultContent` composes `result.ByteCapWarning` and `failure.Error()` into the status/count line through the shared definitions. Snapshot finalization (`deactivateActiveSelect`) never clears the disclosure; export flows consume the same definitions later.
+
+## Testing
+
+- `internal/resultcache/payload_test.go` — per-type accounting (empty/multibyte/control TEXT by raw bytes, empty/arbitrary BLOBs, INTEGER/REAL at 8, NULL at 0), mixed and repeated rows, cache totals across merge/replacement, and BLOB identity through retention and replacement.
+- `internal/resultcache/bytecap_test.go` — exact-boundary and one-byte cases in both directions, forward/backward opposite-end eviction with complete BLOB rows, byte-cap coexistence with the position cap, persistent disclosure after falling below the cap, overlap replacement raising retained bytes, atomic stale rejection after eviction, row-cap-only eviction not setting byte metadata.
+- `internal/resultcache/admission_test.go` — non-first forward and backward page-envelope trims at exact positions with prior rows preserved and contiguous ranges, boundary-sized pages admitted fully, one-byte-over pages failing at the exact position, TEXT payload equivalence, and page/value kinds provably distinct.
+- `internal/connection/value_limit_test.go` — integration through `modernc.org/sqlite`: a 64 MiB + 1 byte BLOB failing typed at row N with the exact message and earlier complete BLOB rows byte-exact, a boundary-sized 64 MiB value succeeding, and non-first-page absolute positions via `ExecutePage`.
+- `internal/ui/bytecap_test.go` — the shared warning rendered exactly once from `result.ByteCapWarning`, absent for row-cap-only results, persistent through traversal and failed settlements, single-literal architecture assertions, and exact typed failure messages rendered from `LimitFailure.Error`.

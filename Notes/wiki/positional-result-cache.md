@@ -25,7 +25,7 @@ Issue #30 implements the positional heart of the Cache and snapshot invariant of
 - **Forward (Page Down direction) evicts from the low end**; **backward evicts from the high end** — the "standard opposite end" of the PRD invariant — by exactly the excess count, so eviction is deterministic and minimal. A merge landing exactly at the cap evicts nothing; a single page larger than the cap retains its last (forward) or first (backward) 10,000 positions.
 - Overlap replacement interacts cleanly with eviction: a page overlapping one edge and extending past the other replaces its overlap first, then cap eviction trims the opposite end, so **values at retained overlaps are unaffected** while evicted positions disappear from the low (forward) or high (backward) end.
 - Alternating direction after prior eviction evicts the other end on the next arrival; `RowCapEvictions()` accumulates every cap-driven eviction for later completeness metadata (`truncated`), while gap rejections never touch it.
-- The byte cap (64 MiB payload accounting) is deliberately **not** implemented here — it belongs to Issue #31 and must add byte eviction without changing positional behavior.
+- The byte cap (64 MiB payload accounting) arrived with Issue #31 — see [byte-cap-oversized-values.md](byte-cap-oversized-values.md) for byte eviction, the persistent `truncated-by-byte-cap` disclosure, and the oversized page/value failures.
 
 ## Testing
 

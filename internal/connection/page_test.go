@@ -17,7 +17,7 @@ import (
 func TestExecutePageAdjacentRanges(t *testing.T) {
 	db := openMixed(t)
 
-	first, res := db.ExecutePage(context.Background(), `SELECT id FROM "mix" ORDER BY rowid LIMIT 1 OFFSET 0`, nil)
+	first, res := db.ExecutePage(context.Background(), `SELECT id FROM "mix" ORDER BY rowid LIMIT 1 OFFSET 0`, nil, 0)
 	if res.Outcome != OutcomeSuccess {
 		t.Fatalf("outcome = %v (err %v), want success", res.Outcome, res.Err)
 	}
@@ -25,7 +25,7 @@ func TestExecutePageAdjacentRanges(t *testing.T) {
 		t.Fatalf("first page rows = %v, want exactly id 1", first.Rows)
 	}
 
-	second, res := db.ExecutePage(context.Background(), `SELECT id FROM "mix" ORDER BY rowid LIMIT 1 OFFSET 1`, nil)
+	second, res := db.ExecutePage(context.Background(), `SELECT id FROM "mix" ORDER BY rowid LIMIT 1 OFFSET 1`, nil, 1)
 	if res.Outcome != OutcomeSuccess {
 		t.Fatalf("outcome = %v (err %v), want success", res.Outcome, res.Err)
 	}
@@ -34,7 +34,7 @@ func TestExecutePageAdjacentRanges(t *testing.T) {
 	}
 
 	// An offset beyond the data returns a typed empty page, not an error.
-	empty, res := db.ExecutePage(context.Background(), `SELECT id FROM "mix" ORDER BY rowid LIMIT 1 OFFSET 99`, nil)
+	empty, res := db.ExecutePage(context.Background(), `SELECT id FROM "mix" ORDER BY rowid LIMIT 1 OFFSET 99`, nil, 99)
 	if res.Outcome != OutcomeSuccess {
 		t.Fatalf("outcome = %v (err %v), want success", res.Outcome, res.Err)
 	}
@@ -46,7 +46,7 @@ func TestExecutePageAdjacentRanges(t *testing.T) {
 func TestExecutePageFailureIsOrdinaryRequest(t *testing.T) {
 	db := openMixed(t)
 
-	page, res := db.ExecutePage(context.Background(), `SELECT * FROM "mix" WHERE no_such_column = 1`, nil)
+	page, res := db.ExecutePage(context.Background(), `SELECT * FROM "mix" WHERE no_such_column = 1`, nil, 0)
 	if res.Outcome != OutcomeFailed {
 		t.Fatalf("outcome = %v, want failed", res.Outcome)
 	}

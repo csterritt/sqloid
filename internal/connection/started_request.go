@@ -135,7 +135,7 @@ func (db *DB) StartFirstPage(parent context.Context, statement string, params []
 		if db.beforeFirstPage != nil {
 			db.beforeFirstPage(ctx, conn) // test-only barrier seam (see DB doc)
 		}
-		p, err := runFirstPage(ctx, conn, statement, params)
+		p, err := runFirstPage(ctx, conn, statement, params, 0)
 		if err != nil {
 			return err
 		}
@@ -151,7 +151,7 @@ func (db *DB) StartFirstPage(parent context.Context, statement string, params []
 func (db *DB) StartPage(parent context.Context, statement string, params []any) *StartedPageRequest {
 	s := &StartedPageRequest{}
 	s.started = db.startRequest(parent, func(ctx context.Context, conn *sql.Conn) error {
-		p, err := runFirstPage(ctx, conn, statement, params)
+		p, err := runFirstPage(ctx, conn, statement, params, 0)
 		if err != nil {
 			return err
 		}

@@ -37,6 +37,15 @@ type FirstPageResult struct {
 	Page      *result.Page
 	Err       error
 	Cancelled bool
+	// ByteTruncated carries persistent `truncated-by-byte-cap` disclosure
+	// (Issue #31): it is set once byte-cap eviction has occurred and stays
+	// set through later navigation and finalization.
+	ByteTruncated bool
+	// LimitFailure is the typed Issue #31 over-limit failure (page envelope
+	// or connection-local value) with its one-based logical position, if the
+	// page settled as such a failure. Its Error renders the exact shared
+	// message from internal/result.
+	LimitFailure *result.LimitFailure
 }
 
 // SelectSettledMsg carries one settled first-page execution back through
@@ -60,6 +69,13 @@ type ResultView struct {
 	Page   *result.Page
 	Err    error
 	Offset int64
+	// ByteTruncated is the persistent Issue #31 `truncated-by-byte-cap`
+	// disclosure; once set it survives subsequent page traversal so the
+	// header keeps showing the shared warning.
+	ByteTruncated bool
+	// LimitFailure is the typed Issue #31 over-limit failure carried from
+	// the settled page; it is rendered through its single Error definition.
+	LimitFailure *result.LimitFailure
 }
 
 // startSelectPage returns the commands that issue the two concurrent
