@@ -70,6 +70,16 @@ func (m *Model) handlePageKey(up bool) tea.Cmd {
 	requestID := result.NextSelectRequestID()
 	m.pagePending = true
 	m.pageRequestID = requestID
+	// Issue #28: the later page gets its own cancellation context so Ctrl+W
+	// requests exactly this request's connection-scoped interrupt identity;
+	// the handle retires when the request settles.
+	pageCtx, pageCancel := context.WithCancel(context.Background())
+	m.pageRequestCancel = pageCancel
+	// Issue #28: a later-page request is its own cancellable unit, so the
+	// generic cancellation seam re-arms for exactly this request; it closes
+	// again when the page settles and nothing remains pending.
+	m.ActiveCancellable = true
+	m.CancelCommand = func() tea.Msg { return SelectCancelRequestedMsg{} }
 	// Issue #26: the request's execution and viewport-generation identities
 	// are immutable once captured; the response carries them back verbatim.
 	m.pageRequestExecution = m.selectTracker.ExecutionID()
@@ -84,7 +94,7 @@ func (m *Model) handlePageKey(up bool) tea.Cmd {
 			ExecutionID: execution,
 			RequestID:   requestID,
 			Generation:  generation,
-			Result:      exec(context.Background(), statement, params),
+			Result:      exec(pageCtx, statement, params),
 		}
 	}
 }
@@ -132,6 +142,7 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 	m.pageRequestID = 0
 	m.pageRequestExecution = 0
 	m.pageRequestGeneration = 0
+	m.pageRequestCancel = nil // Issue #28: the handle retires with the request
 	if msg.Result.Err != nil {
 		return m // ordinary failure keeps the previous page displayed
 	}
@@ -159,6 +170,7 @@ func (m *Model) resetPagingState() {
 	m.pageRequestID = 0
 	m.pageRequestExecution = 0
 	m.pageRequestGeneration = 0
+	m.pageRequestCancel = nil // Issue #28: no page request owns a handle yet
 	m.pageExhausted = false
 }
 
@@ -172,7 +184,11 @@ func (m *Model) deactivateActiveSelect() {
 	m.bumpViewportGeneration()
 	// Issue #27: finalization releases the generic gate's first-page claim
 	// and cancelling handoff; any late settlement cannot re-claim them.
+	// Issue #28: every scoped cancellation handle retires with it.
 	m.firstPagePending = false
 	m.countPendingFlag = false
 	m.selectCancelling = false
+	m.firstPageCancel = nil
+	m.countCancel = nil
+	m.pageRequestCancel = nil
 }

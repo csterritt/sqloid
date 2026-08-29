@@ -4,7 +4,7 @@ How `internal/connection` runs every database request as a cancellable, identity
 
 ## Scope vs. later wiring
 
-Issue #6 is the reusable infrastructure layer only: request identity, cancellable context ownership, interrupt dispatch, settlement, late-success classification, no force-close, and pinned-driver capability evidence. SELECT page/count cancellation, write-phase cancellation with its commit boundary, in-flight UI feedback (`cancelling…` rendering), history effects, and quit integration are deferred to Issue #28, which consumes these primitives unchanged.
+Issue #6 is the reusable infrastructure layer only: request identity, cancellable context ownership, interrupt dispatch, settlement, late-success classification, no force-close, and pinned-driver capability evidence. SELECT page/count cancellation is Issue #28 (documented in [scoped-select-cancellation.md](scoped-select-cancellation.md)), which consumes these primitives unchanged; write-phase cancellation with its commit boundary is deferred to Issues #42/#43, and history effects/quit integration to their owning issues.
 
 ## Request lifecycle
 
@@ -56,4 +56,4 @@ Isolation (independent work on the second lease completes while the first is int
   - `TestLateSuccessAfterCancellationIsDiscardedAndConnectionReusable` — deliberately released success after Cancel classifies as cancelled and the connection remains usable.
 - Race-detector runs pass over both suites (`CGO_ENABLED=1 go test -race ./internal/connection/`).
 
-Cross-references: [connection-pool.md](connection-pool.md), [sqlite-startup.md](sqlite-startup.md), [source-code.md](source-code.md), [unit-tests.md](unit-tests.md).
+Cross-references: [scoped-select-cancellation.md](scoped-select-cancellation.md), [connection-pool.md](connection-pool.md), [sqlite-startup.md](sqlite-startup.md), [source-code.md](source-code.md), [unit-tests.md](unit-tests.md).

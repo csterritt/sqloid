@@ -105,6 +105,10 @@ SQLite-backed coverage of the first-page boundary: typed NULL/INTEGER/REAL/TEXT/
 
 Paged-page SELECT execution, documented in [serialized-vertical-paging.md](serialized-vertical-paging.md): `DB.ExecutePage(parent, statement, params)` runs exactly one bound page statement — already carrying its exact LIMIT/OFFSET range from the QueryBuilder page seam — as one complete `RunRequest` on its own dedicated leased connection, with the same eager typed scanning and single `result.FromDriver` conversion as a first page and causes preserved through the neutral `firstPageError` wrapper. No adjacent-offset arithmetic, serialization, or caching lives here. The SQLite-backed tests cover adjacent disjoint ranges, an offset beyond the data as a typed empty page, and ordinary failure classification with the driver cause preserved.
 
+### internal/connection/started_request.go (Issue #28)
+
+Externally cancellable started-request handles for SELECT page and count work, documented in [scoped-select-cancellation.md](scoped-select-cancellation.md): `StartFirstPage`/`StartPage`/`StartCount` each lease a dedicated connection, begin an Issue #6 `Request`, and run the statement in a separate goroutine so cancellation is requested from another goroutine; `Cancel` is idempotent and connection-scoped, the lease releases only at true settlement, `Wait`/`SettledChan` expose terminal classification, lease-acquisition failure pre-settles as failed, and every result flows through the Issue #6/#7 classification unchanged. Statements stay owned by the QueryBuilder rendering seam.
+
 ## internal/result
 
 Shared UI-independent result representation (Issue #22), documented in [first-select-result-grid.md](first-select-result-grid.md) and [concurrent-page-count.md](concurrent-page-count.md):

@@ -93,9 +93,17 @@ func (m *Model) startSelectPage() tea.Cmd {
 	generation := m.viewportGen
 	// Issue #27: claim the first-page slot and the generic cancellation seam
 	// before anything dispatches; both release at their request's settlement.
+	// Issue #28: each request gets its own derived cancellation context so
+	// Ctrl+W requests one independent connection-scoped interrupt identity
+	// per active request; each handle retires exactly at its settlement.
 	m.firstPagePending = true
 	m.ActiveCancellable = true
 	m.CancelCommand = func() tea.Msg { return SelectCancelRequestedMsg{} }
+
+	pageCtx, pageCancel := context.WithCancel(context.Background())
+	countCtx, countCancel := context.WithCancel(context.Background())
+	m.firstPageCancel = pageCancel
+	m.countCancel = countCancel
 
 	pageFn := m.Select
 	sql := m.QB.SelectSQL()
@@ -105,7 +113,7 @@ func (m *Model) startSelectPage() tea.Cmd {
 			ExecutionID: exec,
 			RequestID:   pageID,
 			Generation:  generation,
-			Result:      pageFn(context.Background(), sql, params),
+			Result:      pageFn(pageCtx, sql, params),
 		}
 	}
 	countFn := m.Count
@@ -118,7 +126,7 @@ func (m *Model) startSelectPage() tea.Cmd {
 		return CountSettledMsg{
 			ExecutionID: exec,
 			RequestID:   countID,
-			Result:      countFn(context.Background(), countSQL, params),
+			Result:      countFn(countCtx, countSQL, params),
 		}
 	}
 	m.countState = result.CountState{Status: result.CountPending}

@@ -7,6 +7,8 @@
 package ui
 
 import (
+	"context"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chris/sqloid/internal/history"
@@ -129,9 +131,20 @@ type Model struct {
 	firstPagePending bool
 	countPendingFlag bool // generic-gate claim on the independent count request
 	selectCancelling bool
-	inFlightNotice   string
-	quitConfirm      bool
-	quitSuspended    *Model
+
+	// Scoped Ctrl+W cancellation handles (Issue #28): one derived-context
+	// cancel function per in-flight SELECT request — the first page, the
+	// independent count, and the one later page. Each handle is installed
+	// when its command dispatches and cleared exactly at that request's
+	// settlement, so the cancellation message requests an independent,
+	// idempotent connection-scoped interrupt for each currently active
+	// request and never touches settled or unrelated work.
+	firstPageCancel   context.CancelFunc
+	countCancel       context.CancelFunc
+	pageRequestCancel context.CancelFunc
+	inFlightNotice    string
+	quitConfirm       bool
+	quitSuspended     *Model
 
 	// selectTracker guards the current SELECT execution's two concurrent
 	// completions (Issue #24): a page or count completion mutates state only
@@ -296,6 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the tracker consumes the role, so the generic gate settles with
 			// the request whatever the outcome classification is.
 			m.firstPagePending = false
+			m.firstPageCancel = nil // Issue #28: the handle retires with the request
 			m.clearSelectCancellingIfSettled()
 			m.inFlightNotice = ""
 			if msg.Generation == m.viewportGen && !msg.Result.Cancelled {
@@ -314,6 +328,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Issue #27: count settlement is request-ownership settlement for
 			// the generic gate regardless of the outcome classification.
 			m.countPendingFlag = false
+			m.countCancel = nil // Issue #28: the handle retires with the request
 			m.clearSelectCancellingIfSettled()
 			m.inFlightNotice = ""
 			if !msg.Result.Cancelled {
@@ -332,10 +347,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.inFlightNotice = ""
 		return next, nil
 	case SelectCancelRequestedMsg:
-		// Produced by the generic cancellation closure dispatched at Ctrl+W
-		// (Issue #27); the model already entered its cancelling state before
-		// dispatching, so this settles nothing on its own. Real interrupt
-		// semantics remain with Issue #28.
+		// Issue #28: the Ctrl+W closure's message requests one scoped,
+		// idempotent cancellation per currently active page/count request.
+		// Each handle cancels only its own request's context — the in-flight
+		// work settles through the Connection boundary, whose cancellation-
+		// wins classification keeps the late result inert — and the model
+		// holds `cancelling…` until every targeted request settles.
+		for _, cancel := range []context.CancelFunc{m.firstPageCancel, m.countCancel, m.pageRequestCancel} {
+			if cancel != nil {
+				cancel()
+			}
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -349,6 +371,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) clearSelectCancellingIfSettled() {
 	if !m.selectRequestPending() {
 		m.selectCancelling = false
+		// Issue #28: with every owned read request settled, the model owns no
+		// cancellable work — the generic cancellation seam closes so later
+		// Enter presses reach the runnable route again.
+		m.ActiveCancellable = false
+		m.CancelCommand = nil
 	}
 }
 

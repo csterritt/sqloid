@@ -87,7 +87,11 @@ func settleFirstPage(t *testing.T, m Model, execCmd tea.Cmd) Model {
 	page, count := splitSelectCount(t, msgs)
 	next, _ := m.Update(page)
 	m2 := next.(Model)
-	if _, nextCmd := m2.Update(count); nextCmd != nil {
+	// The count settlement mutates the model (it clears the count's pending
+	// slot), so its updated model must be kept; only its command is checked.
+	next2, nextCmd := m2.Update(count)
+	m2 = next2.(Model)
+	if nextCmd != nil {
 		t.Fatal("count settlement issued an unexpected command")
 	}
 	return m2
