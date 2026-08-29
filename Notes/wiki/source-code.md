@@ -101,6 +101,10 @@ Mandatory release- and dependency-upgrade-blocking capability suite: WAL and rol
 
 SQLite-backed coverage of the first-page boundary: typed NULL/INTEGER/REAL/TEXT/BLOB rows with original driver labels crossing into `result.Page` without string coercion, typed NULLs, zero rows, an ordinary query failure (`no such table` cause preserved, no terminal claim), ordered parameter binding, a pre-cancelled context, and scan-level typing without loss.
 
+### internal/connection/page.go and page_test.go (Issue #25)
+
+Paged-page SELECT execution, documented in [serialized-vertical-paging.md](serialized-vertical-paging.md): `DB.ExecutePage(parent, statement, params)` runs exactly one bound page statement — already carrying its exact LIMIT/OFFSET range from the QueryBuilder page seam — as one complete `RunRequest` on its own dedicated leased connection, with the same eager typed scanning and single `result.FromDriver` conversion as a first page and causes preserved through the neutral `firstPageError` wrapper. No adjacent-offset arithmetic, serialization, or caching lives here. The SQLite-backed tests cover adjacent disjoint ranges, an offset beyond the data as a typed empty page, and ordinary failure classification with the driver cause preserved.
+
 ## internal/result
 
 Shared UI-independent result representation (Issue #22), documented in [first-select-result-grid.md](first-select-result-grid.md) and [concurrent-page-count.md](concurrent-page-count.md):
@@ -229,6 +233,10 @@ The production SELECT orchestration and grid documented in [first-select-result-
 
 See the Issue #24 additions above; the count lifecycle state, executor seam, settlement, and help live here.
 
+### internal/ui/paging.go and vertical_paging_test.go (Issue #25)
+
+Serialized vertical result paging, documented in [serialized-vertical-paging.md](serialized-vertical-paging.md): the `PageExecutor`/`PageSettledMsg` seam; `handlePageKey` consuming Page Up/Down with exactly the adjacent absolute logical range through `QB.PageSQL` at the layout-derived complete-visible-row size, low/high/user-Limit boundary suppression, and repeated/opposite key consumption while one page is pending; `pageRange` adjacency arithmetic; `applyPageSettled` installing matched completions with absolute-range status and marking the high boundary on short pages; `resetPagingState` on fresh executions; and the scripted tests holding responses behind barriers to prove request counts, loading feedback, local horizontal movement, count-plus-one-page overlap, and exact sizes at supported heights plus after resize.
+
 ### internal/ui/concurrent_count_test.go (Issue #24)
 
 Scripted model coverage of the concurrent launch (one execution ID, two distinct nonzero role request IDs, exact count SQL/parameters), count-before-page and after-page settlement, after-Limit wording with no clamping, `Count unavailable` isolation with retained rows, page-failure independence, wrong-role/duplicate/superseded/delayed-count rejection, and the help content.
@@ -271,7 +279,7 @@ LIMIT state documented in [group-order-limit.md](group-order-limit.md): verbatim
 
 ### internal/querybuilder/select_sql.go and validation.go (Issue #18)
 
-`SelectSQL()` assembles the deterministic statement — quoted projection over the quoted table, then WHERE, GROUP BY (commit order), ORDER BY (one committed expression with direction), and LIMIT in grammar order — refusing to render any piece whose identity no longer resolves, and `SelectParams()` returning only the WHERE predicate's parameters (projection, grouping, ordering, and LIMIT contribute none). Issue #24 adds `CountSQL()` (`SELECT COUNT(*) FROM (<SelectSQL()>)` with the user's Limit inside the subquery) and `CountParams()` (exactly `SelectParams()`, order preserved) in `count_sql.go`, documented in [concurrent-page-count.md](concurrent-page-count.md). `validation.go` defines the first-invalid contract types (`InvalidIssue{Field, Reason}`, `FieldIdentityGroupBy/OrderBy/Limit`) consumed by `FirstInvalidIssue()` in fixed rule order: grouping, then ORDER BY, then LIMIT.
+`SelectSQL()` assembles the deterministic statement — quoted projection over the quoted table, then WHERE, GROUP BY (commit order), ORDER BY (one committed expression with direction), and LIMIT in grammar order — refusing to render any piece whose identity no longer resolves, and `SelectParams()` returning only the WHERE predicate's parameters (projection, grouping, ordering, and LIMIT contribute none). Issue #24 adds `CountSQL()` (`SELECT COUNT(*) FROM (<SelectSQL()>)` with the user's Limit inside the subquery) and `CountParams()` (exactly `SelectParams()`, order preserved) in `count_sql.go`, documented in [concurrent-page-count.md](concurrent-page-count.md). Issue #25 adds `page_sql.go` — `PageSQL(pageLimit, offset)` rendering the base SELECT with any user ORDER BY byte-for-byte, the single eligible implicit `ORDER BY rowid` fallback, and an exact integer LIMIT/OFFSET range clamped around the user's Limit (beyond-Limit and invalid ranges yielding empty, never a partially valid statement), plus `PageParams()` (exactly `SelectParams()`) — documented in [serialized-vertical-paging.md](serialized-vertical-paging.md). `validation.go` defines the first-invalid contract types (`InvalidIssue{Field, Reason}`, `FieldIdentityGroupBy/OrderBy/Limit`) consumed by `FirstInvalidIssue()` in fixed rule order: grouping, then ORDER BY, then LIMIT.
 
 ### internal/ui/group_by_popup.go, order_by_popup.go, limit_field.go (Issue #18)
 

@@ -94,6 +94,28 @@ type Model struct {
 	// state unset (page-only fixtures).
 	Count CountExecutor
 
+	// Page performs one cancellable paged-page SELECT execution through the
+	// Connection boundary (Issue #25) for the safely rendered page SQL and
+	// ordered parameters, with the exact LIMIT/OFFSET range built by
+	// QueryBuilder's page API. It runs only inside tea.Cmd functions. nil
+	// leaves the results display page-only: page keys are consumed without
+	// issuing requests.
+	Page PageExecutor
+
+	// Serialized vertical-paging state (Issue #25): at most one page request
+	// is pending at any time, tracked independently from the Issue #24 count
+	// request. pageOffset is the absolute logical offset of the displayed
+	// page's first row; pageRequested/pageRequestedSize record the exact
+	// range of the in-flight request for boundary arithmetic at settlement;
+	// pageExhausted marks the known high boundary once a page returned fewer
+	// rows than requested. Only the paging seam in this package mutates them.
+	pageOffset        int64
+	pageRequested     int64
+	pageRequestedSize int64
+	pagePending       bool
+	pageRequestID     uint64
+	pageExhausted     bool
+
 	// selectTracker guards the current SELECT execution's two concurrent
 	// completions (Issue #24): a page or count completion mutates state only
 	// when both its execution ID and role-specific request ID match, and each
@@ -257,6 +279,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.applyCountSettled(msg.Result), nil
 		}
 		return m, nil
+	case PageSettledMsg:
+		// Issue #25: a page completion mutates state only while the one
+		// pending page request was issued under this ID; stale or duplicated
+		// responses are discarded. The count's independent settlement above
+		// is unaffected either way.
+		return m.applyPageSettled(msg.RequestID, msg.Result), nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -324,6 +352,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg.String() {
+	case "pgup", "pgdown":
+		// Issue #25: serialized adjacent-page navigation. While a page is
+		// pending this consumes repeated and opposite keys without stacking
+		// commands; at the known boundaries and beyond the user's Limit it
+		// consumes the key without issuing anything.
+		cmd := m.handlePageKey(msg.String() == "pgup")
+		return m, cmd
 	case "ctrl+w":
 		if m.validating {
 			// Issue #21: connection-scoped cancellation requested exactly once

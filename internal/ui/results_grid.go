@@ -29,9 +29,11 @@ const gridEllipsis = "…"
 // renderResultPage renders the settled first page as the results content:
 // the status/count line, the frozen deduplicated header, and one line per
 // row. An executed-empty SELECT renders exactly `No rows` with no data range.
-// Column widths derive from the complete visible rows (complete-row sizing)
-// and apply uniformly to header and cells so columns stay aligned.
-func renderResultPage(p *result.Page, count result.CountState) (status string, content []string) {
+// The status range is the page's absolute logical range (offset from the
+// paging state, Issue #25): rows offset+1 through offset+row count. Column
+// widths derive from the complete visible rows (complete-row sizing) and
+// apply uniformly to header and cells so columns stay aligned.
+func renderResultPage(p *result.Page, offset int64, count result.CountState, loading bool) (status string, content []string) {
 	names := p.HeaderNames()
 	var rangeStatus string
 	if len(p.Rows) == 0 {
@@ -39,25 +41,21 @@ func renderResultPage(p *result.Page, count result.CountState) (status string, c
 		if p.InvalidUTF {
 			rangeStatus = result.UTFWarning
 		}
-		lines := []string{"No rows"}
-		if count.Status != 0 {
-			// Issue #24: the independent count wording leads the status/count
-			// line even with zero displayed rows; rows are never inferred from
-			// the count nor the count from rows.
-			rangeStatus = joinStatusParts(count.Header(), rangeStatus)
-		}
-		return rangeStatus, lines
+		rangeStatus = joinStatusParts(count.Header(), loadingText(loading), rangeStatus)
+		return rangeStatus, []string{"No rows"}
 	}
-	rangeStatus = "rows 1-" + strconv.Itoa(len(p.Rows))
+	rangeStatus = "rows " + strconv.Itoa(int(offset+1)) + "-" +
+		strconv.Itoa(int(offset+int64(len(p.Rows))))
 	if p.InvalidUTF {
 		rangeStatus += " — " + result.UTFWarning
 	}
-	if count.Status != 0 {
+	if count.Status != 0 || loading {
 		// Issue #24: the exact count wording (`Result count: N`,
 		// `Result count: N (after Limit M)`, or `Count unavailable`) leads the
-		// status/count line, composed with — never replacing or clamping the
-		// independently displayed range.
-		rangeStatus = joinStatusParts(count.Header(), rangeStatus)
+		// status/count line; Issue #25 appends the exact loading feedback while
+		// a page request is pending. Neither replaces or clamps the
+		// independently displayed absolute range.
+		rangeStatus = joinStatusParts(count.Header(), loadingText(loading), rangeStatus)
 	}
 	widths := gridColumnWidths(names, p.Rows)
 	lines := []string{resultsHeaderStyle.Render(renderGridRow(names, widths))}
@@ -65,6 +63,15 @@ func renderResultPage(p *result.Page, count result.CountState) (status string, c
 		lines = append(lines, renderGridRow(gridCellTexts(row), widths))
 	}
 	return rangeStatus, lines
+}
+
+// loadingText returns the exact loading feedback when a page request is
+// pending, or empty text otherwise so joinStatusParts can skip it.
+func loadingText(loading bool) string {
+	if loading {
+		return PageLoadingIndicator
+	}
+	return ""
 }
 
 // joinStatusParts composes the status/count line from its independent parts,
@@ -145,13 +152,15 @@ func fitGridCell(cell string, w int) string {
 
 // renderResultContent splits the settled result view into its status line
 // and body content, routing ordinary execution errors to the ordinary
-// result-error boundary exactly like successful pages.
-func renderResultContent(v *ResultView, count result.CountState) (status string, content []string) {
+// result-error boundary exactly like successful pages. loading adds the
+// exact Issue #25 page-loading feedback to the status line while the one
+// paged-page request is pending; it never changes the displayed rows.
+func renderResultContent(v *ResultView, count result.CountState, loading bool) (status string, content []string) {
 	if v.Err != nil {
 		return "", []string{v.Err.Error()}
 	}
 	if v.Page == nil {
 		return "", nil
 	}
-	return renderResultPage(v.Page, count)
+	return renderResultPage(v.Page, v.Offset, count, loading)
 }

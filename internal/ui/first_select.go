@@ -47,10 +47,13 @@ type SelectSettledMsg struct {
 
 // ResultView is the model's complete settled first-page state. Page is
 // non-nil exactly on success; Err is non-nil exactly on ordinary failure.
-// Render helpers read these through internal/result only.
+// Offset is the absolute logical offset of the displayed page's first row
+// (Issue #25): zero for every first page, the requested offset for paged
+// pages. Render helpers read these through internal/result only.
 type ResultView struct {
-	Page *result.Page
-	Err  error
+	Page   *result.Page
+	Err    error
+	Offset int64
 }
 
 // startSelectPage returns the commands that issue the two concurrent
@@ -70,6 +73,7 @@ func (m *Model) startSelectPage() tea.Cmd {
 	if m.Select == nil {
 		return nil
 	}
+	m.resetPagingState() // a fresh execution pages from its first page again
 	exec := result.NextSelectExecutionID()
 	pageID := result.NextSelectRequestID()
 	countID := result.NextSelectRequestID()
