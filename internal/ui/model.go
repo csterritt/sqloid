@@ -14,6 +14,7 @@ import (
 	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
 	"github.com/chris/sqloid/internal/result"
+	"github.com/chris/sqloid/internal/resultcache"
 	"github.com/chris/sqloid/internal/schema"
 )
 
@@ -126,6 +127,22 @@ type Model struct {
 	pageExhausted         bool
 	pageRequestExecution  uint64 // execution ID captured at page dispatch (Issue #26)
 	pageRequestGeneration uint64 // viewport generation captured at page dispatch (Issue #26)
+
+	// viewportCache is the active SELECT's authoritative contiguous dual-cap
+	// result cache (Issues #30/#31): every accepted page response merges here
+	// by absolute logical position before it becomes display state. Issue #32
+	// reads its retained-range and endpoint metadata for resize recovery.
+	viewportCache *resultcache.Cache
+
+	// Resize-recovery fetch deferral (Issue #32): when a resize needs a fetch
+	// while an old-size page request is still pending, the old request is
+	// cancelled/invalidated and exactly one replacement request for the
+	// containing page of the required row is deferred here until that old
+	// work truly settles. Repeated resizes overwrite the row/size to the
+	// latest decision; any other resize decision clears the deferral.
+	resizeFetchPending bool
+	resizeFetchRow     int64
+	resizeFetchSize    int64
 
 	// Generic in-flight gate state (Issue #27): firstPagePending records
 	// ownership of the first-page request of the current SELECT execution,
@@ -272,7 +289,10 @@ func (m Model) Init() tea.Cmd { return nil }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		return m.resize(msg.Width, msg.Height), nil
+		next := m.resize(msg.Width, msg.Height)
+		// Issue #32: a visible resize (including suspension restoration) also
+		// runs the vertical viewport recovery against the fresh page size.
+		return next, next.applyResizeRecovery()
 	case SchemaRefreshedMsg:
 		next := m.applySchemaRefresh(msg.Catalog)
 		return next, nil
@@ -352,6 +372,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next := m.applyPageSettled(msg)
 		next.clearSelectCancellingIfSettled()
 		next.inFlightNotice = ""
+		// Issue #32: once the cancelled/invalidated old-size page work has
+		// truly settled, exactly one replacement request dispatches for the
+		// page containing the required first row at the latest exact size.
+		if next.resizeFetchPending && !next.pagePending {
+			row, size := next.resizeFetchRow, next.resizeFetchSize
+			next.resizeFetchPending = false
+			return next, next.requestRecoveryPage(row, size)
+		}
 		return next, nil
 	case SelectCancelRequestedMsg:
 		// Issue #28: the Ctrl+W closure's message requests one scoped,

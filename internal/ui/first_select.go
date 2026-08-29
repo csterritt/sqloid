@@ -165,5 +165,11 @@ func (m Model) applySelectSettled(res FirstPageResult) Model {
 		return m // defensive: cancellation classification is fully inert here
 	}
 	m.Result = &ResultView{Page: res.Page, Err: res.Err}
+	// Issue #32: the first page of the fresh execution seeds the active
+	// contiguous dual-cap cache at absolute positions 1..len before it
+	// becomes display state.
+	if res.Page != nil {
+		m.mergePageIntoCache(res.Page, 0, true)
+	}
 	return m
 }

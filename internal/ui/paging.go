@@ -20,6 +20,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chris/sqloid/internal/result"
+	"github.com/chris/sqloid/internal/resultcache"
 )
 
 // PageExecutor performs one cancellable paged-page SELECT execution for the
@@ -160,6 +161,14 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 	if m.Result != nil {
 		prevFailure = m.Result.LimitFailure
 	}
+	// Issue #32: the accepted response merges into the authoritative
+	// contiguous dual-cap cache by absolute logical position before it
+	// becomes display state; the direction follows the serialized request
+	// so eviction happens at the standard opposite end.
+	forward := requested >= m.pageOffset
+	if m.mergePageIntoCache(msg.Result.Page, requested, forward) {
+		byteTruncated = byteTruncated || m.viewportCache.TruncatedByByteCap()
+	}
 	m.Result = &ResultView{Page: msg.Result.Page, Offset: requested, ByteTruncated: byteTruncated, LimitFailure: prevFailure}
 	m.pageOffset = requested // the displayed start moves to the requested range
 	if int64(len(msg.Result.Page.Rows)) < requestedSize {
@@ -172,6 +181,10 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 // SELECT execution: a new execution displays its first page from offset zero
 // with no pending request and no boundary knowledge.
 func (m *Model) resetPagingState() {
+	// Issue #32: a fresh execution owns a fresh contiguous dual-cap cache —
+	// merging its first page into a previous result's retained range would
+	// resurrect stale rows and break the cache invariants.
+	m.viewportCache = resultcache.New()
 	m.pageOffset = 0
 	m.pageRequested = 0
 	m.pageRequestedSize = 0
@@ -203,4 +216,5 @@ func (m *Model) deactivateActiveSelect() {
 	m.firstPageCancel = nil
 	m.countCancel = nil
 	m.pageRequestCancel = nil
+	m.resizeFetchPending = false // Issue #32: no replacement fetch outlives finalization
 }
