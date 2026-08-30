@@ -70,6 +70,10 @@ func (m *Model) openPopupCmd(msg tea.KeyMsg) tea.Cmd {
 		m.beginSetEdit()
 		return nil
 	}
+	if m.insertFocused() {
+		m.beginInsertEdit()
+		return nil
+	}
 	if m.groupByFocused() {
 		m.beginGroupByPopup()
 		return nil

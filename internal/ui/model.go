@@ -288,6 +288,11 @@ type Model struct {
 	// owning feature's hook and Esc cancels its whole open draft.
 	ValuePrompt *ValuePrompt
 	setCursor   int
+
+	// insertCursor is the INSERT per-column prompt cursor (Issue #39): the
+	// index into QB.InsertColumns() of the column whose shared choice popup
+	// or value entry is currently open, or the revision target for clearing.
+	insertCursor int
 }
 
 // New returns the initial model focused on the Command field with an idle,
@@ -720,6 +725,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace", "delete":
 		if m.setFocused() {
 			m.clearCurrentSetValue()
+			m.adjustScroll()
+			return m, nil
+		}
+		if m.insertFocused() {
+			// Base Insert field owns whole-value clearing (Issue #39): one
+			// immutable transition removes the entire submitted value while
+			// preserving the Value choice and column identity.
+			m.clearCurrentInsertValue()
 			m.adjustScroll()
 			return m, nil
 		}

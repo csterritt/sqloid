@@ -105,6 +105,10 @@ func builderFields(q qb.QueryBuilder) []Field {
 // field when that field exists; otherwise the current focused label is kept
 // when still present.
 func (m *Model) applyBuilder(next qb.QueryBuilder) {
+	// Issue #39: an INSERT with a selected table always presents one prompt
+	// per insertable column; BeginInsertPrompts is a no-op everywhere else
+	// and a repeated no-op when prompts already exist.
+	next = next.BeginInsertPrompts()
 	previous := ""
 	if m.Focus >= 0 && m.Focus < len(m.Fields) {
 		previous = m.Fields[m.Focus].Label
@@ -112,6 +116,7 @@ func (m *Model) applyBuilder(next qb.QueryBuilder) {
 	m.QB = next
 	m.Fields = builderFields(next)
 	m.clampSetCursor()
+	m.clampInsertCursor()
 	for i := range m.Fields {
 		if wantFocusLabel(next.Focus()) == m.Fields[i].Label {
 			m.Focus = i

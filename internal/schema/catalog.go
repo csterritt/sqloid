@@ -24,10 +24,13 @@ type MasterRow struct {
 // the catalog consumes. Hidden carries table_xinfo's raw value verbatim so
 // virtual-table hidden columns and generated columns both classify as
 // non-insertable without this package having to guess a driver-side split.
+// PrimaryKey carries the raw pk column value verbatim: 0 for key-less
+// columns and the 1-based key slot otherwise.
 type ColumnRow struct {
 	Name         string
 	DeclaredType string
 	Hidden       int
+	PrimaryKey   int
 }
 
 // Input bundles everything BuildCatalog needs for one refresh: the schema
@@ -110,6 +113,11 @@ func buildObject(row MasterRow, colRows []ColumnRow) (*Object, bool) {
 			}
 		}
 		obj.RowidShadowed = shadowsRowid(colRows)
+		for _, cr := range colRows {
+			if cr.PrimaryKey > 0 {
+				obj.PrimaryKeyCount++
+			}
+		}
 	default:
 		return nil, false
 	}
@@ -120,6 +128,7 @@ func buildObject(row MasterRow, colRows []ColumnRow) (*Object, bool) {
 			DeclaredType: cr.DeclaredType,
 			Hidden:       cr.Hidden != 0,
 			Insertable:   cr.Hidden == 0 && obj.WriteEligible,
+			PrimaryKey:   cr.PrimaryKey,
 		}
 		if col.Insertable {
 			obj.InsertableCount++

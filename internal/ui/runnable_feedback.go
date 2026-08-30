@@ -50,7 +50,7 @@ func (m *Model) focusedFieldHasOpener() bool {
 		return false
 	}
 	switch m.Fields[m.Focus].Label {
-	case tableFieldLabel, columnsFieldLabel, setFieldLabel, whereFieldLabel,
+	case tableFieldLabel, columnsFieldLabel, setFieldLabel, insertFieldLabel, whereFieldLabel,
 		groupByFieldLabel, orderByFieldLabel, limitFieldLabel:
 		return true
 	default:
@@ -136,6 +136,12 @@ func (m *Model) focusRunnableField(f qb.RunField) {
 		assignments := m.QB.SetAssignments()
 		if len(assignments) > 0 {
 			m.setCursor = firstIncompleteSetIndex(assignments, m.setCursor)
+		}
+	}
+	if f == qb.RunFieldInsertColumns {
+		columns := m.QB.InsertColumns()
+		if len(columns) > 0 {
+			m.insertCursor = firstIncompleteInsertIndex(columns, m.insertCursor)
 		}
 	}
 	label := runnableFieldLabel(f)

@@ -298,3 +298,29 @@ func (q QueryBuilder) SubmitInsertValue(column, text string) (QueryBuilder, bool
 	}
 	return q, false
 }
+
+// InsertPromptHint reports the exact omission hint for the INSERT prompt
+// naming column, delegating to the selected object's schema metadata: the
+// hint appears only on the single-column INTEGER PRIMARY KEY rowid alias of
+// a has-rowid table, never from UI type inference. A column without a
+// prompt state or without the hint reports false. The hint annotates the
+// prompt only; it never changes the offered {Value, NULL, Default/Omit}
+// choices, selects omission automatically, or alters any behavior.
+func (q QueryBuilder) InsertPromptHint(column string) (string, bool) {
+	if q.command != CommandInsert || !q.tableSet {
+		return "", false
+	}
+	if _, found := q.insertPrompt(column); !found {
+		return "", false
+	}
+	obj := q.findObject(q.table)
+	if obj == nil {
+		return "", false
+	}
+	for _, col := range obj.Columns {
+		if col.Name == column {
+			return obj.InsertHint(col)
+		}
+	}
+	return "", false
+}

@@ -116,6 +116,7 @@ func (m Model) drawPopupOverlay(base string) string {
 	}
 	extra := staleStatusLines(m.schemaStale, m.staleCause)
 	extra = append(extra, m.setChoiceStatus()...)
+	extra = append(extra, m.insertChoiceStatus()...)
 	content := renderPopupLines(m.Popup, maxWidth, extra...)
 	box := RenderPopupBox(m.Popup, maxWidth, len(content)+popupBorderRows, extra)
 	return composeOverlay(base, box, 1, 1)

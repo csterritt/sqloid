@@ -238,6 +238,8 @@ func (m Model) handleValuePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			limitPromptAccepted(&m, text)
 		} else if opener == setFieldLabel {
 			m.setValueAccepted(text)
+		} else if opener == insertFieldLabel {
+			m.insertValueAccepted(text)
 		} else {
 			whereValueAccepted(&m, text)
 		}
@@ -250,6 +252,8 @@ func (m Model) handleValuePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			limitPromptCancelled(&m)
 		} else if opener == setFieldLabel {
 			refocusField(&m, setFieldLabel)
+		} else if opener == insertFieldLabel {
+			refocusField(&m, insertFieldLabel)
 		} else {
 			whereValueCancelled(&m)
 		}

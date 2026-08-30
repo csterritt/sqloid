@@ -98,10 +98,11 @@ func readCatalog(ctx context.Context, conn *sql.Conn) (*schema.Catalog, error) {
 // readColumns fetches one object's declared columns from its table_xinfo as
 // bound-parameter lookup against the pragma table-valued function, which both
 // scopes the read to the main schema and keeps the object name out of SQL
-// text entirely. Only consumed fields are selected.
+// text entirely. Only consumed fields are selected, including the raw pk
+// slot that drives INTEGER PRIMARY KEY hinting.
 func readColumns(ctx context.Context, conn *sql.Conn, name string) ([]schema.ColumnRow, error) {
 	rows, err := conn.QueryContext(ctx,
-		"SELECT name, type, hidden FROM main.pragma_table_xinfo(?)", name)
+		"SELECT name, type, hidden, pk FROM main.pragma_table_xinfo(?)", name)
 	if err != nil {
 		return nil, wrapCatalog("read table_xinfo for "+name, err)
 	}
@@ -110,7 +111,7 @@ func readColumns(ctx context.Context, conn *sql.Conn, name string) ([]schema.Col
 	var out []schema.ColumnRow
 	for rows.Next() {
 		var cr schema.ColumnRow
-		if err := rows.Scan(&cr.Name, &cr.DeclaredType, &cr.Hidden); err != nil {
+		if err := rows.Scan(&cr.Name, &cr.DeclaredType, &cr.Hidden, &cr.PrimaryKey); err != nil {
 			return nil, wrapCatalog("scan table_xinfo row for "+name, err)
 		}
 		out = append(out, cr)

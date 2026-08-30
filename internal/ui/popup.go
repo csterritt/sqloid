@@ -356,6 +356,20 @@ func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.adjustScrollAndReturn()
 		}
 	}
+	if m.Popup.Opener == insertFieldLabel && !m.Popup.Multi {
+		switch msg.String() {
+		case "tab":
+			if m.insertCursor+1 < len(m.QB.InsertColumns()) {
+				m.beginInsertChoice(m.insertCursor + 1)
+			}
+			return m.adjustScrollAndReturn()
+		case "shift+tab":
+			if m.insertCursor > 0 {
+				m.beginInsertChoice(m.insertCursor - 1)
+			}
+			return m.adjustScrollAndReturn()
+		}
+	}
 	switch msg.String() {
 	case "up":
 		m.Popup.Up()
