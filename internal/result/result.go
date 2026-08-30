@@ -104,7 +104,7 @@ func NewBlob(payload []byte) Value {
 
 // Display returns the shared presentation token for this value as used by
 // the frozen grid header's cells and by future exporters: INTEGER uses
-// strconv formatting, finite REAL uses RealToken, TEXT uses the decoded
+// IntegerToken, finite REAL uses RealToken, TEXT uses the decoded
 // string transformed through the visible control-character symbols, BLOB
 // renders exactly `[BLOB n bytes]`, and NULL renders NullDisplay. The render
 // seam never coerces a value into another type: numeric-looking TEXT stays
@@ -114,7 +114,7 @@ func (v Value) Display() string {
 	case KindNull:
 		return NullDisplay
 	case KindInteger:
-		return strconv.FormatInt(v.Int, 10)
+		return IntegerToken(v.Int)
 	case KindReal:
 		return RealToken(v.Float)
 	case KindText:
@@ -124,6 +124,14 @@ func (v Value) Display() string {
 	default:
 		return fmt.Sprintf("(invalid kind %d)", int(v.Kind))
 	}
+}
+
+// IntegerToken returns the exact PRD INTEGER token: strconv.FormatInt
+// decimal formatting, locale-independent by construction, shared by the
+// grid and every exporter so INTEGER identity never diverges across
+// output formats.
+func IntegerToken(v int64) string {
+	return strconv.FormatInt(v, 10)
 }
 
 // RealToken returns the exact PRD REAL token. For positive infinity,
