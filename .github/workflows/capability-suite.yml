@@ -1,0 +1,61 @@
+name: capability-suite
+
+# Issue #56 Task 1: integrated release-verification gate.
+#
+# Both supported platforms run the identical canonical capability-suite
+# command (scripts/capability-suite.sh) from a clean checkout with the
+# pinned module graph. Any modernc.org/sqlite dependency change lands in
+# go.mod/go.sum and therefore triggers both jobs on the pull request that
+# proposes it; the upgrade cannot merge as successful unless this same
+# gate passes on both Linux and macOS. There are no continue-on-error,
+# allowed failures, retries, platform exclusions, or conditional skips:
+# any setup, test, timeout, race, or cleanup failure fails the job and
+# blocks release.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  capability-linux:
+    name: capability-suite (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Clean checkout
+        uses: actions/checkout@v4
+      - name: Install Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Confirm the vetted modernc pin
+        run: |
+          go list -m modernc.org/sqlite
+          go list -m modernc.org/sqlite | grep -qx 'modernc.org/sqlite v1.57.0' || {
+            echo "modernc.org/sqlite pin is not the vetted v1.57.0 exact version" >&2
+            exit 1
+          }
+      - name: Canonical capability suite
+        run: scripts/capability-suite.sh
+
+  capability-macos:
+    name: capability-suite (macos)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Clean checkout
+        uses: actions/checkout@v4
+      - name: Install Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Confirm the vetted modernc pin
+        run: |
+          go list -m modernc.org/sqlite
+          go list -m modernc.org/sqlite | grep -qx 'modernc.org/sqlite v1.57.0' || {
+            echo "modernc.org/sqlite pin is not the vetted v1.57.0 exact version" >&2
+            exit 1
+          }
+      - name: Canonical capability suite
+        run: scripts/capability-suite.sh

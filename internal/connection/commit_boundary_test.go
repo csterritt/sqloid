@@ -67,6 +67,10 @@ func TestWriteNoInterruptDuringRollbackCleanup(t *testing.T) {
 	db := openJournalFixture(t, "delete")
 	interrupts := writeLeaseInterrupts(t, db)
 	held, release := holdWriteBarrier(t, db, WritePhaseExecuting)
+	// The rollback-cleanup barrier is installed before the write starts so
+	// the hook field is never written concurrently with the write goroutine
+	// reading it (the hook fires only when rollback cleanup begins).
+	heldRollback, releaseRollback := holdWriteBarrier(t, db, WritePhaseRollbackCleanup)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	<-held
@@ -77,7 +81,6 @@ func TestWriteNoInterruptDuringRollbackCleanup(t *testing.T) {
 	release()
 
 	// Hold the write inside noncancellable rollback cleanup.
-	heldRollback, releaseRollback := holdWriteBarrier(t, db, WritePhaseRollbackCleanup)
 	<-heldRollback
 	before := w.State()
 	w.Cancel()

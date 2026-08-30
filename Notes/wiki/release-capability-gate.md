@@ -1,0 +1,124 @@
+# Release capability suite and the modernc.org/sqlite pin/upgrade gate (Issue #56)
+
+Issue #56 turns the PRD's mandatory release blockers (Testing Decisions items 2 and 3 in `Notes/PRD-sqloid.md`) into one executable gate: a single canonical capability-suite command, identical on Linux and macOS, that blocks every release and every `modernc.org/sqlite` dependency upgrade. There are no skips, `continue-on-error`, allowed failures, retries that hide reproducible failures, platform exclusions, or weakened assertions anywhere in the gate.
+
+## The vetted pin
+
+- `go.mod` requires `modernc.org/sqlite v1.57.0` — a **direct, exact semantic-version pin**: no branch, no wildcard, no `replace` directive, no local path substitution, no best-effort fallback in any open path (`internal/connection` opens with the pinned driver only; pure Go, no cgo in production builds).
+- `go.sum` carries the matching `v1.57.0` module hashes; the indirect graph (`modernc.org/libc v1.74.4`, `modernc.org/memory v1.11.0`, `modernc.org/mathutil v1.7.1`) is exactly what that pin resolves to.
+- **v1.57.0 is the only version accepted by the release gate.** The CI gate fails immediately (before running any test) if `go list -m modernc.org/sqlite` does not print `modernc.org/sqlite v1.57.0`.
+
+## The one canonical capability-suite command
+
+```
+scripts/capability-suite.sh
+```
+
+which runs, from the repository root:
+
+```
+CGO_ENABLED=1 go test -race -count=1 -timeout 20m ./internal/connection ./internal/ui ./internal/history
+```
+
+- Selects **all and only** the integrated release-blocking capability tests: every capability test lives beside the code in `internal/connection` (journal/pool, value limits, lease overlap, driver-level SELECT/write cancellation, estimate/schema, health identity), `internal/ui` (orchestration, identities, commit-boundary routing, health terminals, settlement), and `internal/history` (exactly-once finalization, quit settlement, no-history guards). Developer- and CI-runnable with no special environment.
+- `-race` runs under cgo (`CGO_ENABLED=1`) even though production remains pure-Go; a data race fails the job.
+- Any setup, test, timeout (`-timeout 20m` per package plus job-level timeout), race, or cleanup failure fails the script with non-zero status and blocks the job. There is no `|| true`, no retry, no platform-specific filter, and no conditional skip for any supported capability (the only build tag, `unix`, selects exactly the supported Linux/macOS platforms; the capability tests are release-blocking on both).
+
+## CI configuration
+
+`.github/workflows/capability-suite.yml` defines two jobs, `capability-suite (linux)` on `ubuntu-latest` and `capability-suite (macos)` on `macos-latest`, both:
+
+1. clean checkout (`actions/checkout@v4`);
+2. Go installed from `go-version-file: go.mod`;
+3. pin assertion: `go list -m modernc.org/sqlite` must equal `modernc.org/sqlite v1.57.0` or the job fails before testing;
+4. `scripts/capability-suite.sh` — the identical canonical command from a clean checkout with the pinned module graph.
+
+The workflow runs on every `pull_request` and every push to `main`. A `modernc.org/sqlite` change is always a `go.mod`/`go.sum` change carried by a pull request, so **any dependency change triggers both jobs, and the upgrade cannot merge as successful unless the same gate passes on both platforms** (with branch protection treating `capability-suite (linux)` and `capability-suite (macos)` as required checks). `timeout-minutes: 45` bounds each job; there are no continue-on-error steps.
+
+## modernc.org/sqlite upgrade procedure
+
+1. Change the exact pin in `go.mod` (`go get modernc.org/sqlite@<version>`) and commit the updated `go.mod`/`go.sum` together.
+2. Run the local gate: `scripts/capability-suite.sh` from a clean checkout.
+3. Open a pull request; the dependency change triggers both CI jobs, which run the same command on Linux and macOS.
+4. Require both platforms green with the new pin's assertion updated. **Reject or replace any failing version** — the remedy is an implementation fix or a different exact vetted version, never a weakened test, a skip, or best-effort acceptance.
+5. Retain the passing evidence (job logs) for the release record and record the new vetted version here.
+
+## Traceability: PRD Testing Decisions item 2 (journal/pool release blocker)
+
+Every requirement maps one-to-one to a named test in the gated suite:
+
+| Required case | Named gated test |
+| --- | --- |
+| WAL and rollback-journal count/page overlap on two distinct leases (barrier-held, no application mutex/queue) | `connection.TestConcurrentPageAndCountOverlapDistinctLeases` |
+| The two leases are distinct physical connections | `connection.TestPageAndCountLeasesAreDistinctPhysicalConnections`, `connection.TestConcurrentLeasesAreDistinctConnections` |
+| Independent autocommit reads with permitted drift, no shared snapshot/clamp | `connection.TestIndependentSnapshotsPermitDrift`, `ui.TestCountSettlesIndependentlyWhilePagePending` |
+| External writer delay or ordinary lock error while both requests still succeed | `connection.TestRollbackJournalExternalWriterDelayOrLockError` |
+| Journal mode byte-for-byte unchanged throughout | `connection.TestOpenPreservesJournalMode` (asserted inside the overlap fixtures for both modes) |
+| Pool size exactly two (min and max) | `connection.TestPoolHoldsExactlyTwoUsableConnections` |
+| Five-second busy timeout on every connection, including replacement connections | `connection.TestEveryConnectionHasFiveSecondBusyTimeout` |
+| Connection-local `SQLITE_LIMIT_LENGTH` exactly 64 MiB on every connection | `connection.TestEveryConnectionHasExactLengthLimit`, `connection.TestRunFirstPageValueLimitTypedFailure`, `connection.TestExecutePageValueLimitNonFirstPagePosition` |
+| Lease release on success, error, cancellation, and teardown; no hidden serialization | `connection.TestLeaseReleaseIsSafeAndRefusesReuse`, `connection.TestLeaseHeldUntilSettlementThenReusable`, `connection.TestCancelledRequestHoldsLeaseUntilSettlement` |
+| Count failure does not invalidate page rows (independent completion) | `connection.TestCountFailureDoesNotInvalidatePageRows` |
+
+## Traceability: PRD Testing Decisions item 3 (pinned-driver cancellation release blocker)
+
+| Required case | Named gated test |
+| --- | --- |
+| Interrupt long CPU-bound page and count independently, each cancelled alone and together, scoped to the intended request | `connection.TestCapabilityPageAndCountCancelIndependentlyWithinOneSecond`, `connection.TestCapabilityLaterPageCancelInterruptsWithinOneSecond`, `connection.TestCPUBoundWorkInterruptsWithinOneSecond` |
+| CPU cancellation settles within one second | `connection.TestCapabilityPageAndCountCancelIndependentlyWithinOneSecond`, `connection.TestCPUBoundWorkInterruptsWithinOneSecond` |
+| Lock-wait cancellation no later than the five-second busy timeout | `connection.TestCapabilityLockWaitCountCancelsWithinBusyTimeout`, `connection.TestLockWaitInterruptsWithinFiveSeconds` |
+| Cancel one without affecting the other active request | `connection.TestCapabilityPageAndCountCancelIndependentlyWithinOneSecond` (isolation assertions), `connection.TestPageAndCountSettleIndependentlyInEitherOrder` |
+| Subsequent request on the same connection unaffected | `connection.TestConnectionNotForceClosedByCancellationAndSafeForReuse`, `connection.TestLateSuccessAfterCancellationIsDiscardedAndConnectionReusable` |
+| Discard late success (cancellation wins); identity rejection for stale/duplicate/late completions | `connection.TestCapabilityLateSuccessIsCancellationWinsOnRealConnection`, `connection.TestLateSuccessIsDiscardedAsCancelled`, `connection.TestCancelledLaterPageWinsOverLateSuccess`, `connection.TestCancelledCountStaysInert`, `connection.TestLateCancelledResponseAfterNewerExecutionStaysInert` |
+| Lease held until true settlement; no replacement request before settlement | `connection.TestCapabilityNoLeaseReuseBeforeEveryRequestSettles`, `connection.TestCancelledRequestHoldsLeaseUntilSettlement`, `ui.TestReplacementWaitsForCancelledPredecessorOnNewerExecution` |
+| Cancel schema validation with no history | `connection.TestReadSchemaVersionCancelledContextFailsWithCancellation`, `connection.TestRevalidateUnchangedVersionSkipsCatalogRefresh` (changed-schema refresh matrix), `ui` validation-workflow cancellation suites (see [schema-validation-workflow.md](schema-validation-workflow.md)) |
+| Cancel destructive estimate with no history, no actual execution | `connection.TestExecuteEstimateHonoursCancellation`, `connection.TestExecuteEstimateNeverWrites`, `ui.TestDestructivePreparationEscDismissesWithCancellation` |
+| No force-close, pool shrink, cross-connection interrupt, leaked lease/goroutine | `connection.TestConnectionNotForceClosedByCancellationAndSafeForReuse`, `connection.TestCapabilityNoLeaseReuseBeforeEveryRequestSettles` |
+| Fixtures remain usable afterward; journal mode untouched | `connection.TestLeaseReleaseIsSafeAndRefusesReuse`, `connection.TestOpenPreservesJournalMode` |
+
+## Traceability: Issue #56 identity-race and transaction evidence
+
+| Required case | Named gated test |
+| --- | --- |
+| Deletion / rename-away / same-path replacement before request or new-connection boundaries with exact terminal messages | `connection.TestVerifyHealthClassifications`, `connection.TestLeaseVerifiesIdentityBeforeConnectionIsUsed`, `ui.TestSelectBoundaryHealthErrorEntersDeletionTerminal`, `ui.TestSelectBoundaryHealthErrorEntersReplacementTerminal`, `ui.TestHealthTerminalImmediateQuitFromEveryContext` |
+| Raced replacement after successful precheck + request error classified terminal immediately | `connection.TestPostErrorReclassificationPrecedence` |
+| Raced replacement + request success accepted for the already-open original, replacement detected at the next boundary before more work | `connection.TestRacedReplacementThenSuccessStands` |
+| One precheck for the whole transaction, none between statement and COMMIT | `connection.TestPhasedWriteReceivesExactlyOnePreBEGINCheck` |
+| Pre-COMMIT cancellation wins after statement success and resolves through confirmed rollback | `connection.TestWriteInterruptScopedToLeaseBeforeBoundary`, `ui.TestWriteCtrlWCancelsOnceBeforeBoundary` |
+| Post-boundary Ctrl+W issues no interrupt; commit/rollback cleanup noncancellable | `connection.TestWriteNoInterruptDuringRollbackCleanup`, `connection.TestWriteNoInterruptAfterBoundarySettlement`, `ui.TestRepeatedCtrlWIsIdempotentAndStaleCancellationsInert` |
+| Exactly-once outcome finalization / unresolved settlement before outcome unknown or exit | `history.TestResultStoreQuitFinalizesWriteEntryOnce`, `history.TestResultStoreQuitEntriesNeverOverclaimOutcomes`, `ui` outcome-unknown suites (see [outcome-unknown-terminal.md](outcome-unknown-terminal.md)) |
+
+## Manual release checklist
+
+Complete one copy per release per platform (Linux and macOS), at 80×24, 100×30, and 160×50, per the PRD's pure-rendering matrix and Testing Decisions final paragraph:
+
+| Scenario | 80×24 | 100×30 | 160×50 |
+| --- | --- | --- | --- |
+| Exactly one bottom global footer row; no shared/overlapping borders | | | |
+| Builder desired height (border/padding) capped at floor(H/3) with internal focused-field scroll | | | |
+| Every remaining row owned by results; results area greater than half-height; exact complete-row page size | | | |
+| Focused builder field scrolls internally without stealing result rows | | | |
+| Horizontal overflow moves exactly one whole column per binding; boundary no-ops | | | |
+| Oversized column: capped width with ellipsis, no intra-cell offset | | | |
+| One-column overflow layout recomputation at the size | | | |
+| Multiline values render fully inside the row budget | | | |
+| Edge overlays (help, popups, pickers) do not reflow the layout | | | |
+| Resize: first row preserved / clamped to retained low endpoint / fetch branch | | | |
+| Resize: first column preserved then clamped | | | |
+| Resize while a page/count/write request is active | | | |
+| Below-80×24: exact `terminal too small`, state preserved, quit confirmation functional | | | |
+| Restore from below-80×24: exact context/focus/scroll restoration | | | |
+| Above-minimum resize back up: exact restoration | | | |
+
+Fields to record per release:
+
+- Release / version: ____________  Date: ____________
+- Platform: Linux / macOS  Terminal: ____________
+- Tester: ____________  Result: PASS / FAIL (attach notes)
+
+## References
+
+- `scripts/capability-suite.sh` — the canonical command.
+- `.github/workflows/capability-suite.yml` — both platform jobs.
+- [concurrent-page-count.md](concurrent-page-count.md), [connection-pool.md](connection-pool.md), [scoped-select-cancellation.md](scoped-select-cancellation.md), [cancellation-infrastructure.md](cancellation-infrastructure.md), [select-request-identities.md](select-request-identities.md), [health-terminal.md](health-terminal.md), [commit-boundary-quit-cleanup.md](commit-boundary-quit-cleanup.md), [outcome-unknown-terminal.md](outcome-unknown-terminal.md), [schema-validation-workflow.md](schema-validation-workflow.md), [destructive-preparation.md](destructive-preparation.md), [transactional-writes.md](transactional-writes.md), [unit-tests.md](unit-tests.md).
+- Issues #5–#7, #21, #24, #28–#29, #32, #41–#43, #55–#56; the Implementation Decisions, Module Design, Testing Decisions, and Acceptance Criteria sections of `Notes/PRD-sqloid.md`.
