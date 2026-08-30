@@ -287,9 +287,11 @@ func (m *Model) applyWriteConfirmed(msg WriteConfirmedMsg) bool {
 
 // handlePreparationKey consumes one key press while the modal is open.
 // Enter/y confirm only from a settled success or settled failure (Issue
-// #41); pending and cancelling preparations keep them consumed no-ops. Esc/n
-// dismisses; everything else is inert so builder state cannot leak through
-// the modal.
+// #41); pending and cancelling preparations keep them consumed no-ops with
+// the phase-appropriate Ctrl+W guidance (Issue #44). Esc/n dismisses; the
+// Issue #27 blocked actions carry their explanatory feedback while the
+// estimate request is in flight; everything else is inert so builder state
+// cannot leak through the modal.
 func (m *Model) handlePreparationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+w":
@@ -298,12 +300,39 @@ func (m *Model) handlePreparationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "n":
 		m.dismissPreparation()
 		return *m, nil
+	case "q", "ctrl+c":
+		// Issue #44: the shared quit confirmation opens above the pending
+		// preparation, exactly as in every other in-flight context.
+		return m.openQuitConfirmation(), nil
 	case "enter", "y":
 		if cmd := m.confirmPreparation(); cmd != nil {
 			return *m, cmd
+		}
+		if m.prepPending || m.prepCancelling {
+			// Issue #44: the estimate request is in flight; Enter is consumed
+			// without stacking and explains the Ctrl+W cancellation route.
+			m.inFlightNotice = m.estimateEnterFeedback()
+		}
+		return *m, nil
+	case "ctrl+p", "ctrl+n", "ctrl+e", "ctrl+y", "ctrl+s", "ctrl+x":
+		if m.prepPending || m.prepCancelling {
+			// Issue #44: the generic blocked-action feedback while the
+			// estimate is in flight; no command is ever dispatched and the
+			// modal content stays unchanged.
+			m.inFlightNotice = inFlightBlockedFeedback(msg.String())
 		}
 		return *m, nil
 	default:
 		return *m, nil
 	}
+}
+
+// estimateEnterFeedback composes the estimate phase's Enter-rejection
+// feedback: the exact typed estimate status plus the exact Ctrl+W hint.
+func (m Model) estimateEnterFeedback() string {
+	status := DestructivePrepPendingStatus
+	if m.prepCancelling {
+		status = DestructivePrepCancellingStatus
+	}
+	return status + " — " + CancelHintSuffix
 }

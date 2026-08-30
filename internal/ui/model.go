@@ -769,11 +769,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	// Issue #27: the generic request-in-flight gate sits between focused
-	// input/overlays and base-context handling. Permitted local interaction
-	// (horizontal one-column movement, serialized page keys, field navigation)
-	// falls through to base handling; the gate itself derives pending state
-	// from request ownership, not rendered labels.
-	if m.selectRequestPending() {
+	// input/overlays and base-context handling. Issue #44: a pending write in
+	// any of its typed phases feeds the same authoritative gate — never a
+	// parallel write-only ladder. Permitted local interaction (horizontal
+	// one-column movement, serialized page keys, field navigation) falls
+	// through to base handling; the gate itself derives pending state from
+	// request ownership, not rendered labels.
+	if m.selectRequestPending() || m.writePending {
 		if next, cmd, handled := m.handleInFlightGate(msg); handled {
 			return next, cmd
 		}
@@ -823,22 +825,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// per request; exact `cancelling…` renders until settlement.
 			return m, m.requestValidationCancellation()
 		}
-		if m.writePending {
-			// Issue #43: Ctrl+W routes by the typed commit-boundary state. In
-			// the noncancellable rollback-cleanup/committing phases it is
-			// ignored with the exact boundary feedback, and the work is never
-			// mutated; in the cancellable phases the cancellation request is
-			// deduplicated to exactly one per write.
-			if m.writeNoncancellable {
-				m.inFlightNotice = CommitBoundaryFeedback
-				return m, nil
-			}
-			if !m.writeCancelling && m.CancelCommand != nil {
-				m.writeCancelling = true
-				return m, m.CancelCommand
-			}
-			return m, nil
-		}
+		// Issue #44: a pending write routes Ctrl+W through the generic
+		// in-flight gate above, which owns the commit-boundary feedback and
+		// the deduplicated cancellation dispatch; no base-context write
+		// handling remains, so there is exactly one write precedence path.
 		if m.ActiveCancellable && m.CancelCommand != nil {
 			return m, m.CancelCommand
 		}

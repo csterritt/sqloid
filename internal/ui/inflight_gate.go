@@ -66,8 +66,17 @@ func (m Model) selectRequestPending() bool {
 
 // inFlightEnterFeedback composes the contextual Enter-rejection feedback for
 // the current pending phase: the phase's status wording plus the exact
-// Ctrl+W cancellation hint.
+// Ctrl+W cancellation hint. Issue #44: a pending write feeds the same
+// composition — the typed write-phase status for the cancellable phases, or
+// the exact post-boundary message once rollback cleanup or committing has
+// begun.
 func (m Model) inFlightEnterFeedback() string {
+	if m.writePending {
+		if m.writeNoncancellable {
+			return CommitBoundaryFeedback
+		}
+		return m.writePhaseStatus() + " — " + CancelHintSuffix
+	}
 	var phase string
 	switch {
 	case m.firstPagePending:
@@ -80,8 +89,28 @@ func (m Model) inFlightEnterFeedback() string {
 	return phase + " — " + CancelHintSuffix
 }
 
+// inFlightBlockedFeedback returns the exact explanatory rejection for one of
+// the gate's blocked actions, keyed by the key string. It is the single
+// shared mapping used by both the base-context gate and the Issue #44
+// estimate modal; the gate itself never inspects these strings.
+func inFlightBlockedFeedback(key string) string {
+	switch key {
+	case "ctrl+p", "ctrl+n":
+		return QueryHistoryBlockedFeedback
+	case "ctrl+e", "ctrl+y":
+		return ResultHistoryBlockedFeedback
+	case "ctrl+s":
+		return SaveBlockedFeedback
+	case "ctrl+x":
+		return ExportBlockedFeedback
+	default:
+		return ""
+	}
+}
+
 // handleInFlightGate applies the generic request-in-flight gate to one key
-// that reached the otherwise-base context with SELECT work pending. It
+// that reached the otherwise-base context with SELECT work pending or, since
+// Issue #44, a write pending in any of its typed phases. It
 // returns (handled model, command) for every key the gate consumes; callers
 // fall through to base handling for permitted local interaction such as
 // horizontal one-column movement. Feedback is recorded in the model so View
@@ -93,20 +122,37 @@ func (m *Model) handleInFlightGate(msg tea.KeyMsg) (next tea.Model, cmd tea.Cmd,
 		m.inFlightNotice = m.inFlightEnterFeedback()
 		return *m, nil, true
 	case "ctrl+p", "ctrl+n":
-		m.inFlightNotice = QueryHistoryBlockedFeedback
+		m.inFlightNotice = inFlightBlockedFeedback(msg.String())
 		return *m, nil, true
 	case "ctrl+e", "ctrl+y":
-		m.inFlightNotice = ResultHistoryBlockedFeedback
+		m.inFlightNotice = inFlightBlockedFeedback(msg.String())
 		return *m, nil, true
 	case "ctrl+s":
-		m.inFlightNotice = SaveBlockedFeedback
+		m.inFlightNotice = inFlightBlockedFeedback(msg.String())
 		return *m, nil, true
 	case "ctrl+x":
-		m.inFlightNotice = ExportBlockedFeedback
+		m.inFlightNotice = inFlightBlockedFeedback(msg.String())
 		return *m, nil, true
 	case "q", "ctrl+c":
 		return m.openQuitConfirmation(), nil, true
 	case "ctrl+w":
+		if m.writePending {
+			// Issue #44: the write's typed state routes Ctrl+W. In the
+			// noncancellable rollback-cleanup/committing phases the key is
+			// ignored with the exact boundary feedback and the work is never
+			// mutated; in the cancellable phases the cancellation request is
+			// deduplicated to exactly one per write and exact `cancelling…`
+			// holds until settlement. Routing never inspects label text.
+			if m.writeNoncancellable {
+				m.inFlightNotice = CommitBoundaryFeedback
+				return *m, nil, true
+			}
+			if !m.writeCancelling && m.CancelCommand != nil {
+				m.writeCancelling = true
+				return *m, m.CancelCommand, true
+			}
+			return *m, nil, true
+		}
 		if m.ActiveCancellable && m.CancelCommand != nil {
 			// Scoped cancellation: mark SELECT work cancelling before the
 			// command dispatches, exactly like the validation workflow. With

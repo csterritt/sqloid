@@ -144,6 +144,13 @@ func (m Model) renderResults(width, height int) string {
 		// ordinary refresh failure, or `validating…` while a request is in
 		// flight.
 		content = m.validationStatusLines()
+	} else if m.writePending {
+		// Issue #44: the pending write owns the results content — the exact
+		// typed write-phase status (beginning/executing `Running…`, rollback
+		// cleanup `Rolling back…`, committing `Committing…`, or `cancelling…`
+		// after a Ctrl+W request) rendered from the authoritative presentation
+		// mapping. Read labels and the settled-page rendering are untouched.
+		content = []string{m.writePhaseStatus()}
 	} else if m.resultHistoryMode && m.resultHistoryView != nil {
 		// Issue #36: the selected immutable result-history snapshot owns the
 		// results content, rendered through the same internal/result seam as

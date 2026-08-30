@@ -56,6 +56,18 @@ type WriteCancelRequestedMsg struct{}
 // writeNoncancellable state, never this text.
 const CommitBoundaryFeedback = "Commit in progress; cancellation is no longer available"
 
+// Exact write-phase status labels (Issue #44), mapped from the typed
+// connection.WritePhase state only. WriteRollingBackIndicator is the exact
+// status while the noncancellable rollback cleanup runs, and
+// WriteCommittingIndicator the exact status while the noncancellable commit
+// runs. The cancellable beginning/executing phases reuse the established
+// `Running…` wording, and a requested cancellation reuses the established
+// `cancelling…` wording, mirroring the read phases without changing them.
+const (
+	WriteRollingBackIndicator = "Rolling back…"
+	WriteCommittingIndicator  = "Committing…"
+)
+
 // startWrite enters the actual-write lifecycle: it records the execution
 // identity, operation, and executed standalone SQL for finalization, marks
 // the write pending and cancellable, and dispatches one batched pair of
@@ -187,6 +199,29 @@ func (m *Model) applyWriteSettled(msg WriteSettledMsg) {
 		Summary:      history.WriteSummary(m.writeOperation, status, msg.Result.RowsAffected, msg.Result.RollbackConfirmed, cause),
 		RowsAffected: msg.Result.RowsAffected,
 	})
+}
+
+// writePhaseStatus is the authoritative write-phase presentation mapping
+// (Issue #44): the exact status label for the current typed write state, or
+// empty text when no write is pending. Rollback cleanup and committing are
+// the most specific typed phases and take precedence over the cancellation
+// request, which otherwise holds `cancelling…` from Ctrl+W until settlement;
+// the cancellable beginning/executing phases render `Running…`. The mapping
+// never inspects rendered label text or command shape, and stale/duplicate
+// phase identities can never move it backward (guarded in applyWritePhase).
+func (m Model) writePhaseStatus() string {
+	switch {
+	case m.writePhase == connection.WritePhaseRollbackCleanup:
+		return WriteRollingBackIndicator
+	case m.writePhase == connection.WritePhaseCommitting:
+		return WriteCommittingIndicator
+	case m.writeCancelling:
+		return SelectCancellingIndicator
+	case m.writePending:
+		return SelectRunningIndicator
+	default:
+		return ""
+	}
 }
 
 // beginConfirmedWrite is the confirmed-UPDATE/DELETE execution-start boundary:
