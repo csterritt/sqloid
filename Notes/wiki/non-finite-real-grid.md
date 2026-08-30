@@ -1,6 +1,6 @@
 # Issue #23 — Non-finite REAL grid rendering
 
-Issue #23 completes the grid-facing REAL rendering policy started by Issue #22: REAL values that are not finite render as the exact display tokens `Inf`, `-Inf`, and `NaN` through the shared `internal/result` seam, while every finite REAL keeps Issue #22's shortest-round-trip token (including `.0` restoration) and every stored value keeps its original SQLite REAL or TEXT identity. See `Notes/PRD-sqloid.md` (Numeric value parsing and rendering, Grid rendering/cache, Export formats and values, Module Design, Testing Decisions), [first-select-result-grid.md](first-select-result-grid.md) (Issue #22), and [sql-atoms-and-literals.md](sql-atoms-and-literals.md).
+Issue #23 completes the grid-facing REAL rendering policy started by Issue #22: REAL values that are not finite render as the exact display tokens `Inf`, `-Inf`, and `NaN` through the shared `internal/result` seam, while every finite REAL keeps Issue #22's shortest-round-trip token (including `.0` restoration) and every stored value keeps its original SQLite REAL or TEXT identity. See `Notes/PRD-sqloid.md` (Numeric value parsing and rendering, Grid rendering/cache, Export formats and values, Module Design, Testing Decisions), [first-select-result-grid.md](first-select-result-grid.md) (Issue #22), and [sql-atoms-and-literals.md](sql-atoms-and-literals.md). Issue #47 finalized the shared finite-REAL token, normalization, and exporter-facing contracts — see [shared-typed-result-rendering.md](shared-typed-result-rendering.md).
 
 ## Exact grid tokens
 

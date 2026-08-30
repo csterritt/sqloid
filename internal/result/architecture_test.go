@@ -74,6 +74,22 @@ func TestNoUIPrivateResultRepresentation(t *testing.T) {
 	}
 }
 
+// TestNoExporterPrivateResultRepresentation forbids the exporter-facing
+// internal/export boundary from owning private copies of the shared
+// representation (Issue #47 Task 5): name collision suffixing, numeric token
+// formatting, and UTF-8 replacement may exist only in internal/result, while
+// format-specific CSV/JSON escaping stays out until Issues #50/#51 own it.
+func TestNoExporterPrivateResultRepresentation(t *testing.T) {
+	banned := []string{"FormatFloat", "FormatInt", "RuneError", "[BLOB ", "strconv", "_\"", "encoding/csv", "encoding/json", "unicode/utf8"}
+	for name, src := range goFiles(t, "../export") {
+		for _, b := range banned {
+			if strings.Contains(src, b) {
+				t.Errorf("internal/export/%s contains %q: shared result policies must come from internal/result", name, b)
+			}
+		}
+	}
+}
+
 // TestSingleProductionExecutionRoute pins that no removed Issue #10 tracer
 // execution route survives anywhere in production source: the UI model keeps
 // no Trace state, and only the builder→validation→ExecutionStartedMsg→Select
