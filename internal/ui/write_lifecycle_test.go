@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -258,8 +259,9 @@ func TestConfirmedInsertLifecycle(t *testing.T) {
 }
 
 // TestCancelledWriteRequiresConfirmedRollback proves a cancelled write makes
-// the untouched claim only after rollback confirmation, and a cancelled write
-// whose rollback was not confirmed never claims untouched.
+// the untouched claim only after rollback confirmation, while an unconfirmed
+// rollback after the noncancellable boundary crossed is the Issue #45
+// outcome-unknown workflow: one outcome-unknown entry and the terminal state.
 func TestCancelledWriteRequiresConfirmedRollback(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -270,11 +272,6 @@ func TestCancelledWriteRequiresConfirmedRollback(t *testing.T) {
 			name:      "confirmed rollback claims untouched",
 			confirmed: true,
 			want:      "DELETE cancelled: rollback confirmed, database untouched",
-		},
-		{
-			name:      "unconfirmed rollback makes no untouched claim",
-			confirmed: false,
-			want:      "DELETE cancelled",
 		},
 	}
 	for _, tt := range tests {
@@ -294,6 +291,34 @@ func TestCancelledWriteRequiresConfirmedRollback(t *testing.T) {
 				t.Errorf("summary = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestUnconfirmedRollbackAfterBoundaryIsOutcomeUnknown proves the Issue #45
+// rule: a cancelled write whose noncancellable rollback cleanup ran but whose
+// completion was never confirmed settles into exactly one outcome-unknown
+// entry and the outcome-unknown terminal state — never an untouched claim.
+func TestUnconfirmedRollbackAfterBoundaryIsOutcomeUnknown(t *testing.T) {
+	est := &prepFakeEstimator{result: EstimateResult{Total: 3}}
+	m := settledPreparation(t, prepDeleteQB(true), est, est.result)
+	fake := &writeFakeExecutor{
+		phases: []connection.WritePhase{connection.WritePhaseBeginning, connection.WritePhaseExecuting, connection.WritePhaseRollbackCleanup},
+		result: connection.WriteResult{Outcome: connection.WriteCancelled},
+	}
+	m.Write = fake.Write
+	nm := confirmedWrite(t, m, tea.KeyMsg{Type: tea.KeyEnter}, fake)
+	if nm.terminalState != TerminalOutcomeUnknown {
+		t.Fatalf("terminal state = %v, want TerminalOutcomeUnknown", nm.terminalState)
+	}
+	if nm.ResultHistory.Len() != 1 {
+		t.Fatalf("result entries = %d, want exactly one", nm.ResultHistory.Len())
+	}
+	e := nm.ResultHistory.Entries()[0]
+	if e.Kind != history.KindOutcomeUnknown || e.Phase != history.UnknownPhaseRollback {
+		t.Errorf("entry = %v phase %v, want outcome-unknown rollback", e.Kind, e.Phase)
+	}
+	if strings.Contains(e.Summary, "untouched") || !strings.Contains(e.Summary, "outcome unknown") {
+		t.Errorf("summary %q does not preserve the unresolved outcome-unknown wording", e.Summary)
 	}
 }
 

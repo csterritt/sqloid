@@ -34,8 +34,12 @@ func (m Model) View() string {
 		return TooSmallMessage
 	}
 	if m.terminalState != TerminalNone {
-		// Deletion/replacement ended the session: the exact terminal message
-		// replaces every region, overlay, and stale indicator.
+		// Issue #45: the outcome-unknown terminal view renders the selected
+		// immutable entry and the reduced help; deletion/replacement ended
+		// the session with the exact terminal message replacing every region.
+		if m.terminalState == TerminalOutcomeUnknown {
+			return m.renderOutcomeUnknownTerminal()
+		}
 		if m.terminalState == TerminalReplaced {
 			return ReplacedSessionEndedMessage
 		}

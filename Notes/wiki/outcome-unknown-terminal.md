@@ -1,0 +1,48 @@
+# Outcome-Unknown Terminal Workflow
+
+Issue #45 completes the write lifecycle's fourth terminal classification: when a settled write's **rollback or commit cannot be resolved**, the application waits until no transaction or driver work remains pending, appends exactly one immutable non-tabular outcome-unknown result entry, selects it as the newest result, and enters the outcome-unknown terminal state — a session-ending view that forbids every database action but preserves in-memory query/result history selection, shows a reduced help, and quits immediately with status 1. It implements the PRD's **Writes and commit boundary** lifecycle tail (`… rollback-cleanup or committing → committed/failed/cancelled/outcome-unknown`) and the **Global Key Precedence** terminal row. Terminal entry only happens after the sole settlement (`WriteSettledMsg`) whose result already proves the transaction and driver work ended; Ctrl+S/Ctrl+X integration in this state remains owned by Issues #48 and #49.
+
+## Unresolved-outcome classification (`internal/ui/write_exec.go`)
+
+`writeUnresolved` classifies a settled `connection.WriteResult` as outcome unknown exactly when:
+
+- the outcome is not `WriteCommitted` (a commit is definite on its own), **and**
+- `RollbackConfirmed` is false (no resolution ever confirmed the rollback), **and**
+- the model's typed `writeNoncancellable` boundary state had been reached — the rollback-cleanup or committing phase actually started.
+
+The third condition preserves the pre-#45 semantics for writes that failed before any transaction existed to resolve (e.g. a cancelled BEGIN): those keep their definite cancelled/failed summaries, while a write that crossed the noncancellable boundary but was never confirmed is genuinely unresolvable. `applyWriteSettled` routes such a settlement to `finalizeOutcomeUnknown`; everything else keeps the Issue #42 `KindWrite` summary path unchanged.
+
+## Exactly-once settlement and terminal entry (`finalizeOutcomeUnknown`)
+
+- **No entry or terminal state while work remains pending**: the entry is created only from the settlement message — the phases channel is closed and the lease released before settlement is announced, so appending at settlement satisfies the PRD's "waits until no transaction or driver work remains pending" without a second coordination step.
+- **The entry**: `history.ResultEntry` with `KindOutcomeUnknown`, `ExecutionID` (retained identity, so `AppendFinalized`'s execution-identity guard makes duplicate or late settlement messages append nothing and reject stale identities), `Operation` and `Table` (the resolved write target; `startWrite` now retains `writeTable` from `QB.SelectedTable()`), `SQL` (the exact executed standalone statement retained from the execution-start boundary), `Phase` (the new `history.UnknownPhase` — `UnknownPhaseCommit` when the committing phase began, otherwise `UnknownPhaseRollback`), and `RowsAffected` (the actual statement count when the statement reported one).
+- **Non-persistence wording**: `history.WriteUnknownSummary` builds the summary, e.g. `UPDATE outcome unknown: the commit did not resolve (disk I/O error); the statement reported 3 rows affected, which does not prove persistence`, or without a row count `…; the final database state is not proven`. The wording never claims the database was committed, rolled back, or untouched.
+- **Initial selection and terminal entry**: the retained entry becomes the result-history selection (`resultHistoryMode` with its stable ID as `resultHistoryCursorID`, projected locally through the Issue #36 immutable-entry primitives) and `terminalState` becomes the new `TerminalOutcomeUnknown`.
+
+## The terminal result view (`internal/ui/outcome_unknown_view.go`)
+
+The view renders `Outcome unknown — the write's final state could not be proven`, the selected entry's summary and SQL, the explicit rows-affected non-persistence line when a count was reported, and a footer hint listing the only available actions (`Ctrl+P / Ctrl+N query history · Ctrl+E / Ctrl+Y result history · ? help · q or Ctrl+C quits (status 1)`). The selected entry is always resolved by stable ID from the immutable store — never synthesized, never rendered through a missing backing entry (the empty-store fallback renders the heading with no entry data).
+
+## Terminal interaction (`internal/ui/outcome_unknown_keys.go`)
+
+Terminal rules take precedence over every other context (`handleKey` routes the outcome-unknown state to `handleTerminalOutcomeUnknownKey` before popups, quit confirmation, or base handling):
+
+- **Every database-starting action is suppressed before command construction**: Enter, printable command keys, paging, field navigation, Esc-dismissed errors, Ctrl+W — each returns no command and mutates no request state, so no execution, validation, estimation, refresh, paging, rerun, or other connection work can ever start. Wired executor fakes prove zero requests.
+- **In-memory navigation**: Ctrl+P/N open/step query-history browsing (restoring immutable builder-state copies through the Issue #35 machinery) and Ctrl+E/Y open/step result-history browsing through the stable-ID primitives — entirely in memory, with deterministic boundaries: Ctrl+P at the oldest and Ctrl+E at the oldest are no-ops, Ctrl+N at the newest deterministically ends query browsing, and Ctrl+Y at the newest is a no-op that **stays** in the terminal result view (the terminal state has no base context to fall back to). Query navigation never moves the result selection, so the initially selected newest outcome-unknown entry is preserved; Esc dismisses the top in-memory layer (help, then browsing). Empty histories are deterministic no-ops that open nothing.
+- **Reduced help**: `?` toggles a help listing only the actions available in this terminal state — Ctrl+P/N, Ctrl+E/Y, Esc dismissal, and the immediate quit — with no database suggestions (no Ctrl+W, Ctrl+S, Ctrl+X, or Enter-validation text).
+- **Immediate quit**: `q` and Ctrl+C from the primary view, selected query history, selected result history, or the help — and even with both histories empty — set the model's `exitStatus` to 1 and return exactly `tea.Quit`: no quit-confirmation overlay, no cancellation request, no cleanup or settlement command, no state restoration, because terminal entry already guarantees no transaction or driver work remains to abandon. Repeated keys simply re-assert the same immediate exit. The program runner maps `ExitStatus()` onto the process exit code.
+
+## Tests
+
+- `internal/history/write_unknown_terminal_test.go` — `KindOutcomeUnknown` entry retention (kind, execution identity, operation/table, SQL, phase, driver error inside the summary, non-proving `RowsAffected` wording with forbidden `committed`/`untouched`/`rollback confirmed`/`rows added` claims), newest selection, duplicate-finalization rejection, `WriteUnknownSummary` matrix across both phases with and without a row count, and the `UnknownPhase`/kind `String` renderings.
+- `internal/ui/outcome_unknown_terminal_test.go` — barrier-controlled settlement (phases drained, settlement withheld: pending work creates no entry and no terminal state), then unresolved commit (UPDATE with driver error and rows), unresolved rollback (DELETE), and unresolved commit (INSERT) each appending exactly one initially selected entry and entering the terminal state; duplicate/late settlement and stale-identity inertness.
+- `internal/ui/outcome_unknown_navigation_test.go` — every normally database-capable key producing no command and zero fake executor calls; Ctrl+P/N and Ctrl+E/Y traversal with deterministic boundaries and preserved result selection; empty query history and the defensive empty-result fallback without synthetic entries or missing-backed rendering; reduced help contents and dismissal.
+- `internal/ui/outcome_unknown_quit_test.go` — immediate status-1 `q`/Ctrl+C from every terminal subview with populated and empty histories and repeated keys, asserting exactly `tea.Quit` and no confirmation overlay, cancellation handle, cleanup command, or leftover subview state.
+- `internal/ui/write_lifecycle_test.go` — updated so an unconfirmed rollback after the boundary crossed is the Issue #45 outcome-unknown workflow (`TestUnconfirmedRollbackAfterBoundaryIsOutcomeUnknown`), while confirmed rollback keeps the Issue #42 untouched-claim label.
+
+## Cross-references
+
+- Issues #36 (immutable result-history store and stable-ID selection primitives the terminal view and navigation build on), #42 (write lifecycle, execution identity, `writeSQL`/`writeOperation`/`RowsAffected` retention, and the `KindWrite` path unchanged for definite outcomes), #43 (the commit boundary whose `writeNoncancellable` state gates the unresolved classification and whose settlement proves work has ended before terminal entry), #45 (this workflow).
+- Issues #48 and #49 own the Ctrl+S save and Ctrl+X export integration inside this terminal state.
+- PRD sections: Writes and commit boundary (outcome-unknown lifecycle tail and quit rule), Global Key Precedence and Context/Action Matrix (terminal row, immediate status-1 quit), History Module Design.
+- Related wiki pages: [transactional-writes.md](transactional-writes.md), [commit-boundary-quit-cleanup.md](commit-boundary-quit-cleanup.md), [result-history-browsing.md](result-history-browsing.md), [query-history-navigation.md](query-history-navigation.md), [in-flight-gating.md](in-flight-gating.md), [session-health.md](session-health.md).

@@ -255,6 +255,7 @@ type Model struct {
 	Write           WriteExecutor
 	writeExecution  uint64
 	writeOperation  string
+	writeTable      string
 	writeSQL        string
 	writePending    bool
 	writeCancelling bool
@@ -333,6 +334,16 @@ type Model struct {
 	refreshAttempt uint64        // identity of the most recently issued refresh request
 	refreshPending bool          // a refresh command is outstanding
 	terminalState  TerminalState // TerminalNone while the session stays live
+
+	// exitStatus is the process exit status the outcome-unknown terminal quit
+	// (Issue #45) chose; zero while the session stays live. The program
+	// runner maps it onto the process after tea.Quit.
+	exitStatus int
+
+	// terminalHelpOpen holds the reduced help overlay of the Issue #45
+	// outcome-unknown terminal state. Only actions available in this terminal
+	// state are listed; no database suggestion appears.
+	terminalHelpOpen bool
 
 	suspended      bool   // true while the terminal is below minimum size
 	suspendedModel *Model // exact copy retained across the undersized period
@@ -717,8 +728,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.terminalState != TerminalNone {
-		// A terminal health classification ended the session: no key may open
+		// A terminal classification ended the session: no key may open
 		// popups, move builder state, or start any further database work.
+		// Issue #45: the outcome-unknown terminal state owns its own reduced
+		// in-memory key set; the deletion/replacement states consume all keys.
+		if m.terminalState == TerminalOutcomeUnknown {
+			return m.handleTerminalOutcomeUnknownKey(msg)
+		}
 		return m, nil
 	}
 	if m.quitConfirm {

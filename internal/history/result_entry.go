@@ -36,6 +36,12 @@ const (
 	// carries the exact operation-appropriate label and SQL the executed
 	// standalone statement.
 	KindWrite
+	// KindOutcomeUnknown marks the non-tabular outcome-unknown entry (Issue
+	// #45) created when a write's rollback or commit could not be resolved:
+	// the entry carries Operation, Table, SQL, Phase, the driver error inside
+	// Summary, and an optional RowsAffected explicitly labeled as not proving
+	// persistence.
+	KindOutcomeUnknown
 )
 
 // String renders the result-kind name for tests and diagnostics.
@@ -49,6 +55,8 @@ func (k ResultKind) String() string {
 		return "error"
 	case KindWrite:
 		return "write"
+	case KindOutcomeUnknown:
+		return "outcome-unknown"
 	default:
 		return fmt.Sprintf("ResultKind(%d)", int(k))
 	}
@@ -81,6 +89,9 @@ type ResultEntry struct {
 	SQL          string
 	Summary      string
 	RowsAffected int64
+	Operation    string
+	Table        string
+	Phase        UnknownPhase
 }
 
 // ResultStore is the in-memory result-history list of finalized SELECT

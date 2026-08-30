@@ -87,6 +87,7 @@ func (m *Model) startWrite(execution uint64, operation, sql string, params []any
 	m.ActiveCancellable = true
 	ctx, cancel := context.WithCancel(context.Background())
 	m.writeCancel = cancel
+	m.writeTable, _ = m.QB.SelectedTable()
 	m.CancelCommand = func() tea.Msg {
 		cancel()
 		return WriteCancelRequestedMsg{}
@@ -160,14 +161,24 @@ func (m *Model) applyWritePhase(msg connection.WritePhaseMsg) tea.Cmd {
 	return m.waitForWritePhase()
 }
 
-// applyWriteSettled finalizes one resolved write: it creates exactly one
-// immutable non-tabular result entry for the execution, built from the
-// retained executed SQL and the actual statement RowsAffected with
-// operation-appropriate wording, then retires the write state. Duplicate,
-// late, and stale settlement messages append nothing; the result store's
-// execution-identity guard backstops the model's finalized flag.
+// applyWriteSettled finalizes one resolved write. A definite outcome — a
+// commit, or a rollback-confirmed cancellation/failure — creates exactly one
+// immutable non-tabular write summary entry built from the retained executed
+// SQL and the actual statement RowsAffected with operation-appropriate
+// wording. An unresolved outcome (Issue #45): when the noncancellable
+// rollback-cleanup or committing phase started but its completion was never
+// confirmed, the outcome is unknown — exactly one outcome-unknown entry is
+// appended (after settlement proves the transaction and driver work ended),
+// selected as the newest result, and the outcome-unknown terminal state is
+// entered. Duplicate, late, and stale settlement messages append nothing;
+// the result store's execution-identity guard backstops the model's
+// finalized flag.
 func (m *Model) applyWriteSettled(msg WriteSettledMsg) {
 	if m.writePhases == nil || msg.Execution != m.writeExecution || m.writeFinalized {
+		return
+	}
+	if m.writeUnresolved(msg.Result) {
+		m.finalizeOutcomeUnknown(msg)
 		return
 	}
 	m.writeFinalized = true
@@ -244,4 +255,68 @@ func (m *Model) beginConfirmedWrite(msg WriteConfirmedMsg) tea.Cmd {
 		return nil
 	}
 	return m.startWrite(msg.Execution, msg.Operation, msg.SQL, params)
+}
+
+// writeUnresolved reports whether one settled write's outcome could not be
+// resolved (Issue #45): only a commit is definite on its own, and a
+// cancellation or failure whose rollback was never confirmed leaves both the
+// commit-versus-rollback state and the database contents unproven — but only
+// once the noncancellable cleanup/commit boundary was actually crossed. A
+// write that never crossed it never opened a transaction that had to resolve.
+func (m Model) writeUnresolved(res connection.WriteResult) bool {
+	if res.Outcome == connection.WriteCommitted || res.RollbackConfirmed {
+		return false
+	}
+	return m.writeNoncancellable
+}
+
+// finalizeOutcomeUnknown is the unresolved-write finalization (Issue #45):
+// settlement already proves the transaction and driver work ended, so this
+// retires the write state, appends exactly one immutable non-tabular
+// outcome-unknown entry — preserving the execution identity, operation,
+// table, executed SQL, unresolved commit-versus-rollback phase, driver
+// error, and optional actual statement RowsAffected explicitly labeled as
+// not proving persistence — selects it as the newest result, and enters the
+// outcome-unknown terminal state. No further database work is ever issued.
+// AppendFinalized keeps the finalization idempotent against duplicate or
+// late settlement messages and rejects stale execution identities.
+func (m *Model) finalizeOutcomeUnknown(msg WriteSettledMsg) {
+	m.writeFinalized = true
+	m.writePending = false
+	m.writeCancelling = false
+	m.writeNoncancellable = false
+	m.ActiveCancellable = false
+	m.CancelCommand = nil
+	m.writeCancel = nil
+	m.writePhases = nil
+
+	phase := history.UnknownPhaseRollback
+	if m.writePhase == connection.WritePhaseCommitting {
+		phase = history.UnknownPhaseCommit
+	}
+	cause := ""
+	if msg.Result.Err != nil {
+		cause = msg.Result.Err.Error()
+	}
+	rowsKnown := msg.Result.RowsAffected > 0
+	retained, ok := m.ResultHistory.AppendFinalized(history.ResultEntry{
+		ExecutionID:  msg.Execution,
+		Kind:         history.KindOutcomeUnknown,
+		Operation:    m.writeOperation,
+		Table:        m.writeTable,
+		SQL:          m.writeSQL,
+		Phase:        phase,
+		Summary:      history.WriteUnknownSummary(m.writeOperation, phase, cause, msg.Result.RowsAffected, rowsKnown),
+		RowsAffected: msg.Result.RowsAffected,
+	})
+	if !ok {
+		// A duplicate or late settlement can never enter the terminal state
+		// a second time: the retained entry and the existing view stand.
+		return
+	}
+	m.resultHistoryMode = true
+	m.resultHistoryCursorID = retained.ID
+	m.resultHistoryNotice = ""
+	m.projectSelectedHistoryEntry()
+	m.terminalState = TerminalOutcomeUnknown
 }

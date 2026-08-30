@@ -50,6 +50,11 @@ const (
 	TerminalDeleted
 	// TerminalReplaced renders ReplacedSessionEndedMessage.
 	TerminalReplaced
+	// TerminalOutcomeUnknown is the Issue #45 outcome-unknown terminal state:
+	// entered only after a write's unresolved settlement finalized exactly one
+	// non-tabular outcome-unknown result entry and all transaction/driver work
+	// ended. No database work can start from here.
+	TerminalOutcomeUnknown
 )
 
 // CatalogRefresher performs one main-schema catalog refresh through the
@@ -214,3 +219,7 @@ func staleStatusLines(stale bool, cause string) []string {
 	}
 	return lines
 }
+
+// ExitStatus reports the process exit status the outcome-unknown terminal
+// quit (Issue #45) chose; zero while the session stays live.
+func (m Model) ExitStatus() int { return m.exitStatus }
