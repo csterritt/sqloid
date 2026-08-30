@@ -341,17 +341,22 @@ func TestHigherPrecedenceConsumesKeysBeforeInFlightGate(t *testing.T) {
 	m := pendingFirstPage(t, &fakeSelectExecutor{page: threeRowPage()})
 
 	// Terminal state: every key is consumed with no gate action at all.
+	// Issue #46: `q` alone exits immediately — it is the one key that emits
+	// a command (tea.Quit), and it never reaches the gate.
 	terminal := m
 	terminal.enterTerminal(TerminalDeleted)
 	for _, key := range []tea.KeyMsg{
 		tea.KeyMsg{Type: tea.KeyEnter},
 		tea.KeyMsg{Type: tea.KeyCtrlW},
-		runeKey("q"),
 	} {
 		next, cmd := pressKey(terminal, key)
 		if cmd != nil || next.inFlightNotice != "" {
 			t.Fatalf("terminal state leaked a key to the gate (cmd %v, notice %q)", cmd, next.inFlightNotice)
 		}
+	}
+	qNext, qCmd := pressKey(terminal, runeKey("q"))
+	if qCmd == nil || qCmd() != tea.Quit() || qNext.ExitStatus() != 1 {
+		t.Fatalf("terminal q did not exit immediately with status 1 (cmd %v)", qCmd)
 	}
 
 	// Focused text input: `q` is inserted into the buffer, never quit, and

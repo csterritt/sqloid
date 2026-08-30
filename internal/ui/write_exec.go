@@ -177,6 +177,20 @@ func (m *Model) applyWriteSettled(msg WriteSettledMsg) {
 	if m.writePhases == nil || msg.Execution != m.writeExecution || m.writeFinalized {
 		return
 	}
+	if msg.Result.Health != nil {
+		// Issue #46: the typed Issue #7 health classification carried by the
+		// settled write is authoritative: the transaction and driver work have
+		// ended at the request boundary, so the exact terminal state is
+		// entered here with no pending write lifecycle and no appended entry
+		// — no truthful write outcome exists once the database is gone or
+		// replaced. The terminal entry itself retires all pending state.
+		state := TerminalDeleted
+		if msg.Result.Health.Kind == connection.HealthReplaced {
+			state = TerminalReplaced
+		}
+		m.enterTerminal(state)
+		return
+	}
 	if m.writeUnresolved(msg.Result) {
 		m.finalizeOutcomeUnknown(msg)
 		return

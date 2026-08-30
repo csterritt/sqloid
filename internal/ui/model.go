@@ -335,14 +335,20 @@ type Model struct {
 	refreshPending bool          // a refresh command is outstanding
 	terminalState  TerminalState // TerminalNone while the session stays live
 
-	// exitStatus is the process exit status the outcome-unknown terminal quit
-	// (Issue #45) chose; zero while the session stays live. The program
-	// runner maps it onto the process after tea.Quit.
+	// exitStatus is the process exit status the terminal quit (Issues #45
+	// and #46) chose; zero while the session stays live. The program runner
+	// maps it onto the process after tea.Quit.
 	exitStatus int
 
-	// terminalHelpOpen holds the reduced help overlay of the Issue #45
-	// outcome-unknown terminal state. Only actions available in this terminal
-	// state are listed; no database suggestion appears.
+	// suppressFinalizedAppend is the Issue #46 health-terminal finalization
+	// flag: set only around the health path's finalizeActiveSelect call, it
+	// suppresses the snapshot append for an execution whose database vanished
+	// or was replaced — no truthful entry can be constructed. Consumed once.
+	suppressFinalizedAppend bool
+
+	// terminalHelpOpen holds the reduced help overlay of the terminal states
+	// (Issues #45 and #46). Only actions available in these terminal states
+	// are listed; no database suggestion appears.
 	terminalHelpOpen bool
 
 	suspended      bool   // true while the terminal is below minimum size
@@ -546,6 +552,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if msg.Result.Err != nil {
+					// Issue #46: a typed Issue #7 health classification at the
+					// request boundary ends the whole session before any ordinary
+					// failure handling: the SELECT finalizes without appending a
+					// health-failed snapshot entry and the exact terminal state
+					// is entered with no pending work.
+					if m.endSelectIntoHealthTerminal(msg.Result.Err) {
+						return m, nil
+					}
 					// Issue #34: an ordinary first-page failure before rows ends
 					// the SELECT and finalizes it with one error entry; the
 					// ordinary result-error boundary still renders the cause.
@@ -573,6 +587,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearSelectCancellingIfSettled()
 			m.inFlightNotice = ""
 			if !msg.Result.Cancelled {
+				if msg.Result.Err != nil && m.endSelectIntoHealthTerminal(msg.Result.Err) {
+					// Issue #46: a typed health classification on the independent
+					// count request ends the session exactly like a first-page
+					// classification, with no pending work left behind.
+					return m, nil
+				}
 				return m.applyCountSettled(msg.Result), nil
 			}
 		}
@@ -588,6 +608,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if current {
 			switch {
 			case msg.Result.Err != nil:
+				if next.endSelectIntoHealthTerminal(msg.Result.Err) {
+					// Issue #46: a typed health classification on a later page
+					// during ordinary paging activity ends the whole session
+					// before any ordinary failure recording.
+					return next, nil
+				}
 				// Issue #34: a later-page ordinary failure after retained rows is
 				// recorded as the execution's recorded ending; the SELECT stays
 				// active across remaining events, and finalization classifies the
@@ -730,12 +756,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.terminalState != TerminalNone {
 		// A terminal classification ended the session: no key may open
 		// popups, move builder state, or start any further database work.
-		// Issue #45: the outcome-unknown terminal state owns its own reduced
-		// in-memory key set; the deletion/replacement states consume all keys.
+		// Issues #45 and #46: the terminal states own their reduced in-memory
+		// key sets — history navigation, reduced help, and the immediate
+		// status-1 quit — and start no database work.
 		if m.terminalState == TerminalOutcomeUnknown {
 			return m.handleTerminalOutcomeUnknownKey(msg)
 		}
-		return m, nil
+		return m.handleTerminalHealthKey(msg)
 	}
 	if m.quitConfirm {
 		// Issue #27: the shared quit confirmation sits above every other

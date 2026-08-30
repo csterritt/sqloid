@@ -99,6 +99,13 @@ func (m *Model) finalizeActiveSelect() {
 // instead. The snapshot is independent of the model: later cache or source
 // mutation cannot change it.
 func (m *Model) appendFinalizedResultEntry() {
+	if m.suppressFinalizedAppend {
+		// Issue #46: a health-failed execution has no truthful snapshot — the
+		// database is gone or was replaced — so finalization deactivates the
+		// SELECT without appending an entry. Consumed exactly once.
+		m.suppressFinalizedAppend = false
+		return
+	}
 	if m.ResultHistory == nil {
 		return
 	}

@@ -35,15 +35,14 @@ func (m Model) View() string {
 	}
 	if m.terminalState != TerminalNone {
 		// Issue #45: the outcome-unknown terminal view renders the selected
-		// immutable entry and the reduced help; deletion/replacement ended
-		// the session with the exact terminal message replacing every region.
+		// immutable entry and the reduced help; Issue #46: the deletion and
+		// replacement terminals render their exact primary message plus the
+		// selected immutable history and reduced help — nothing may revive
+		// the shell or start any database work.
 		if m.terminalState == TerminalOutcomeUnknown {
 			return m.renderOutcomeUnknownTerminal()
 		}
-		if m.terminalState == TerminalReplaced {
-			return ReplacedSessionEndedMessage
-		}
-		return DeletedSessionEndedMessage
+		return m.renderHealthTerminal()
 	}
 	if m.Width <= 0 || m.Height <= 0 {
 		return ""

@@ -199,6 +199,13 @@ func (m *Model) applyEstimateSettled(msg EstimateSettledMsg) tea.Cmd {
 		return nil
 	}
 	if msg.Result.Err != nil {
+		if state, ok := healthTerminalFor(msg.Result.Err); ok {
+			// Issue #46: a typed health classification on the estimate request
+			// ends the whole session instead of an estimate failure.
+			m.dismissPreparation()
+			m.enterTerminal(state)
+			return nil
+		}
 		m.prepErr = msg.Result.Err.Error()
 		return nil
 	}

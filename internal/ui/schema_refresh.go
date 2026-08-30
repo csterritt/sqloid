@@ -13,8 +13,11 @@
 package ui
 
 import (
+	"context"
+
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/chris/sqloid/internal/connection"
 	"github.com/chris/sqloid/internal/schema"
 )
 
@@ -177,7 +180,13 @@ func (m *Model) applyCancel() {
 // enterTerminal transitions into one of the deletion/replacement terminal
 // states, suppressing the stale workflow outright: controls and causes clear,
 // the popup closes with its opener restored, and the attempt identity
-// advances so pending or late completions are rejected on arrival.
+// advances so pending or late completions are rejected on arrival. Issue
+// #46: entry is the no-pending-work boundary — every pending database
+// lifecycle (reads, count, page, write, validation, estimate, refresh) is
+// retired here, any owned cancellation context is interrupted so no zombie
+// work outlives the session, and the exact terminal state is entered only
+// after all of it has ended. The active SELECT is finalized by the caller
+// (without appending a health-failed snapshot entry), before this transition.
 func (m *Model) enterTerminal(state TerminalState) {
 	opener := m.openerFocus
 	if m.Popup != nil {
@@ -187,7 +196,56 @@ func (m *Model) enterTerminal(state TerminalState) {
 	m.refreshPending = false
 	m.schemaStale = false
 	m.staleCause = ""
+	m.dismissPreparation()
+	m.endValidation()
+	m.retirePendingDatabaseWork()
+	m.exitHistoryMode()
+	m.exitResultHistoryMode()
+	m.ValuePrompt = nil
+	m.quitConfirm = false
+	m.quitSuspended = nil
+	m.quitWaitWrite = false
+	m.inFlightNotice = ""
+	m.terminalHelpOpen = false
 	m.terminalState = state
+	// Issue #46: populated histories select the newest immutable result for
+	// later navigation; an empty store keeps the selection empty so the exact
+	// terminal message remains the primary view with no synthetic entry.
+	m.enterTerminalResultHistory()
+	m.adjustScroll()
+}
+
+// retirePendingDatabaseWork ends every pending request lifecycle and readies
+// the model for terminal entry: owned cancellation contexts are interrupted,
+// pending flags clear, and the viewport generation advances so any late
+// response can never mutate the terminal state.
+func (m *Model) retirePendingDatabaseWork() {
+	for _, cancel := range []context.CancelFunc{m.firstPageCancel, m.countCancel, m.pageRequestCancel} {
+		if cancel != nil {
+			cancel()
+		}
+	}
+	m.firstPagePending = false
+	m.firstPageCancel = nil
+	m.countPendingFlag = false
+	m.countCancel = nil
+	m.pagePending = false
+	m.pageRequestCancel = nil
+	m.resizeFetchPending = false
+	m.selectCancelling = false
+	m.ActiveCancellable = false
+	m.CancelCommand = nil
+	if m.writeCancel != nil {
+		m.writeCancel()
+		m.writeCancel = nil
+	}
+	m.writePending = false
+	m.writeCancelling = false
+	m.writeNoncancellable = false
+	m.writeFinalized = true
+	m.writePhases = nil
+	m.writePhase = connection.WritePhaseBeginning
+	m.bumpViewportGeneration()
 }
 
 // SchemaStale reports whether the exact stale-schema indicators are active.
