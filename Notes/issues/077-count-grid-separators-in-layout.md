@@ -13,6 +13,7 @@ Make horizontal grid packing account for the cumulative width of every rendered 
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: At supported terminal widths, display several narrow columns whose widths sit near the row boundary and scroll horizontally; confirm no selected header/data row wraps or draws off-screen and no fitting column is unnecessarily omitted.
 - **Automated**: Layout tests cover multiple narrow columns at exact-fit, one-below, and one-above boundaries and assert `sum(widths) + (n-1)*gridSeparatorWidth <= available`; rendering tests compare joined row width, plus regressions for one column, oversized first columns, and shifted first-visible indices.
 

@@ -1,7 +1,7 @@
 ## Issue 66: Record count/cache inconsistency during finalization
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: Issue 64 — second in the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85 → 62
 
 ### Parent PRD
 
@@ -13,6 +13,7 @@ Populate `Finalization.CountCacheInconsistent` in `internal/ui/active_select.go`
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Use independently drifting count/page reads so the active cache retains a logical position beyond the successful count total, finalize the SELECT, and confirm history/export preserves both facts and does not label the snapshot complete.
 - **Automated**: A finalization test constructs successful count state with retained cache end greater than total, finalizes through `appendFinalizedResultEntry`, and asserts `CountCacheInconsistent` reaches `TraversalFacts`, both original values remain unclamped, and completeness is never `complete`; boundary/control cases at equal or lower retained end and unavailable/failed count remain non-inconsistent.
 

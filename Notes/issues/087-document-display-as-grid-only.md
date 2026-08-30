@@ -22,6 +22,7 @@ Correct the `internal/result` package and `Value.Display()` documentation so `Di
 - [ ] Given `Value.Display()` documentation, then it is described as grid-only and does not claim exporters should consume its transformed string.
 - [ ] Given CSV and JSON serializers, then documentation directs them to inspect `Value.Kind` and typed payload fields for format-specific output.
 - [ ] Given existing result and export tests, then all runtime output remains byte-for-byte unchanged.
+- [ ] Given reviewer inspection of the rendered `Display()` documentation, then it no longer references CSV/JSON exporters or directs them through grid-only output.
 
 ### User stories addressed
 

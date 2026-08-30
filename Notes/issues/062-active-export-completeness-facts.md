@@ -1,7 +1,7 @@
 ## Issue 62: Classify active exports from complete endpoint facts
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: Issue 85 — implement after the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85
 
 ### Parent PRD
 
@@ -13,6 +13,7 @@ Make `activeExportFacts` in `internal/ui/export.go` classify an active result fr
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Export an active fully retained result with a known limited count, then one with count unavailable but an observed short final page; confirm the pre-picker warning and completed export label both say complete. Repeat with a missing endpoint and confirm it remains partial.
 - **Automated**: Active-export/finalization parity table tests cover known-total, observed-short-final-page, missing-low, missing-high, eviction, and contradictory count/cache cases, asserting identical endpoint facts and completeness labels for the same active state and its finalized snapshot.
 

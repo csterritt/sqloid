@@ -13,6 +13,7 @@ Use one canonical implementation of the PRD's finite-REAL token rule for both qu
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Save queries containing representative REAL values and compare their literals with grid, CSV, and JSON tokens for the same finite values, including integral REAL, negative zero, exponent, and precision-edge cases.
 - **Automated**: Add a cross-package table asserting query literals and `result.RealToken` are identical for `1.0`, `-0.0`, `1e+20`, subnormal, and adjacent-float cases; retain round-trip, locale-independence, INTEGER, and non-finite rejection tests, and ensure no second FormatFloat-plus-suffix implementation remains.
 

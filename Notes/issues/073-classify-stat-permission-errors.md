@@ -26,6 +26,6 @@ Refine startup path-stat error classification so only `os.IsNotExist` failures a
 
 - User story 3: Distinguish missing and unreadable startup inputs
 - User story 7: Name the startup path and actionable failure reason
-- User story 90: Preserve permission-denied classification in startup diagnostics
+- The stat/readability stage is distinct from the mode=rw open-stage failures covered by User story 90.
 
 ---

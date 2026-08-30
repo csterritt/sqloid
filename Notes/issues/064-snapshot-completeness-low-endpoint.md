@@ -1,7 +1,7 @@
 ## Issue 64: Distinguish unseen low endpoints from truncation
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: None — first in the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85 → 62
 
 ### Parent PRD
 
@@ -13,6 +13,7 @@ Correct `internal/history/snapshot_classify.go` so completeness uses low-endpoin
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: View/export a settled snapshot retaining positions 11–20 of known total 20 without low-end eviction and confirm it is partial, not truncated; execute an empty result and confirm it is complete.
 - **Automated**: Table-driven `history.Classify` tests cover unseen low endpoint with known high, empty complete with `ReachedLow=false`, actual low/high eviction, unknown work, and mixed partial/truncated evidence; assert `complete := ... && (high == 0 || meta.ReachedLow) && fullRetention` semantics and `!meta.ReachedLow` partial classification for nonempty results.
 

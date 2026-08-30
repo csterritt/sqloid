@@ -13,6 +13,7 @@ Carry the requested logical `OFFSET` through the later-page execution boundary i
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Page beyond the first result page in a fixture whose first oversized value is on that later page; confirm the error identifies its absolute logical row rather than row 1 or another page-relative row.
 - **Automated**: Connection and UI-adapter tests request multiple nonzero offsets and inject oversized value/page failures at known page-relative indexes, asserting the exact absolute row N in `result value exceeds the 64 MiB v1 limit at row N` or `result page exceeds the 64 MiB v1 limit at row N`; contract tests assert the execution offset equals the `PageSQL` offset.
 

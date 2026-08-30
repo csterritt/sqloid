@@ -1,7 +1,7 @@
 ## Issue 57: Production TUI composition and binary smoke path
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: None — land first so the affected issues' TUI-dependent manual/end-to-end verification becomes executable
 
 ### Parent PRD
 
@@ -14,14 +14,15 @@ Add the production application-composition path missing between `cmd/sqloid/main
 ### How to verify
 
 - **Manual**: Launch the built `sqloid` binary against a valid explicit SQLite file and through D1 discovery; confirm the full-screen builder appears, execute a SELECT and a confirmed write, save/export a result, then quit and verify cleanup and the documented exit status.
-- **Automated**: A production-composition/binary integration test drives a real temporary SQLite database through startup into Bubble Tea, exercises baseline SELECT, write, and export behavior through real adapters, asserts the process does not exit immediately after validation, and verifies terminal outcomes, resource cleanup, and database close ordering.
+- **Automated**: A production-composition/binary integration test uses a pseudo-terminal or Bubble Tea test harness that runs unattended in headless CI, drives a real temporary SQLite database through startup into Bubble Tea, exercises baseline SELECT, write, and export behavior through real adapters, asserts the process does not exit immediately after validation, and verifies terminal outcomes, resource cleanup, and database close ordering.
 
 ### Acceptance criteria
 
 - [ ] Given a valid database opened by either startup mode, when startup validation succeeds, then the shipped binary loads the catalog, constructs the production UI with every required executor, and runs the Bubble Tea program instead of returning silently.
 - [ ] Given baseline SELECT, write, and export interactions in the production composition, then they reach the real connection/filesystem adapters and produce the documented visible and persisted results.
 - [ ] Given accepted quit or a terminal application outcome, then pending UI/request cleanup settles before the database closes and the process returns the documented status.
-- [ ] Given the production binary integration test, then removing or bypassing the TUI composition causes the test to fail even if package-level fake-seam tests still pass.
+- [ ] Given the production binary integration test, then it runs unattended in a headless environment through a pseudo-terminal or Bubble Tea test harness, and removing or bypassing the TUI composition causes it to fail even if package-level fake-seam tests still pass.
+- [ ] Given startup validation or composition fails, then the shipped binary emits exactly one actionable stderr line, exits with status 1, and does not create a database file.
 
 ### User stories addressed
 

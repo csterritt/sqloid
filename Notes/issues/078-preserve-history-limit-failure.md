@@ -13,6 +13,7 @@ Extend SELECT finalization and snapshot metadata to persist the typed 64 MiB `Li
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Produce separate page-limit and value-limit failures, finalize each SELECT, browse its historical snapshot at a different terminal size, and confirm the same failure kind, one-based row N, exact message, and retained leading rows remain visible.
 - **Automated**: UI lifecycle tests finalize and reproject tabular results with each `LimitFailure` kind and representative one-based positions, asserting typed snapshot round-trip, exact historical message, unchanged retained rows/positions, and immutable export capture; a no-failure snapshot remains unset.
 

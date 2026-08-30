@@ -13,6 +13,7 @@ Correct the destructive-write commit boundary in `internal/connection/write.go` 
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Run a write with a test fixture that fails COMMIT after the statement executes; confirm Sqloid waits for settlement, reports the commit error and unresolved persistence, enters outcome-unknown, and never says the database is untouched or rolled back.
 - **Automated**: A real Connection/driver-boundary test forces `tx.Commit()` to fail and asserts the result preserves the commit phase/error, has `RollbackConfirmed == false`, is classified outcome-unknown, creates exactly one non-persistence summary entry, and enters the terminal workflow; a control test retains confirmed-rollback behavior for a pre-COMMIT failure whose rollback truly succeeds.
 

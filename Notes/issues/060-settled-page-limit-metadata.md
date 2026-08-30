@@ -1,7 +1,7 @@
 ## Issue 60: Retain page truncation and limit-failure metadata at settlement
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: None — implement before Issue 61 to coordinate their shared `applySelectSettled` change
 
 ### Parent PRD
 
@@ -13,6 +13,7 @@ Preserve page limit metadata as first and later SELECT requests settle in `inter
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Execute SELECT fixtures where the first page and then a later page independently trigger byte-cap truncation and oversized page/value failures; navigate and resize afterward and confirm each persistent warning/failure remains visible with the correct row.
 - **Automated**: UI settlement tests inject `ByteTruncated` and each `LimitFailure` through `FirstPageResult` and later-page result messages, assert cache-derived truncation is ORed after merge, assert a new failure replaces the prior one while an absent new failure preserves it, and verify exact warning/diagnostic rendering without direct `ResultView` field assignment.
 

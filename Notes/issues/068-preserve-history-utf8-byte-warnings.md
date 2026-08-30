@@ -13,6 +13,7 @@ Carry an active page's invalid-UTF flag through SELECT finalization into immutab
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Finalize one SELECT containing malformed TEXT and another whose cache was truncated by the 64 MiB byte cap; browse and export each historical entry and confirm its original warning remains visible without appearing in exported data.
 - **Automated**: UI lifecycle tests drive settlement → finalization → history projection → export capture separately for invalid UTF-8 and byte-cap truncation, asserting snapshot metadata, reconstructed view metadata, displayed/export-flow warnings, immutable rows, and absence of warning records or properties in serializer input.
 

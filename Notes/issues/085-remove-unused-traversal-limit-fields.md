@@ -1,7 +1,7 @@
 ## Issue 85: Remove unused traversal limit fields
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: Issue 66 — third in the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85 → 62
 
 ### Parent PRD
 

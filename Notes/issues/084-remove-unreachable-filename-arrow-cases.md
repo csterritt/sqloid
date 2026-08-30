@@ -13,6 +13,7 @@ Remove the dead `tea.KeyLeft` and `tea.KeyRight` arms from `applyPickerFilenameK
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Open the export picker, focus both the directory list and filename, and confirm Left/Right still toggle format while runes, Backspace/Delete, Home/End, and Ctrl+A/Ctrl+E/Ctrl+U still edit the filename as before.
 - **Automated**: Update picker key-routing tests to assert Left/Right are consumed by format toggling before filename dispatch and that every remaining filename-editing case is reachable; run existing picker focus, validation, cancellation, and completion tests unchanged.
 

@@ -13,6 +13,7 @@ Construct relative SQLite file URLs with an escaped URL path and no invented aut
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Create valid relative SQLite files whose names contain `?`, `#`, and spaces, open each through `sqloid sqlite`, and confirm Sqloid opens the intended file without creating or selecting a differently parsed path.
 - **Automated**: Connection tests assert exact relative file-URL construction and successful SQLite opening for `?`, `#`, spaces, and combined reserved characters, with no `//` authority; regression cases cover ordinary relative and absolute paths plus unchanged mode/read-write behavior.
 

@@ -13,6 +13,7 @@ At every database entry point that can fail while acquiring a dedicated lease—
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Saturate the two-connection pool, start a page/count or write waiting for a lease, cancel it, and confirm the UI settles as cancelled rather than displaying an execution failure; then verify a subsequent request still succeeds.
 - **Automated**: Deterministic connection tests hold all leases with synchronization barriers, cancel queued `RunRequest`, `startRequest`, and `StartWrite` calls, and assert their cancelled outcomes; wrapped `context.Canceled`, health errors, and ordinary lease failures verify precedence and unchanged non-cancellation classification.
 

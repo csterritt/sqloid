@@ -1,7 +1,7 @@
 ## Issue 61: Establish the high endpoint from a short first page
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: Issue 60 — coordinate the shared `applySelectSettled` change after settlement metadata is preserved
 
 ### Parent PRD
 
@@ -13,6 +13,7 @@ Retain the requested first-page size with the first-page request identity in `in
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: With count forced unavailable, execute one empty SELECT and one SELECT shorter than the visible first-page capacity; confirm `No rows` or the short range appears, Page Down performs no duplicate fetch, and active/finalized export labels the fully retained result complete rather than unknown.
 - **Automated**: First-page lifecycle tests retain the requested size, settle empty, short, and full pages, and assert `pageExhausted`/`ObservedShortFinalPage`, no repeated empty-page request, and truthful active-export/finalized completeness; stale request identities and exactly-full pages must not establish a high endpoint.
 

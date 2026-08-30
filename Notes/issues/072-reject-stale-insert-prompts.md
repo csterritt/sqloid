@@ -13,6 +13,7 @@ Strengthen the authoritative INSERT runnable report so every stored prompt colum
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Build INSERT prompts, refresh schema so a prompted column becomes hidden/generated or is dropped, and confirm execution is blocked with a specific reason and no stale identifier appears in generated SQL; verify an unchanged all-omit INSERT still renders `DEFAULT VALUES`.
 - **Automated**: QueryBuilder tests inject stale prompts for dropped, hidden, generated, and otherwise non-insertable columns and assert a non-runnable report plus empty INSERT output; valid prompt sets assert unchanged column order, parameter order, NULL/omit behavior, and `DEFAULT VALUES`.
 

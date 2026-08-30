@@ -9,10 +9,11 @@
 
 ### What to build
 
-Make `SelectSQL`, `PageSQL`, and therefore `CountSQL` refuse to emit SQL or parameters unless the builder's authoritative runnable report accepts the selected SELECT command. Preserve valid SELECT, paging, count, LIMIT/OFFSET, and parameter-order behavior while closing every rejected class: invalid grouping, stale identifiers including projections, incomplete value state, invalid Limit state, missing prerequisites, and non-SELECT commands.
+Make `SelectSQL`, `PageSQL`, and therefore `CountSQL` refuse to emit SQL or parameters unless the builder's authoritative runnable report accepts the selected SELECT command. This issue owns all SELECT-family renderer gating after Issue 65 adds stale-projection validation to that report. Preserve valid SELECT, paging, count, LIMIT/OFFSET, and parameter-order behavior while closing every rejected class: invalid grouping, stale identifiers including projections, incomplete value state, invalid Limit state, missing prerequisites, and non-SELECT commands.
 
 ### How to verify
 
+- **Verification sequencing**: Package/seam-level automated verification can proceed before Issue 57; manual/end-to-end steps that drive the shipped TUI must be re-run after Issue 57 lands.
 - **Manual**: Exercise valid and invalid SELECT builder states, including schema-stale columns, incomplete WHERE input, bad grouping, and bad Limit; confirm only the valid state can produce executable SELECT/page/count SQL.
 - **Automated**: QueryBuilder table tests enumerate every SELECT validity class rejected by `RunnableReport` and assert empty SQL and no parameters from all three renderers; valid cases assert unchanged SQL, paging/count wrappers, and binding order.
 

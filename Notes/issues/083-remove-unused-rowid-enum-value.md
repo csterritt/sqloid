@@ -9,7 +9,7 @@
 
 ### What to build
 
-Align `schema.RowidCapability` with the PRD's three-value capability set and the project's other schema enums. Remove the unused `RowidApplicable` constant, start the meaningful values at `iota + 1` so zero remains an unset sentinel, and preserve the existing string forms and catalog classification of has-rowid, without-rowid, and not-applicable objects.
+Align `schema.RowidCapability` with the PRD's three-value capability set and the project's other schema enums. Remove the unused `RowidApplicable` constant and type the constant block by declaring `RowidHas RowidCapability = iota + 1`, so the meaningful values carry the intended enum type and zero remains an unset sentinel. Preserve the existing string forms and catalog classification of has-rowid, without-rowid, and not-applicable objects.
 
 ### How to verify
 
@@ -18,7 +18,7 @@ Align `schema.RowidCapability` with the PRD's three-value capability set and the
 
 ### Acceptance criteria
 
-- [ ] Given the rowid-capability constants, then only has-rowid, without-rowid, and not-applicable are defined as meaningful values.
+- [ ] Given the rowid-capability constants, then only has-rowid, without-rowid, and not-applicable are defined as meaningful values and each constant has type `RowidCapability`.
 - [ ] Given a zero `RowidCapability`, then it remains an unset/unknown sentinel rather than an undocumented applicable state.
 - [ ] Given schema catalog fixtures, then every object retains its existing correct capability and string representation.
 
