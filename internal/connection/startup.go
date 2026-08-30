@@ -174,8 +174,19 @@ type DB struct {
 	// StartWrite request after its phase message is emitted and before the
 	// next transaction step runs, so tests can hold every transition with
 	// channel barriers and request cancellation at a deterministic point.
-	// Production control flow leaves all four nil and never reads them.
+	// beforeWriteCommit sits at the atomic after-statement/before-COMMIT
+	// decision: the statement has completed successfully and the boundary
+	// check has not run yet, so the write is still cancellable there. All
+	// four are nil in production and never read outside the write path.
 	beforeWriteBegin, beforeWriteExec, beforeWriteCommit, beforeWriteRollback func(ctx context.Context, conn *sql.Conn)
+
+	// writeLeaseHook is a test-only seam for the Issue #43 commit-boundary
+	// suite: when non-nil, it is invoked inside StartWrite immediately after
+	// the write's dedicated lease is acquired and before its request begins,
+	// so tests can install a counting interrupt hook on exactly the write's
+	// leased connection and observe scoped interrupt dispatch. Production
+	// control flow leaves it nil and never reads it.
+	writeLeaseHook func(lease *Lease)
 
 	// identityChecks counts VerifyHealth invocations so tests can prove the
 	// exactly-one-pre-BEGIN-check contract for phased writes without hooks;

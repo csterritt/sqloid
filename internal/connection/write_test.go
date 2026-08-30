@@ -115,6 +115,8 @@ func holdWriteBarrier(t *testing.T, db *DB, phase WritePhase) (held <-chan Write
 		db.beforeWriteExec = hook
 	case WritePhaseCommitting:
 		db.beforeWriteCommit = hook
+	case WritePhaseRollbackCleanup:
+		db.beforeWriteRollback = hook
 	default:
 		t.Fatalf("holdWriteBarrier: unsupported phase %v", phase)
 	}
@@ -365,17 +367,24 @@ func TestWriteCancellationDuringStatement(t *testing.T) {
 }
 
 // TestWriteCancellationWinsAfterStatementSuccess is the release-blocking
-// pre-COMMIT rule: the statement succeeds, the commit phase is observed
-// behind its barrier, cancellation is requested there, and the atomic
-// pre-COMMIT cancellation check must still win — the write settles
-// cancelled with confirmed rollback and the database is untouched.
+// pre-COMMIT rule: the statement succeeds, the after-statement/before-COMMIT
+// decision is held behind its barrier while still cancellable, cancellation
+// is requested there, and the atomic pre-COMMIT cancellation check must
+// still win — the write settles cancelled with confirmed rollback and the
+// database is untouched. The committing phase is announced only after the
+// boundary is crossed, so a pre-COMMIT-cancelled write never emits it
+// (Issue #43 redefined the boundary; Issue #42's result contract is kept).
 func TestWriteCancellationWinsAfterStatementSuccess(t *testing.T) {
 	db := openJournalFixture(t, "delete")
+	interrupts := writeLeaseInterrupts(t, db)
 	held, release := holdWriteBarrier(t, db, WritePhaseCommitting)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
-	<-held // statement already succeeded; commit not yet started
+	<-held // statement already succeeded; the atomic check has not run yet
 	w.Cancel()
+	if got := interrupts(); got != 1 {
+		t.Fatalf("interrupts before the boundary = %d, want exactly 1 scoped interrupt", got)
+	}
 	release()
 
 	res := w.Wait()
@@ -385,7 +394,7 @@ func TestWriteCancellationWinsAfterStatementSuccess(t *testing.T) {
 	if !res.RollbackConfirmed {
 		t.Fatal("pre-COMMIT cancellation did not confirm rollback")
 	}
-	assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseCommitting, WritePhaseRollbackCleanup)
+	assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users WHERE email = 'new'"); got != 0 {
 		t.Fatalf("persisted updated rows = %d, want 0 (rollback confirmed after pre-COMMIT cancellation)", got)
 	}

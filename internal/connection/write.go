@@ -23,6 +23,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 )
 
 // WritePhase is one observable phase of a transactional write request. The
@@ -146,6 +147,20 @@ type StartedWriteRequest struct {
 	lease     *Lease
 	phases    chan WritePhaseMsg
 
+	// mu guards the atomic cancellation-to-commit boundary: Cancel reads
+	// and mutates noncancellable under it, and the pre-COMMIT check flips
+	// noncancellable under it in the same critical section that reads the
+	// cancellation flag. A cancellation therefore either wins the flag check
+	// and forces rollback, or is permanently disabled — never both and never
+	// neither.
+	mu sync.Mutex
+
+	// noncancellable is set exactly once, at the atomic pre-COMMIT boundary,
+	// and permanently disables interrupt issuance for this execution: after
+	// it is set, Cancel dispatches no context cancellation and no driver
+	// interrupt, and rollback cleanup/committing cannot be interrupted.
+	noncancellable bool
+
 	// final is written by the work goroutine before settlement is announced;
 	// Wait reads it only after SettledChan is closed, which synchronizes it.
 	final   WriteResult
@@ -177,6 +192,9 @@ func (db *DB) StartWrite(parent context.Context, execution uint64, statement str
 			w.deliver(WriteResult{Outcome: WriteFailed, Err: err})
 		}
 		return w
+	}
+	if db.writeLeaseHook != nil {
+		db.writeLeaseHook(lease)
 	}
 
 	request := lease.BeginRequest(parent)
@@ -255,20 +273,26 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected})
 	}
 
-	// Statement completed successfully. Emit the committing phase, then —
-	// after any barrier that observed it — perform the atomic pre-COMMIT
-	// cancellation check immediately before beginning COMMIT. The
-	// cancellation flag wins even though the statement returned success.
-	w.emit(WritePhaseCommitting)
+	// Statement completed successfully. The atomic pre-COMMIT boundary
+	// follows immediately: under one lock the request's cancellation flag is
+	// read and noncancellable is set permanently, so a cancellation either
+	// wins the flag check and forces rollback after the successful statement,
+	// or arrives after crossing and is ignored. Only after the boundary is
+	// crossed may the committing phase be announced and COMMIT begin.
 	if w.owner.beforeWriteCommit != nil {
 		w.owner.beforeWriteCommit(ctx, conn)
 	}
-	if w.req.CancelRequested() {
+	w.mu.Lock()
+	cancelled := w.req.CancelRequested()
+	w.noncancellable = true
+	w.mu.Unlock()
+	if cancelled {
 		err = context.Canceled
 	}
 	if err != nil {
 		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected})
 	}
+	w.emit(WritePhaseCommitting)
 	if err := tx.Commit(); err != nil {
 		// Persistence after a failed commit is unprovable; Issue #45 owns
 		// the outcome-unknown terminal workflow. Issue #42 resolves it as a
@@ -279,10 +303,16 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 }
 
 // rollback performs the noncancellable rollback cleanup phase and marks the
-// result with confirmed rollback exactly when the rollback succeeded. The
-// outcome is provisional: Settle classifies a cancellation cause as
-// WriteCancelled and everything else as WriteFailed.
+// result with confirmed rollback exactly when the rollback succeeded. It
+// re-establishes the noncancellable boundary (the statement-failure path
+// enters rollback cleanup from executing without passing the pre-COMMIT
+// check), so no later Cancel can interrupt cleanup. The outcome is
+// provisional: Settle classifies a cancellation cause as WriteCancelled and
+// everything else as WriteFailed.
 func (w *StartedWriteRequest) rollback(ctx context.Context, tx *sql.Tx, res WriteResult) WriteResult {
+	w.mu.Lock()
+	w.noncancellable = true
+	w.mu.Unlock()
 	w.emit(WritePhaseRollbackCleanup)
 	if w.owner.beforeWriteRollback != nil {
 		w.owner.beforeWriteRollback(ctx, nil)
@@ -296,14 +326,25 @@ func (w *StartedWriteRequest) rollback(ctx context.Context, tx *sql.Tx, res Writ
 	return res
 }
 
-// Cancel requests cancellation of the write. It is idempotent, safe from any
-// goroutine, and only meaningful while the write is in the cancellable
-// beginning/executing phases; after the pre-COMMIT check the write is
-// noncancellable and later calls have no effect on it.
+// Cancel requests cancellation of the write. The first call while the write
+// is in the cancellable beginning/executing phases is the only meaningful
+// one: it sets the request's cancellation flag once and dispatches one
+// connection-scoped interrupt against the write's leased connection. Once
+// the atomic pre-COMMIT boundary has been crossed — rollback cleanup or
+// committing has begun, or the write settled — Cancel is permanently inert:
+// it issues no context cancellation and no driver interrupt and leaves the
+// phase and work unchanged. Safe from any goroutine.
 func (w *StartedWriteRequest) Cancel() {
-	if w.req != nil {
-		w.req.Cancel()
+	if w == nil || w.req == nil {
+		return
 	}
+	w.mu.Lock()
+	if w.noncancellable {
+		w.mu.Unlock()
+		return
+	}
+	w.req.Cancel()
+	w.mu.Unlock()
 }
 
 // State reports the visible lifecycle state of the underlying request:

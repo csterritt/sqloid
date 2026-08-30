@@ -263,6 +263,19 @@ type Model struct {
 	writePhases     chan connection.WritePhaseMsg
 	writeCancel     context.CancelFunc
 
+	// writeNoncancellable is the typed commit-boundary state (Issue #43):
+	// set exactly when the write's rollback-cleanup or committing phase has
+	// begun, it permanently closes the Ctrl+W cancellation route for this
+	// write. Ctrl+W routes by this state, never by phase-label text; phase
+	// regressions and stale identities can never clear it backward.
+	writeNoncancellable bool
+
+	// quitWaitWrite is the accepted-quit wait state (Issue #43): true while
+	// an accepted quit is waiting for the pending write to settle through
+	// rollback resolution or commit. Exit is emitted only when settlement
+	// finalizes; duplicate acceptances are idempotent no-ops.
+	quitWaitWrite bool
+
 	// History owns the session-only query-history store (Issue #20). Nil
 	// means no history is wired; execution-start appends then no-op. Append
 	// happens only through the ExecutionStartedMsg seam — never during
@@ -402,8 +415,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 		return m, cmd
 	case WriteSettledMsg:
+		// Issue #42: a stale, duplicate, or late settlement message is an
+		// inert no-op; Issue #43: only a settlement that truly finalized the
+		// current write — proving the transaction and driver work ended — may
+		// complete a waiting accepted quit.
+		wasFinalized := m.writeFinalized
 		m.applyWriteSettled(msg)
 		m.adjustScroll()
+		if !wasFinalized && m.quitWaitWrite && !m.writePending {
+			// The accepted quit waited for this settlement; the write's work
+			// has fully ended and its one result entry is final, so exit is
+			// emitted exactly once.
+			m.quitWaitWrite = false
+			return m, tea.Quit
+		}
 		return m, nil
 	case WriteCancelRequestedMsg:
 		// The scoped cancellation closure dispatched the interrupt request
@@ -797,6 +822,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Issue #21: connection-scoped cancellation requested exactly once
 			// per request; exact `cancelling…` renders until settlement.
 			return m, m.requestValidationCancellation()
+		}
+		if m.writePending {
+			// Issue #43: Ctrl+W routes by the typed commit-boundary state. In
+			// the noncancellable rollback-cleanup/committing phases it is
+			// ignored with the exact boundary feedback, and the work is never
+			// mutated; in the cancellable phases the cancellation request is
+			// deduplicated to exactly one per write.
+			if m.writeNoncancellable {
+				m.inFlightNotice = CommitBoundaryFeedback
+				return m, nil
+			}
+			if !m.writeCancelling && m.CancelCommand != nil {
+				m.writeCancelling = true
+				return m, m.CancelCommand
+			}
+			return m, nil
 		}
 		if m.ActiveCancellable && m.CancelCommand != nil {
 			return m, m.CancelCommand

@@ -143,6 +143,12 @@ func (m *Model) openQuitConfirmation() tea.Model {
 func (m *Model) handleQuitConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter", "y", "ctrl+c":
+		// Issue #43: an accepted quit during a pending write enters the write
+		// settlement coordinator instead of exiting; every other context
+		// finalizes its cleanup and exits immediately, as before.
+		if m.writePending {
+			return m.acceptQuitWithWrite()
+		}
 		// Issue #34: accepted quit finalizes the active SELECT once — with
 		// required cancellation of still-owned read requests — before exit.
 		m.acceptedQuitCleanup()
@@ -154,4 +160,28 @@ func (m *Model) handleQuitConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return restored, nil
 	}
 	return *m, nil
+}
+
+// acceptQuitWithWrite is the write-side accepted-quit coordinator (Issue
+// #43): for cancellable work it requests cancellation exactly once and waits
+// through rollback resolution; for the noncancellable rollback-cleanup or
+// committing phases it issues no interrupt and waits for the existing
+// operation. In both cases the model stays alive with no exit command while
+// the transaction or driver work remains pending; the exit command is
+// emitted only when settlement finalizes (Update's WriteSettledMsg case).
+// Repeated acceptance is an idempotent no-op that neither exits early nor
+// requests a second cancellation.
+func (m *Model) acceptQuitWithWrite() (tea.Model, tea.Cmd) {
+	if m.quitWaitWrite {
+		return *m, nil
+	}
+	m.quitWaitWrite = true
+	m.quitConfirm = false
+	m.quitSuspended = nil
+	var cmd tea.Cmd
+	if !m.writeNoncancellable && !m.writeCancelling && m.CancelCommand != nil {
+		m.writeCancelling = true
+		cmd = m.CancelCommand
+	}
+	return *m, cmd
 }

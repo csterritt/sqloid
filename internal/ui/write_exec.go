@@ -49,6 +49,13 @@ type WriteSettledMsg struct {
 // what resolves the visible state.
 type WriteCancelRequestedMsg struct{}
 
+// CommitBoundaryFeedback is the exact Ctrl+W feedback (Issue #43) shown once
+// the commit boundary has been crossed: rollback cleanup or committing is in
+// progress, cancellation is permanently unavailable, and the write's work is
+// never mutated by the key. It is presentation-only; routing uses the typed
+// writeNoncancellable state, never this text.
+const CommitBoundaryFeedback = "Commit in progress; cancellation is no longer available"
+
 // startWrite enters the actual-write lifecycle: it records the execution
 // identity, operation, and executed standalone SQL for finalization, marks
 // the write pending and cancellable, and dispatches one batched pair of
@@ -120,8 +127,20 @@ func (m *Model) applyWritePhase(msg connection.WritePhaseMsg) tea.Cmd {
 	if m.writePhases == nil || msg.Execution != m.writeExecution || !m.writePending {
 		return nil
 	}
+	if m.writeNoncancellable {
+		// Issue #43: once the boundary is crossed, only the actual rollback
+		// cleanup or committing transition is accepted; a regressed
+		// beginning/executing phase or a repeated one can never cross the
+		// boundary backward and re-enable cancellation.
+		return m.waitForWritePhase()
+	}
+	if m.writePhase == msg.Phase {
+		// Duplicate delivery of the current phase is an idempotent no-op.
+		return m.waitForWritePhase()
+	}
 	m.writePhase = msg.Phase
 	if msg.Phase == connection.WritePhaseRollbackCleanup || msg.Phase == connection.WritePhaseCommitting {
+		m.writeNoncancellable = true
 		m.ActiveCancellable = false
 		m.CancelCommand = nil
 		m.writeCancel = nil
@@ -142,6 +161,7 @@ func (m *Model) applyWriteSettled(msg WriteSettledMsg) {
 	m.writeFinalized = true
 	m.writePending = false
 	m.writeCancelling = false
+	m.writeNoncancellable = false
 	m.ActiveCancellable = false
 	m.CancelCommand = nil
 	m.writeCancel = nil
