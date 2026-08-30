@@ -1,6 +1,6 @@
 # RFC 4180 CSV export (Issue #50)
 
-Issue #50 implements the CSV half of the export format boundary: a deterministic, UI-independent RFC 4180 UTF-8 writer in `internal/export` (`csv.go`) that consumes the Issue #49 immutable capture payload — shared full-set deduplicated output names and typed rows from `internal/result` — and emits exact bytes. Capture metadata and Issue #49 warnings stay outside the serializer API and data path entirely, so they can never become rows, columns, comments, or prefixes. The JSON serializer remains owned by Issue #51.
+Issue #50 implements the CSV half of the export format boundary: a deterministic, UI-independent RFC 4180 UTF-8 writer in `internal/export` (`csv.go`) that consumes the Issue #49 immutable capture payload — shared full-set deduplicated output names and typed rows from `internal/result` — and emits exact bytes. Capture metadata and Issue #49 warnings stay outside the serializer API and data path entirely, so they can never become rows, columns, comments, or prefixes. The JSON serializer is owned by Issue #51 and documented in [json-export.md](json-export.md).
 
 ## Structure
 
