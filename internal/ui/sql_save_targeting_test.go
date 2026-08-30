@@ -260,8 +260,14 @@ func TestTerminalSaveTargetingOutcomeUnknown(t *testing.T) {
 	// With no Ctrl+P/N selection the last actual execution — the resolved
 	// write's own query-history entry — is the terminal target.
 	nm, cmd := pressKey(m, ctrlKey(tea.KeyCtrlS))
-	if cmd != nil {
-		t.Fatal("terminal Ctrl+S issued a command")
+	if cmd == nil || !nm.pickerOpen {
+		t.Fatal("terminal Ctrl+S did not open the destination picker")
+	}
+	// Issue #52: cancel the picker to continue scripted targeting; exact
+	// restoration keeps the prepared target.
+	nm, _ = pressKey(nm, tea.KeyMsg{Type: tea.KeyEscape})
+	if nm.pickerOpen {
+		t.Fatal("Esc did not cancel the picker")
 	}
 	if nm.savePrepared == nil {
 		t.Fatalf("terminal fallback missing: %q", nm.saveNotice)
@@ -315,7 +321,11 @@ func TestTerminalSaveTargetingHealth(t *testing.T) {
 			m, sel, count, page, refresh := healthTerminalModel(t, tc.err, tc.want)
 			// No selection: the last actual execution (the SELECT that ended
 			// into this terminal) is the fallback target.
-			nm, _ := pressKey(m, ctrlKey(tea.KeyCtrlS))
+			nm, openCmd := pressKey(m, ctrlKey(tea.KeyCtrlS))
+			if openCmd == nil || !nm.pickerOpen {
+				t.Fatal("terminal Ctrl+S did not open the destination picker")
+			}
+			nm, _ = pressKey(nm, tea.KeyMsg{Type: tea.KeyEscape})
 			if nm.savePrepared == nil || nm.savePrepared.Source != export.SaveFromLastExecution {
 				t.Fatalf("terminal fallback = %+v (%q)", nm.savePrepared, nm.saveNotice)
 			}

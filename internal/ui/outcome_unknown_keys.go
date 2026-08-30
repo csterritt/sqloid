@@ -71,7 +71,8 @@ func (m Model) handleTerminalOutcomeUnknownKey(msg tea.KeyMsg) (tea.Model, tea.C
 		// Ctrl+P/N-selected immutable query or the last actual execution —
 		// never from builder or viewed-result candidates — entirely in
 		// memory, with the exact no-target feedback and no picker.
-		return m.handleSQLSaveKey(), nil
+		next, cmd := m.handleSQLSaveKey()
+		return next, cmd
 	case "?":
 		// Reduced help opens only outside history browsing; its contents list its contents list
 		// just the actions available in this terminal state.

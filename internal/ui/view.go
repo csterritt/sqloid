@@ -41,6 +41,10 @@ func (m Model) View() string {
 		// the shell or start any database work.
 		if m.terminalState == TerminalOutcomeUnknown {
 			out := m.renderOutcomeUnknownTerminal()
+			if m.pickerOpen {
+				// Issue #52: the picker overlay also draws over terminal openers.
+				out = m.drawPickerOverlay(out)
+			}
 			if m.exportWarningsOpen {
 				// Issue #49: the export warning flow also draws over a terminal
 				// opener, before any destination selection or confirmation.
@@ -49,6 +53,9 @@ func (m Model) View() string {
 			return out
 		}
 		out := m.renderHealthTerminal()
+		if m.pickerOpen {
+			out = m.drawPickerOverlay(out)
+		}
 		if m.exportWarningsOpen {
 			out = m.drawExportWarningsOverlay(out)
 		}
@@ -63,6 +70,11 @@ func (m Model) View() string {
 		m.renderBuilder(m.Width, l.BuilderHeight),
 		m.renderFooter(m.Width),
 	}, "\n")
+	if m.pickerOpen {
+		// Issue #52: the destination picker draws over every context below
+		// the quit confirmation and never reflows any region.
+		out = m.drawPickerOverlay(out)
+	}
 	if m.quitConfirm {
 		// Issue #27: the shared quit confirmation draws over the shell and
 		// suspends the exact current context behind it.

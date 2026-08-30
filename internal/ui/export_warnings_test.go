@@ -264,9 +264,21 @@ func TestExportWarningFlowBeforeDestinationSelection(t *testing.T) {
 				t.Fatal("setup: flow did not reopen")
 			}
 			completed, cmd := pressKey(reopened, tea.KeyMsg{Type: tea.KeyEnter})
-			if cmd != nil {
-				t.Fatal("export completion issued a command")
+			// Issue #52: Enter now proceeds to the destination picker, whose
+			// start listing is issued as a command.
+			if cmd == nil || !completed.pickerOpen {
+				t.Fatal("export completion did not open the destination picker")
 			}
+			if completed.exportWarningsOpen || completed.exportPrepared == nil {
+				t.Fatal("completion mishandled the export flow context")
+			}
+			// Esc from the picker restores the exact opener — the intact
+			// export warning flow — before Esc closes that flow like before.
+			completed, _ = pressKey(completed, tea.KeyMsg{Type: tea.KeyEscape})
+			if !completed.exportWarningsOpen || completed.exportPrepared == nil {
+				t.Fatal("picker Esc did not restore the intact export flow")
+			}
+			completed, _ = pressKey(completed, tea.KeyMsg{Type: tea.KeyEscape})
 			if completed.exportWarningsOpen || completed.exportPrepared != nil {
 				t.Fatal("completion did not close the export flow")
 			}

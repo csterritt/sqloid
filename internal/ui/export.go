@@ -232,7 +232,12 @@ func warningOutcome(label, reason string, hasPosition bool, position int64) stri
 func (m Model) handleExportWarningsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		return m.completeExport(), nil
+		// Issue #52: Enter proceeds to destination selection. The picker
+		// snapshot is captured first, so Esc from the picker restores the
+		// intact warning flow with its opener untouched.
+		cmd := m.openPicker(pickerFlowExport, m.exportFormat)
+		m.exportWarningsOpen = false
+		return m, cmd
 	case "esc":
 		return m.cancelExport(), nil
 	}
@@ -250,7 +255,5 @@ func (m Model) cancelExport() Model {
 	return m
 }
 
-// completeExport is the successful-completion seam placeholder: the later
-// destination-selection issues own persistence, and completion restores the
-// exact opener exactly like cancellation.
-func (m Model) completeExport() Model { return m.cancelExport() }
+// Issue #52: on completion the destination picker restores the exact
+// opener exactly like cancellation; persistence is owned by later issues.

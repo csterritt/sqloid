@@ -14,7 +14,10 @@
 package ui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/chris/sqloid/internal/export"
+	"github.com/chris/sqloid/internal/filepicker"
 	qb "github.com/chris/sqloid/internal/querybuilder"
 )
 
@@ -93,16 +96,17 @@ func (m Model) sqlSaveInput() export.SQLSaveInput {
 // handleSQLSaveKey resolves one Ctrl+S press entirely in memory. A failed
 // resolution records exactly NoRunnableQueryFeedback, opens no picker, and
 // prepares nothing; a successful resolution records the immutable complete
-// query state as the prepared save target without starting validation,
-// serialization, or any database work.
-func (m Model) handleSQLSaveKey() Model {
+// query state and opens the Issue #52 destination picker at the process
+// working directory, without starting validation, serialization, or any
+// database work.
+func (m Model) handleSQLSaveKey() (Model, tea.Cmd) {
 	target, err := export.ResolveSQLSaveTarget(m.sqlSaveInput())
 	if err != nil {
 		m.saveNotice = export.ErrNoRunnableQuery.Error()
 		m.savePrepared = nil
-		return m
+		return m, nil
 	}
 	m.saveNotice = ""
 	m.savePrepared = &target
-	return m
+	return m, m.openPicker(pickerFlowSave, filepicker.FormatSQL)
 }

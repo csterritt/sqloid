@@ -13,6 +13,7 @@ import (
 
 	"github.com/chris/sqloid/internal/connection"
 	"github.com/chris/sqloid/internal/export"
+	"github.com/chris/sqloid/internal/filepicker"
 	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
 	"github.com/chris/sqloid/internal/result"
@@ -335,6 +336,25 @@ type Model struct {
 	exportWarnings     []string
 	exportWarningsOpen bool
 
+	// Save/export destination picker state (Issue #52): pickerOpen marks the
+	// open picker overlay; picker is the UI-independent filepicker.Model;
+	// pickerFlowKind records which opener owns it; pickerSuspended the exact
+	// opener snapshot restored atomically on Esc or completion;
+	// exportFormat the closed CSV/JSON save format the export picker uses;
+	// saveCompletedPath/exportCompletedPath the verified destinations a
+	// successful completion handed back (persistence is owned by later
+	// issues). PickerFS and PickerStart are test seams for the fake
+	// filesystem boundary: nil/empty mean the real filesystem and os.Getwd.
+	pickerOpen          bool
+	picker              filepicker.Model
+	pickerFlowKind      pickerFlow
+	pickerSuspended     *Model
+	exportFormat        filepicker.Format
+	saveCompletedPath   string
+	exportCompletedPath string
+	PickerFS            filepicker.FS
+	PickerStart         string
+
 	// Active-SELECT lifetime state (Issue #34), kept distinct from request
 	// identity: selectActive reports the active lifetime (not any request's
 	// flight), activeExecID the owning execution ID, and finalizedExecID the
@@ -410,6 +430,7 @@ func New() Model {
 		QB:            q,
 		Focus:         0,
 		ResultHistory: history.NewResultStore(),
+		exportFormat:  filepicker.FormatCSV,
 	}
 }
 
@@ -480,6 +501,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.writeCancelling = true
 		}
 		return m, nil
+	case PickerListMsg:
+		// Issue #52: the picker consumes its own directory listing response.
+		// Stale attempts are inert inside Apply.
+		if m.pickerOpen {
+			m.picker.Apply(filepicker.ListedMsg{Path: msg.Path, Attempt: msg.Attempt, Dirs: msg.Dirs, Err: msg.Err})
+			return m, nil
+		}
+	case PickerVerifyMsg:
+		if m.pickerOpen {
+			m.picker.ApplyVerified(filepicker.VerifiedMsg{Path: msg.Path, Attempt: msg.Attempt, Err: msg.Err})
+			if path, done := m.picker.Completed(); done {
+				return m.pickerRestore(path), nil
+			}
+			return m, nil
+		}
 	case tea.WindowSizeMsg:
 		next := m.resize(msg.Width, msg.Height)
 		// Issue #32: a visible resize (including suspension restoration) also
@@ -792,6 +828,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.exportWarningsOpen {
 			return m.handleExportWarningsKey(msg)
 		}
+		if m.pickerOpen {
+			// Issue #52: the picker overlay also serves terminal openers.
+			return m.handlePickerKey(msg)
+		}
 		// A terminal classification ended the session: no key may open
 		// popups, move builder state, or start any further database work.
 		// Issues #45 and #46: the terminal states own their reduced in-memory
@@ -806,6 +846,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Issue #49: the pre-destination export warning flow consumes every
 		// key until resolved, exactly like the other top overlays.
 		return m.handleExportWarningsKey(msg)
+	}
+	if m.pickerOpen {
+		// Issue #52: the destination picker is the top overlay above every
+		// other context; it consumes all keys until Esc or completion.
+		return m.handlePickerKey(msg)
 	}
 	if m.quitConfirm {
 		// Issue #27: the shared quit confirmation sits above every other
@@ -920,8 +965,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "ctrl+s":
 		// Issue #48: query save targeting resolves entirely from immutable
-		// in-memory state; no request or validation can start here.
-		return m.handleSQLSaveKey(), nil
+		// in-memory state; no request or validation can start here. Issue
+		// #52: success opens the destination picker at the working directory.
+		return m.handleSQLSaveKey()
 	case "ctrl+x":
 		// Issue #49: export targeting and capture resolve entirely from
 		// immutable in-memory state; pending requests were consumed by the
