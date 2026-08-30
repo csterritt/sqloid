@@ -66,8 +66,14 @@ func (m Model) handleTerminalOutcomeUnknownKey(msg tea.KeyMsg) (tea.Model, tea.C
 		}
 		m.adjustScroll()
 		return m, nil
+	case "ctrl+s":
+		// Issue #48: terminal save targeting resolves only from the
+		// Ctrl+P/N-selected immutable query or the last actual execution —
+		// never from builder or viewed-result candidates — entirely in
+		// memory, with the exact no-target feedback and no picker.
+		return m.handleSQLSaveKey(), nil
 	case "?":
-		// Reduced help opens only outside history browsing; its contents list
+		// Reduced help opens only outside history browsing; its contents list its contents list
 		// just the actions available in this terminal state.
 		if !m.historyMode && !m.resultHistoryMode {
 			m.terminalHelpOpen = !m.terminalHelpOpen

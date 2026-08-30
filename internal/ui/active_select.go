@@ -178,6 +178,7 @@ func (m *Model) appendFinalizedResultEntry() {
 			Reason:       reason,
 			Metadata:     meta,
 			Completeness: history.Classify(meta, traversal),
+			QueryEntryID: m.lastExecQueryEntryID,
 		})
 		return
 	}
@@ -188,6 +189,7 @@ func (m *Model) appendFinalizedResultEntry() {
 		Rows:         rows,
 		Metadata:     meta,
 		Completeness: history.Classify(meta, traversal),
+		QueryEntryID: m.lastExecQueryEntryID,
 	})
 }
 

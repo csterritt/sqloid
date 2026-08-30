@@ -248,6 +248,10 @@ func (m Model) renderFooter(width int) string {
 	case m.historyNotice != "":
 		// Issue #35: the exact eviction feedback replaces the default hints.
 		text = " " + m.historyNotice + " "
+	case m.saveNotice != "":
+		// Issue #48: the exact Ctrl+S no-target feedback replaces the
+		// default hints; no picker opened and nothing serialized.
+		text = " " + m.saveNotice + " "
 	case m.inFlightNotice != "":
 		text = " " + m.inFlightNotice + " "
 	}

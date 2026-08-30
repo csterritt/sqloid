@@ -221,6 +221,7 @@ func (m *Model) applyWriteSettled(msg WriteSettledMsg) {
 		ExecutionID:  msg.Execution,
 		Kind:         history.KindWrite,
 		SQL:          m.writeSQL,
+		QueryEntryID: m.lastExecQueryEntryID,
 		Summary:      history.WriteSummary(m.writeOperation, status, msg.Result.RowsAffected, msg.Result.RollbackConfirmed, cause),
 		RowsAffected: msg.Result.RowsAffected,
 	})
@@ -256,9 +257,11 @@ func (m Model) writePhaseStatus() string {
 func (m *Model) beginConfirmedWrite(msg WriteConfirmedMsg) tea.Cmd {
 	m.exitHistoryMode()
 	m.exitResultHistoryMode()
-	if m.History != nil {
-		m.History.AppendExecution(m.QB.HistoryState())
-	}
+	// Issue #48: record the appended entry's stable ID (or the identical
+	// retained entry under consecutive-identical suppression) as this write's
+	// query association, driving both the finalized entry's link and the
+	// last-execution Ctrl+S fallback.
+	m.lastExecQueryEntryID = m.appendExecutionQueryHistory()
 	params := []any(nil)
 	switch m.QB.Command() {
 	case qb.CommandUpdate:
@@ -319,6 +322,7 @@ func (m *Model) finalizeOutcomeUnknown(msg WriteSettledMsg) {
 		Operation:    m.writeOperation,
 		Table:        m.writeTable,
 		SQL:          m.writeSQL,
+		QueryEntryID: m.lastExecQueryEntryID,
 		Phase:        phase,
 		Summary:      history.WriteUnknownSummary(m.writeOperation, phase, cause, msg.Result.RowsAffected, rowsKnown),
 		RowsAffected: msg.Result.RowsAffected,

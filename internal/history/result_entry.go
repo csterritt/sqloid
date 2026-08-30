@@ -92,6 +92,13 @@ type ResultEntry struct {
 	Operation    string
 	Table        string
 	Phase        UnknownPhase
+	// QueryEntryID is the stable ID of the query-history entry (Issue #20)
+	// whose complete immutable state was this execution's input; zero when no
+	// such entry exists (no wired history store, or an append suppressed with
+	// no retained entry). It lets Ctrl+S save targeting resolve the viewed
+	// result's query from immutable history identity rather than any rendered
+	// text (Issue #48).
+	QueryEntryID EntryID
 }
 
 // ResultStore is the in-memory result-history list of finalized SELECT

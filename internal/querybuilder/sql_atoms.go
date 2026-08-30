@@ -193,3 +193,46 @@ func (p Predicate) Params() []any {
 	}
 	return []any{p.value.ParamValue()}
 }
+
+// QuoteIdentifier returns the canonical Issue #14 SQL identifier atom: one
+// double-quoted atom with each embedded double quote doubled. Exporters must
+// quote every identifier through this single canonical atom — never through
+// a private re-implementation — so standalone serialization and ordinary
+// builder rendering quote identically.
+func QuoteIdentifier(atom string) string {
+	return quoteIdentifierAtom(atom)
+}
+
+// HistoryOrderExpression renders the ORDER BY expression identified by one
+// HistoryState.OrderExpression key. The key is this package's reserved
+// identity encoding, so only this package can decode it; unknown or
+// out-of-range keys return a typed error rather than arbitrary text. Every
+// identifier and aggregate token renders through Issue #14's canonical
+// atoms.
+func HistoryOrderExpression(key string) (string, error) {
+	switch {
+	case key == "order-count-star":
+		return "COUNT(*)", nil
+	case strings.HasPrefix(key, "order-aggregate:"):
+		rest := strings.TrimPrefix(key, "order-aggregate:")
+		i := strings.LastIndex(rest, ":")
+		if i < 0 {
+			return "", fmt.Errorf("unresolved aggregate order key %q", key)
+		}
+		col, token := rest[:i], rest[i+1:]
+		for _, agg := range []Aggregate{AggCount, AggMin, AggMax, AggAvg, AggSum} {
+			if tok, err := agg.SQLToken(); err == nil && tok == strings.ToUpper(token) {
+				exprTok, err := agg.SQLToken()
+				if err != nil {
+					return "", err
+				}
+				return exprTok + "(" + quoteIdentifierAtom(col) + ")", nil
+			}
+		}
+		return "", fmt.Errorf("unresolved aggregate in order key %q", key)
+	case strings.HasPrefix(key, "order-column:"):
+		return quoteIdentifierAtom(strings.TrimPrefix(key, "order-column:")), nil
+	default:
+		return "", fmt.Errorf("unresolved order expression %q", key)
+	}
+}

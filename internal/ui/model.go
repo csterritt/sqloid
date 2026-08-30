@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chris/sqloid/internal/connection"
+	"github.com/chris/sqloid/internal/export"
 	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
 	"github.com/chris/sqloid/internal/result"
@@ -312,6 +313,18 @@ type Model struct {
 	resultHistoryView     *ResultView
 	resultHistoryNotice   string
 
+	// Query save targeting (Issue #48): lastExecQueryEntryID is the stable
+	// query-history entry backing the most recent actual execution, recorded
+	// at every execution start and used both to associate that execution's
+	// finalized result entry with its query and as the last-execution Ctrl+S
+	// fallback. savePrepared holds the immutable complete query state a
+	// successful Ctrl+S resolution prepared for the picker flow (owned by
+	// later issues; no filesystem behavior exists here), and saveNotice holds
+	// the exact failed-resolution feedback. Both are set only in memory.
+	lastExecQueryEntryID history.EntryID
+	saveNotice           string
+	savePrepared         *export.SQLSaveTarget
+
 	// Active-SELECT lifetime state (Issue #34), kept distinct from request
 	// identity: selectActive reports the active lifetime (not any request's
 	// flight), activeExecID the owning execution ID, and finalizedExecID the
@@ -519,14 +532,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// result-history selection and stale displayed rows clear before the
 		// execution and its Issue #34 finalization proceed. Issue #42: a
 		// runnable INSERT's dispatch is its sole actual transactional write;
-		// SELECT continues to its concurrent page/count lifecycle.
+		// SELECT continues to its concurrent page/count lifecycle. Issue #48:
+		// the appended entry's stable ID is recorded only after the previous
+		// active SELECT has finalized (inside startSelectPage), so the
+		// previous snapshot associates with its own query-history entry.
 		m.exitHistoryMode()
 		m.exitResultHistoryMode()
-		m.appendQueryHistoryAtExecutionStart()
+		queryID := m.appendQueryHistoryAtExecutionStart()
+		var execCmd tea.Cmd
 		if m.QB.Command() == qb.CommandInsert {
-			return m, m.startWrite(result.NextWriteExecutionID(), "INSERT", m.QB.InsertSQL(), m.QB.InsertParams())
+			execCmd = m.startWrite(result.NextWriteExecutionID(), "INSERT", m.QB.InsertSQL(), m.QB.InsertParams())
+		} else {
+			execCmd = m.startSelectPage()
 		}
-		return m, m.startSelectPage()
+		m.lastExecQueryEntryID = queryID
+		return m, execCmd
 	case SelectSettledMsg:
 		// Issues #24 and #26: a page completion mutates active state only when
 		// its SELECT execution ID and first-page request ID match the current
@@ -875,6 +895,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.ActiveCancellable && m.CancelCommand != nil {
 			return m, m.CancelCommand
 		}
+	case "ctrl+s":
+		// Issue #48: query save targeting resolves entirely from immutable
+		// in-memory state; no request or validation can start here.
+		return m.handleSQLSaveKey(), nil
 	case "ctrl+p", "ctrl+n":
 		// Issue #35: entering query-history browsing from the base context
 		// selects the newest retained entry; with no retained entries the key
@@ -1036,21 +1060,37 @@ type ExecutionStartedMsg struct{}
 
 // appendQueryHistoryAtExecutionStart appends the current normalized builder
 // state to the query-history store through the single append entry point,
-// which suppresses consecutive-identical states without allocating an ID.
+// which suppresses consecutive-identical states without allocating an ID. It
+// returns the stable query-history entry backing this execution: the
+// appended entry's ID, or the newest retained entry when the append was
+// suppressed (that entry carries the identical state and is the same query).
 // SELECT and INSERT append here; UPDATE and DELETE append only at their
-// confirmation-driven write start, which no implemented flow can emit yet, so
-// those commands never append through this seam. A nil store is an unchanged
-// no-op. Failed execution outcomes arrive later and cannot undo the append.
-func (m *Model) appendQueryHistoryAtExecutionStart() {
+// confirmation-driven write start, which no implemented flow can emit yet,
+// so those commands never append through this seam. A nil store is an
+// unchanged no-op. Failed execution outcomes arrive later and cannot undo
+// the append. Issue #48: callers record the returned ID as the execution's
+// association only after any previous execution has finalized.
+func (m *Model) appendQueryHistoryAtExecutionStart() history.EntryID {
 	if m.History == nil {
-		return
+		return 0
 	}
 	switch m.QB.Command() {
 	case qb.CommandSelect, qb.CommandInsert:
-		m.History.AppendExecution(m.QB.HistoryState())
+		id, ok := m.History.AppendExecution(m.QB.HistoryState())
+		if ok {
+			return id
+		}
+		// Consecutive-identical suppression: the newest retained entry
+		// carries exactly this execution's state and is the same query, so
+		// it backs this execution's association and last-execution targeting.
+		if newest, ok := m.History.Newest(); ok {
+			return newest.ID
+		}
+		return 0
 	default:
 		// UPDATE/DELETE: confirmation begins the sole actual write (Issues
 		// #37/#38); estimation and dismissal append nothing.
+		return 0
 	}
 }
 

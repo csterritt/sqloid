@@ -128,3 +128,24 @@ func (m *Model) validateHistorySelection() {
 	}
 	m.historyNotice = HistoryEvictedNotice
 }
+
+// appendExecutionQueryHistory appends the current normalized builder state
+// through the Issue #20 AppendExecution seam and returns the stable
+// query-history entry backing this execution: the appended entry's ID, or —
+// when the consecutive-identical policy suppressed the append — the newest
+// retained entry, which carries exactly this execution's state and is the
+// same query. A nil store yields the none ID. Issue #48 uses the returned ID
+// as the execution's query association and its last-execution fallback.
+func (m *Model) appendExecutionQueryHistory() history.EntryID {
+	if m.History == nil {
+		return 0
+	}
+	id, ok := m.History.AppendExecution(m.QB.HistoryState())
+	if ok {
+		return id
+	}
+	if e, ok := m.History.Newest(); ok {
+		return e.ID
+	}
+	return 0
+}
