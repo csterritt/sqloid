@@ -399,8 +399,16 @@ func TestDestructivePreparationRetainsSuccessAndFailure(t *testing.T) {
 			t.Errorf("success lost SQL or warning:\n%s", view)
 		}
 		next, c := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		if c != nil || next.(Model).History.Len() != 0 {
-			t.Error("settled confirmation started work or appended history in this issue")
+		if c == nil {
+			t.Error("settled confirmation emitted no write command")
+		} else if msg := c(); func() bool {
+			_, ok := msg.(WriteConfirmedMsg)
+			return !ok
+		}() {
+			t.Errorf("settled confirmation produced %T, want WriteConfirmedMsg", msg)
+		}
+		if next.(Model).History.Len() != 0 {
+			t.Error("confirmation appended query history before execution start")
 		}
 	})
 
@@ -420,8 +428,16 @@ func TestDestructivePreparationRetainsSuccessAndFailure(t *testing.T) {
 			t.Errorf("failure lost SQL or showed a false warning:\n%s", view)
 		}
 		next, c := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		if c != nil || next.(Model).History.Len() != 0 {
-			t.Error("failed-estimate confirmation started work or appended history in this issue")
+		if c == nil {
+			t.Error("failed-estimate confirmation emitted no write command")
+		} else if msg := c(); func() bool {
+			_, ok := msg.(WriteConfirmedMsg)
+			return !ok
+		}() {
+			t.Errorf("failed-estimate confirmation produced %T, want WriteConfirmedMsg", msg)
+		}
+		if next.(Model).History.Len() != 0 {
+			t.Error("confirmation appended query history before execution start")
 		}
 	})
 }

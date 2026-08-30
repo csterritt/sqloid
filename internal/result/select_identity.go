@@ -18,10 +18,17 @@ import (
 var (
 	selectExecutionID atomic.Uint64
 	selectRequestID   atomic.Uint64
+	writeExecutionID  atomic.Uint64
 )
 
 // NextSelectExecutionID returns the next fresh, nonzero SELECT execution ID.
 func NextSelectExecutionID() uint64 { return selectExecutionID.Add(1) }
+
+// NextWriteExecutionID returns the next fresh, nonzero actual-write execution
+// ID (Issue #41). Write executions have their own monotonic identity space,
+// allocated only at deliberate confirmation, so a write execution ID never
+// collides with a SELECT execution, request, or preparation identity.
+func NextWriteExecutionID() uint64 { return writeExecutionID.Add(1) }
 
 // NextSelectRequestID returns the next fresh, nonzero role-specific request
 // ID for one of an execution's two concurrent requests.

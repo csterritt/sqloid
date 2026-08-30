@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	qb "github.com/chris/sqloid/internal/querybuilder"
+	"github.com/chris/sqloid/internal/result"
 )
 
 // DestructivePrepPendingStatus is the exact status rendered while the
@@ -60,6 +61,19 @@ type EstimateSettledMsg struct {
 // state before dispatching; the modal dismisses at true settlement.
 type CancelEstimateMsg struct{}
 
+// WriteConfirmedMsg is the deliberate-confirmation seam (Issue #41): one
+// message carrying the confirmed operation and the exact retained rendered
+// write statement, bound to the consumed preparation identity and the newly
+// allocated actual-write execution identity. Issue #42 owns consuming it for
+// transactional execution and the execution-start history seam; re-delivery
+// of an already-recorded execution identity is an inert no-op.
+type WriteConfirmedMsg struct {
+	Preparation uint64
+	Execution   uint64
+	Operation   string
+	SQL         string
+}
+
 // destructivePrepLines returns the modal's content lines: the operation and
 // table header, the canonical rendered write SQL, the retained estimate
 // state, and the prominent all-rows warning only when the statement has no
@@ -86,7 +100,11 @@ func (m Model) destructivePrepLines() []string {
 	default:
 		lines = append(lines, "Estimated matching target rows: "+strconv.Itoa(int(m.prepEstimate)))
 	}
-	lines = append(lines, "", "Esc/n dismisses — Enter/y confirmation disabled while estimating")
+	if m.prepConfirmationReady() {
+		lines = append(lines, "", "Enter/y confirms the write — Esc/n dismisses")
+	} else {
+		lines = append(lines, "", "Esc/n dismisses — Enter/y confirmation disabled while estimating")
+	}
 	return lines
 }
 
@@ -166,7 +184,7 @@ func (m *Model) beginPreparation() tea.Cmd {
 // retains the count and failure retains the cause — both preserving SQL,
 // warning, and the confirmation-ready seam for Issue #41.
 func (m *Model) applyEstimateSettled(msg EstimateSettledMsg) tea.Cmd {
-	if msg.Preparation != m.prepAttempt || msg.Preparation == 0 || m.terminalState != TerminalNone {
+	if msg.Preparation != m.prepAttempt || msg.Preparation == 0 || !m.prepPending || m.terminalState != TerminalNone {
 		return nil
 	}
 	m.prepPending = false
@@ -219,8 +237,55 @@ func (m *Model) requestEstimateCancellation() tea.Cmd {
 	return m.CancelCommand
 }
 
+// prepConfirmationReady reports whether the current preparation has settled
+// — successfully or in failure — with the modal still open. Only then does
+// Enter/y deliberately confirm the write; pending, cancelling, and dismissed
+// preparations never confirm.
+func (m Model) prepConfirmationReady() bool {
+	return m.prepOpen && !m.prepPending && !m.prepCancelling && m.prepSQL != ""
+}
+
+// confirmPreparation performs the exactly-once confirmation transition
+// (Issue #41): the first accepted Enter/y from a settled preparation closes
+// it through its authoritative dismissal and emits one command producing a
+// WriteConfirmedMsg carrying the retained operation and rendered statement
+// bound to the consumed preparation identity and a fresh actual-write
+// execution identity from the dedicated write identity space. Pending,
+// cancelling, and dismissed preparations reject confirmation; the execution
+// identity is allocated here and never re-used, so duplicate keys or
+// messages can never start a second write.
+func (m *Model) confirmPreparation() tea.Cmd {
+	if !m.prepConfirmationReady() || m.terminalState != TerminalNone {
+		return nil
+	}
+	m.writeAttempt++
+	preparation := m.prepAttempt
+	operation, sql := m.prepOperation, m.prepSQL
+	m.dismissPreparation()
+	return func() tea.Msg {
+		return WriteConfirmedMsg{
+			Preparation: preparation,
+			Execution:   result.NextWriteExecutionID(),
+			Operation:   operation,
+			SQL:         sql,
+		}
+	}
+}
+
+// applyWriteConfirmed records the execution identity of one delivered
+// confirmation. The preparation has already closed, so no key can confirm
+// again; a duplicate or stale delivery is an inert no-op that can neither
+// re-open anything nor touch history.
+func (m *Model) applyWriteConfirmed(msg WriteConfirmedMsg) {
+	if msg.Execution == 0 || msg.Execution <= m.confirmedExecution {
+		return
+	}
+	m.confirmedExecution = msg.Execution
+}
+
 // handlePreparationKey consumes one key press while the modal is open.
-// Enter/y stay consumed no-ops until Issue #41's confirmation seam; Esc/n
+// Enter/y confirm only from a settled success or settled failure (Issue
+// #41); pending and cancelling preparations keep them consumed no-ops. Esc/n
 // dismisses; everything else is inert so builder state cannot leak through
 // the modal.
 func (m *Model) handlePreparationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -231,8 +296,12 @@ func (m *Model) handlePreparationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "n":
 		m.dismissPreparation()
 		return *m, nil
+	case "enter", "y":
+		if cmd := m.confirmPreparation(); cmd != nil {
+			return *m, cmd
+		}
+		return *m, nil
 	default:
-		// Pending and settled alike: confirmation is disabled in this issue.
 		return *m, nil
 	}
 }

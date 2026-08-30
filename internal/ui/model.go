@@ -232,6 +232,15 @@ type Model struct {
 	prepEstimate   int64
 	prepErr        string
 
+	// Deliberate confirmation state (Issue #41): writeAttempt is the
+	// monotonic actual-write execution identity, allocated only at the
+	// exactly-once confirmation transition and always distinct from the
+	// preparation identity; confirmedExecution is the execution identity of
+	// the most recently delivered WriteConfirmedMsg, so duplicate or stale
+	// deliveries stay inert.
+	writeAttempt       uint64
+	confirmedExecution uint64
+
 	// History owns the session-only query-history store (Issue #20). Nil
 	// means no history is wired; execution-start appends then no-op. Append
 	// happens only through the ExecutionStartedMsg seam — never during
@@ -405,6 +414,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.applyEstimateSettled(msg)
 		m.adjustScroll()
 		return m, cmd
+	case WriteConfirmedMsg:
+		// Issue #41: one delivered deliberate confirmation. The preparation
+		// already closed, so this only records the execution identity; Issue
+		// #42 owns the actual transactional write this message represents.
+		m.applyWriteConfirmed(msg)
+		return m, nil
 	case CancelEstimateMsg:
 		// Same settling handoff as validation cancellation: the estimate
 		// settles through its own response; the modal dismisses there.
