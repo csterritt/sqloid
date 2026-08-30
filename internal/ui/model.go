@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/chris/sqloid/internal/connection"
 	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
 	"github.com/chris/sqloid/internal/result"
@@ -241,6 +242,27 @@ type Model struct {
 	writeAttempt       uint64
 	confirmedExecution uint64
 
+	// Actual transactional write lifecycle (Issue #42): Write performs the
+	// sole phased write through the Connection boundary inside a tea.Cmd;
+	// writeExecution/writeOperation/writeSQL retain the execution identity,
+	// operation, and executed standalone SQL from the execution-start boundary
+	// through finalization; writePending/writeCancelling/writePhase carry the
+	// visible lifecycle; writeFinalized is the exactly-once finalization flag;
+	// writePhases relays typed connection phases through Update and
+	// writeCancel is the scoped cancellation handle retired at the commit
+	// boundary. Duplicate, late, and stale phase or outcome messages are
+	// inert; post-boundary interaction rendering stays with Issue #43.
+	Write           WriteExecutor
+	writeExecution  uint64
+	writeOperation  string
+	writeSQL        string
+	writePending    bool
+	writeCancelling bool
+	writePhase      connection.WritePhase
+	writeFinalized  bool
+	writePhases     chan connection.WritePhaseMsg
+	writeCancel     context.CancelFunc
+
 	// History owns the session-only query-history store (Issue #20). Nil
 	// means no history is wired; execution-start appends then no-op. Append
 	// happens only through the ExecutionStartedMsg seam — never during
@@ -375,6 +397,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.validateResultHistorySelection()
 	}
 	switch msg := msg.(type) {
+	case connection.WritePhaseMsg:
+		cmd := m.applyWritePhase(msg)
+		m.adjustScroll()
+		return m, cmd
+	case WriteSettledMsg:
+		m.applyWriteSettled(msg)
+		m.adjustScroll()
+		return m, nil
+	case WriteCancelRequestedMsg:
+		// The scoped cancellation closure dispatched the interrupt request
+		// before this delivery; visible cancelling state holds until the
+		// write settles through rollback cleanup or commit. Only a still-
+		// pending cancellable write consumes the message; a late delivery is
+		// an inert no-op.
+		if m.writePending && m.ActiveCancellable {
+			m.writeCancelling = true
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		next := m.resize(msg.Width, msg.Height)
 		// Issue #32: a visible resize (including suspension restoration) also
@@ -415,11 +455,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 		return m, cmd
 	case WriteConfirmedMsg:
-		// Issue #41: one delivered deliberate confirmation. The preparation
-		// already closed, so this only records the execution identity; Issue
-		// #42 owns the actual transactional write this message represents.
-		m.applyWriteConfirmed(msg)
-		return m, nil
+		// Issue #42: one delivered deliberate confirmation begins the sole
+		// actual write — exiting either history first, appending the complete
+		// query state at execution start, and dispatching the transactional
+		// write of the retained rendered statement. Duplicate or stale
+		// deliveries stay inert no-ops that start nothing and append nothing.
+		var cmd tea.Cmd
+		if m.applyWriteConfirmed(msg) {
+			cmd = m.beginConfirmedWrite(msg)
+		}
+		m.adjustScroll()
+		return m, cmd
 	case CancelEstimateMsg:
 		// Same settling handoff as validation cancellation: the estimate
 		// settles through its own response; the modal dismisses there.
@@ -429,10 +475,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// current restored-and-possibly-edited builder state as the execution
 		// input, then runs the unchanged Issue #20 append seam. Issue #36:
 		// result-history selection and stale displayed rows clear before the
-		// execution and its Issue #34 finalization proceed.
+		// execution and its Issue #34 finalization proceed. Issue #42: a
+		// runnable INSERT's dispatch is its sole actual transactional write;
+		// SELECT continues to its concurrent page/count lifecycle.
 		m.exitHistoryMode()
 		m.exitResultHistoryMode()
 		m.appendQueryHistoryAtExecutionStart()
+		if m.QB.Command() == qb.CommandInsert {
+			return m, m.startWrite(result.NextWriteExecutionID(), "INSERT", m.QB.InsertSQL(), m.QB.InsertParams())
+		}
 		return m, m.startSelectPage()
 	case SelectSettledMsg:
 		// Issues #24 and #26: a page completion mutates active state only when
@@ -927,4 +978,27 @@ func (m *Model) appendQueryHistoryAtExecutionStart() {
 		// UPDATE/DELETE: confirmation begins the sole actual write (Issues
 		// #37/#38); estimation and dismissal append nothing.
 	}
+}
+
+// handleWriteMsg routes the typed Issue #42 write lifecycle messages. Phase
+// messages update retained state and keep the relay alive; a settled message
+// finalizes exactly one result entry; a cancellation-requested message marks
+// visible cancelling state until rollback cleanup or commit resolves it.
+func (m Model) handleWriteMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case connection.WritePhaseMsg:
+		if msg.Phase == connection.WritePhaseBeginning || msg.Phase == connection.WritePhaseExecuting {
+			m.writePhase = msg.Phase
+		}
+		return m, m.applyWritePhase(msg), true
+	case WriteSettledMsg:
+		m.applyWriteSettled(msg)
+		return m, nil, true
+	case WriteCancelRequestedMsg:
+		if m.writePending && m.ActiveCancellable {
+			m.writeCancelling = true
+		}
+		return m, nil, true
+	}
+	return m, nil, false
 }

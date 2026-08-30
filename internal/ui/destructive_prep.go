@@ -273,14 +273,16 @@ func (m *Model) confirmPreparation() tea.Cmd {
 }
 
 // applyWriteConfirmed records the execution identity of one delivered
-// confirmation. The preparation has already closed, so no key can confirm
-// again; a duplicate or stale delivery is an inert no-op that can neither
-// re-open anything nor touch history.
-func (m *Model) applyWriteConfirmed(msg WriteConfirmedMsg) {
+// confirmation and reports whether it was fresh: the preparation has already
+// closed, so no key can confirm again; a duplicate or stale delivery is an
+// inert no-op that can neither re-open anything, touch history, nor start a
+// second write.
+func (m *Model) applyWriteConfirmed(msg WriteConfirmedMsg) bool {
 	if msg.Execution == 0 || msg.Execution <= m.confirmedExecution {
-		return
+		return false
 	}
 	m.confirmedExecution = msg.Execution
+	return true
 }
 
 // handlePreparationKey consumes one key press while the modal is open.

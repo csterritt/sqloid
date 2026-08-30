@@ -165,6 +165,16 @@ func (r *Request) State() RequestState {
 	}
 }
 
+// CancelRequested reports whether Cancel was requested at any point so far,
+// including after settlement. The phased write transaction (Issue #42) reads
+// this flag once, atomically, immediately before starting COMMIT so a
+// cancellation arriving after a successful statement still wins over commit.
+func (r *Request) CancelRequested() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cancelled
+}
+
 // Settled reports whether the request reached its terminal classification.
 func (r *Request) Settled() bool {
 	r.mu.Lock()

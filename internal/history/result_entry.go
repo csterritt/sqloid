@@ -31,6 +31,11 @@ const (
 	// KindError marks the non-tabular error entry created when the first page
 	// failed before any row was retained.
 	KindError
+	// KindWrite marks the non-tabular write summary entry created when one
+	// transactional write (Issue #42) resolved to a definite outcome. Summary
+	// carries the exact operation-appropriate label and SQL the executed
+	// standalone statement.
+	KindWrite
 )
 
 // String renders the result-kind name for tests and diagnostics.
@@ -42,6 +47,8 @@ func (k ResultKind) String() string {
 		return "cancelled"
 	case KindError:
 		return "error"
+	case KindWrite:
+		return "write"
 	default:
 		return fmt.Sprintf("ResultKind(%d)", int(k))
 	}
@@ -52,13 +59,16 @@ func (k ResultKind) String() string {
 // retained entry first; surviving IDs are never changed.
 const ResultCapacity = 20
 
-// ResultEntry is one immutable finalized SELECT snapshot. For KindTabular,
+// ResultEntry is one immutable finalized snapshot. For KindTabular,
 // Columns and Rows carry the captured rows in ascending logical position
 // order with their Issue #33 Metadata and Completeness classification; Rows
 // is freshly copied at append, so later caller or source mutation can never
 // alter the retained data. For KindCancelled and KindError, Reason carries
-// the verbatim cancellation or failure reason and Rows is empty. ExecutionID
-// records the one execution this entry belongs to.
+// the verbatim cancellation or failure reason and Rows is empty. For
+// KindWrite, Summary carries the exact write summary label, SQL carries the
+// executed standalone statement, and RowsAffected carries the actual
+// statement count (never an estimate) for later Issue #45 re-labeling.
+// ExecutionID records the one execution this entry belongs to.
 type ResultEntry struct {
 	ID           EntryID
 	ExecutionID  uint64
@@ -68,6 +78,9 @@ type ResultEntry struct {
 	Metadata     SnapshotMetadata
 	Completeness Completeness
 	Reason       string
+	SQL          string
+	Summary      string
+	RowsAffected int64
 }
 
 // ResultStore is the in-memory result-history list of finalized SELECT

@@ -109,6 +109,10 @@ Paged-page SELECT execution, documented in [serialized-vertical-paging.md](seria
 
 Externally cancellable started-request handles for SELECT page and count work, documented in [scoped-select-cancellation.md](scoped-select-cancellation.md): `StartFirstPage`/`StartPage`/`StartCount` each lease a dedicated connection, begin an Issue #6 `Request`, and run the statement in a separate goroutine so cancellation is requested from another goroutine; `Cancel` is idempotent and connection-scoped, the lease releases only at true settlement, `Wait`/`SettledChan` expose terminal classification, lease-acquisition failure pre-settles as failed, and every result flows through the Issue #6/#7 classification unchanged. Statements stay owned by the QueryBuilder rendering seam.
 
+### internal/connection/write.go (Issue #42)
+
+The phased transactional write documented in [transactional-writes.md](transactional-writes.md): `StartWrite(parent, execution, statement, params)` runs one confirmed UPDATE/DELETE or one runnable INSERT as one request on one dedicated leased connection — exactly one pre-BEGIN identity check (via `Lease`), BEGIN through `conn.BeginTx`, the sole statement execution, the atomic post-statement pre-COMMIT cancellation check (`Request.CancelRequested`) that wins over commit, noncancellable rollback cleanup or commit, and settlement with lease release. Typed `WritePhase` (`beginning`/`executing`/`rollback-cleanup`/`committing`), `WriteOutcome`, and `WriteResult{Outcome, RowsAffected, Err, Health, RollbackConfirmed}` messages stream to the UI; constraint and trigger failures participate in the same transaction and preserve their native causes; no result reports untouched without confirmed rollback.
+
 ### internal/connection/estimate.go (Issue #40)
 
 The independent destructive matching-target estimate documented in [destructive-preparation.md](destructive-preparation.md): `ExecuteEstimate(parent, statement, params)` runs exactly the querybuilder rendering seam's `SELECT COUNT(*) FROM <quoted target> [WHERE <identical predicate>]` once as a complete cancellable `RunRequest` on its own leased connection and returns the counted total with the standard request-result classification (health, cancellation) — it never executes the destructive write, appends nothing, and opens no transaction.
@@ -236,6 +240,10 @@ Complete UPDATE prompt integration documented in [update-assignment-builder.md](
 ### internal/ui/value_input.go (Issues #17 and #37)
 
 The universal value-entry prompt consumed by the WHERE flow: `ValuePrompt` keeps entered text verbatim in a rune buffer with an insertion cursor (runes append/left/right/home/end/backspace/delete/ctrl+u) and hands the exact buffer to the owning feature's hook on Enter while Esc is owned by the model's cancel path. Prompt lines render the labeled buffer row with a reversed cursor cell (never color-only), the caller-supplied inline hint, contextual help lines, and the fixed `Enter submits · Esc cancels` footer; parsing stays entirely inside QueryBuilder so typed `NULL` and empty input remain TEXT by construction.
+
+### internal/ui/write_exec.go (Issue #42)
+
+The transactional write orchestration documented in [transactional-writes.md](transactional-writes.md): the `WriteExecutor` seam running the connection boundary's phased write inside a tea.Cmd with a phase-relay command; `WriteSettledMsg`/`WriteCancelRequestedMsg`; `startWrite` recording execution identity, operation, and executed standalone SQL for finalization; `beginConfirmedWrite` (confirmed UPDATE/DELETE execution start: exit both histories, append the complete query state subject only to suppression, dispatch the retained rendered statement with SET-then-WHERE params) and the INSERT dispatch branch in `Update`'s `ExecutionStartedMsg` case; `applyWritePhase` retiring cancellation ownership at the rollback-cleanup/committing boundary; and `applyWriteSettled` finalizing exactly one immutable non-tabular `history.KindWrite` entry carrying the executed SQL and the `history.WriteSummary` label with the actual `RowsAffected()` — duplicate, late, and stale messages inert.
 
 ### internal/ui/destructive_prep.go and internal/ui/model.go preparation state (Issues #40–#41)
 

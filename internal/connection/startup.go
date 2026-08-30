@@ -168,6 +168,15 @@ type DB struct {
 	// control flow leaves both nil and never reads them elsewhere.
 	beforeFirstPage, beforeCount func(ctx context.Context, conn *sql.Conn)
 
+	// beforeWriteBegin, beforeWriteExec, beforeWriteCommit, and
+	// beforeWriteRollback are test-only barrier seams for the Issue #42
+	// transactional-write suite: when non-nil, each is invoked inside one
+	// StartWrite request after its phase message is emitted and before the
+	// next transaction step runs, so tests can hold every transition with
+	// channel barriers and request cancellation at a deterministic point.
+	// Production control flow leaves all four nil and never reads them.
+	beforeWriteBegin, beforeWriteExec, beforeWriteCommit, beforeWriteRollback func(ctx context.Context, conn *sql.Conn)
+
 	// identityChecks counts VerifyHealth invocations so tests can prove the
 	// exactly-one-pre-BEGIN-check contract for phased writes without hooks;
 	// reading it is test observability of the boundary, not production state.

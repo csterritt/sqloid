@@ -161,8 +161,14 @@ func TestSettledEstimatesEnableConfirmation(t *testing.T) {
 				if nm.writeAttempt != 1 {
 					t.Errorf("%v writeAttempt = %d, want exactly 1", key, nm.writeAttempt)
 				}
-				if nm.History.Len() != 0 || nm.ResultHistory.Len() != 0 {
-					t.Errorf("%v confirmation appended query or result history", key)
+				if nm.History == nil || nm.History.Len() != 1 || nm.ResultHistory.Len() != 0 {
+					t.Errorf("%v confirmation did not append exactly one query-history entry and no result entry (history=%d, results=%d)", key, nm.History.Len(), nm.ResultHistory.Len())
+				}
+				if nm.History != nil {
+					entries := nm.History.Entries()
+					if state := entries[len(entries)-1].State; !state.Equal(nm.QB.HistoryState()) {
+						t.Errorf("%v confirmation appended an incomplete query state", key)
+					}
 				}
 			}
 		})
@@ -272,8 +278,8 @@ func TestConfirmationIsExactlyOnce(t *testing.T) {
 			t.Errorf("replay %q mutated writeAttempt/confirmedExecution = %d/%d", rp.name, nm.writeAttempt, nm.confirmedExecution)
 		}
 	}
-	if nm.History.Len() != 0 || nm.ResultHistory.Len() != 0 {
-		t.Error("replayed messages appended query or result history")
+	if nm.History == nil || nm.History.Len() != 1 || nm.ResultHistory.Len() != 0 {
+		t.Errorf("replays did not retain exactly the one execution-start query entry and no result entry (history=%d, results=%d)", nm.History.Len(), nm.ResultHistory.Len())
 	}
 }
 
