@@ -1,4 +1,4 @@
-## Issue 73: Classify permission-denied stat failures as unreadable
+## Issue 58: Classify permission-denied stat failures as unreadable
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

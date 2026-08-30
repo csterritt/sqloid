@@ -1,4 +1,4 @@
-## Issue 75: Classify cancellation before lease acquisition correctly
+## Issue 60: Classify cancellation before lease acquisition correctly
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

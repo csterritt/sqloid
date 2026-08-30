@@ -1,4 +1,4 @@
-## Issue 79: Pass the leased connection to the rollback test hook
+## Issue 62: Pass the leased connection to the rollback test hook
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

@@ -1,4 +1,4 @@
-## Issue 83: Remove the unused rowid enum value
+## Issue 84: Remove the unused rowid enum value
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

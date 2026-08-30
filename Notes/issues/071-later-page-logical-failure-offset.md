@@ -1,4 +1,4 @@
-## Issue 59: Preserve absolute logical positions for later-page failures
+## Issue 71: Preserve absolute logical positions for later-page failures
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

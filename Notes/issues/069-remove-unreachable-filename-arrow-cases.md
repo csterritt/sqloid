@@ -1,4 +1,4 @@
-## Issue 84: Remove unreachable filename arrow-key cases
+## Issue 69: Remove unreachable filename arrow-key cases
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

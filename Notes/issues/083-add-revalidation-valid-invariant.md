@@ -1,7 +1,7 @@
-## Issue 82: Add a Revalidation payload invariant
+## Issue 83: Add a Revalidation payload invariant
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: Issue 82 — encode the settled revalidation status mapping as an invariant
 
 ### Parent PRD
 

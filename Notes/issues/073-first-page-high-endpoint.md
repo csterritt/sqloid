@@ -1,7 +1,7 @@
-## Issue 61: Establish the high endpoint from a short first page
+## Issue 73: Establish the high endpoint from a short first page
 
 **Type**: AFK
-**Blocked by**: Issue 60 — coordinate the shared `applySelectSettled` change after settlement metadata is preserved
+**Blocked by**: Issue 72 — coordinate the shared `applySelectSettled` change after settlement metadata is preserved
 
 ### Parent PRD
 

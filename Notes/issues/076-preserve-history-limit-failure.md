@@ -1,7 +1,7 @@
-## Issue 78: Preserve typed over-limit failures in result history
+## Issue 76: Preserve typed over-limit failures in result history
 
 **Type**: AFK
-**Blocked by**: Issue 60
+**Blocked by**: Issues 71 and 72
 
 ### Parent PRD
 

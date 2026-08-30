@@ -1,4 +1,4 @@
-## Issue 69: Gate SELECT renderers on the authoritative runnable report
+## Issue 66: Gate SELECT renderers on the authoritative runnable report
 
 **Type**: AFK
 **Blocked by**: Issue 65

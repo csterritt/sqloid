@@ -1,7 +1,7 @@
-## Issue 62: Classify active exports from complete endpoint facts
+## Issue 80: Classify active exports from complete endpoint facts
 
 **Type**: AFK
-**Blocked by**: Issue 85 — implement after the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85
+**Blocked by**: Issues 73 and 79 — final step in the shared `history.Classify`/`TraversalFacts` sequence 77 → 78 → 79 → 80, after first-page endpoint tracking
 
 ### Parent PRD
 

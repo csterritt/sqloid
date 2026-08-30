@@ -1,7 +1,7 @@
-## Issue 64: Distinguish unseen low endpoints from truncation
+## Issue 77: Distinguish unseen low endpoints from truncation
 
 **Type**: AFK
-**Blocked by**: None — first in the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85 → 62
+**Blocked by**: None — first in the shared `history.Classify`/`TraversalFacts` sequence 77 → 78 → 79 → 80
 
 ### Parent PRD
 

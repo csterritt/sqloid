@@ -1,4 +1,4 @@
-## Issue 87: Document Value.Display as grid-only
+## Issue 86: Document Value.Display as grid-only
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

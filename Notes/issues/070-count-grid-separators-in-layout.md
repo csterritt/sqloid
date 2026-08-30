@@ -1,4 +1,4 @@
-## Issue 77: Count every separator in horizontal grid packing
+## Issue 70: Count every separator in horizontal grid packing
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

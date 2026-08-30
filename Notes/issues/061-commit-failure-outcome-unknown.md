@@ -1,4 +1,4 @@
-## Issue 58: Classify COMMIT failure as outcome unknown
+## Issue 61: Classify COMMIT failure as outcome unknown
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

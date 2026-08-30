@@ -1,4 +1,4 @@
-## Issue 72: Reject stale INSERT prompts before SQL rendering
+## Issue 67: Reject stale INSERT prompts before SQL rendering
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

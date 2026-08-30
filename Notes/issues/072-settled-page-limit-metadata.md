@@ -1,7 +1,7 @@
-## Issue 60: Retain page truncation and limit-failure metadata at settlement
+## Issue 72: Retain page truncation and limit-failure metadata at settlement
 
 **Type**: AFK
-**Blocked by**: None — implement before Issue 61 to coordinate their shared `applySelectSettled` change
+**Blocked by**: None — implement before Issue 73 to coordinate their shared `applySelectSettled` change
 
 ### Parent PRD
 

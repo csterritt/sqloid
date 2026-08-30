@@ -1,7 +1,7 @@
-## Issue 70: Run the full definition of done in CI
+## Issue 88: Run the full definition of done in CI
 
 **Type**: AFK
-**Blocked by**: Issue 57
+**Blocked by**: Issues 57–87 — final release gate after production composition and all remediation work
 
 ### Parent PRD
 

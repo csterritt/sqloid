@@ -1,7 +1,7 @@
-## Issue 68: Preserve invalid-UTF and byte-cap warnings in result history
+## Issue 75: Preserve invalid-UTF and byte-cap warnings in result history
 
 **Type**: AFK
-**Blocked by**: Issue 60
+**Blocked by**: Issues 72 and 74
 
 ### Parent PRD
 

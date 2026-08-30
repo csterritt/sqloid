@@ -1,4 +1,4 @@
-## Issue 76: Insert space in universal value and filename inputs
+## Issue 68: Insert space in universal value and filename inputs
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

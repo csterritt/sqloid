@@ -5,6 +5,8 @@ Scope: **issues-only review** of `Notes/issues/057-*.md` … `Notes/issues/088-*
 Parent PRD: `Notes/PRD-sqloid.md`.
 Source audit: `Notes/critiques/final-audit.md`.
 
+> **Numbering note (2026-08-30):** This critique preserves the issue numbers that existed when it was written. The remediation issues were subsequently reordered for sequential implementation. Old → current: 57→57, 58→61, 59→71, 60→72, 61→73, 62→80, 63→64, 64→77, 65→65, 66→78, 67→74, 68→75, 69→66, 70→88, 71→63, 72→67, 73→58, 74→59, 75→60, 76→68, 77→70, 78→76, 79→62, 80→82, 81→81, 82→83, 83→84, 84→69, 85→79, 86→85, 87→86, 88→87. All issue references below use the old numbers.
+
 This is not a code review or a task-generation pass. It evaluates the 32 issues as
 work items: completeness, correctness of the stated fix, testability of acceptance
 criteria, dependency/sequencing soundness, traceability, and best-practice/quality

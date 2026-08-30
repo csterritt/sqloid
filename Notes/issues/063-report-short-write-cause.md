@@ -1,7 +1,7 @@
-## Issue 71: Report an actionable cause for atomic-save short writes
+## Issue 63: Report an actionable cause for atomic-save short writes
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: None — implement before Issue 64 because both change the `WriteAtomic` persistence boundary
 
 ### Parent PRD
 

@@ -1,4 +1,4 @@
-## Issue 67: Correct invalid UTF-8 maximal-subpart decoding
+## Issue 74: Correct invalid UTF-8 maximal-subpart decoding
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

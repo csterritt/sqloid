@@ -1,4 +1,4 @@
-## Issue 86: Centralize finite REAL token generation
+## Issue 85: Centralize finite REAL token generation
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

@@ -1,4 +1,4 @@
-## Issue 74: Percent-encode relative SQLite DSN paths
+## Issue 59: Percent-encode relative SQLite DSN paths
 
 **Type**: AFK
 **Blocked by**: None — can start immediately

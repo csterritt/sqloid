@@ -1,7 +1,7 @@
-## Issue 66: Record count/cache inconsistency during finalization
+## Issue 78: Record count/cache inconsistency during finalization
 
 **Type**: AFK
-**Blocked by**: Issue 64 — second in the shared `history.Classify`/`TraversalFacts` sequence 64 → 66 → 85 → 62
+**Blocked by**: Issue 77 — second in the shared `history.Classify`/`TraversalFacts` sequence 77 → 78 → 79 → 80
 
 ### Parent PRD
 

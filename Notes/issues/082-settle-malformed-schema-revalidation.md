@@ -1,7 +1,7 @@
-## Issue 80: Settle malformed schema revalidation attempts
+## Issue 82: Settle malformed schema revalidation attempts
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: None — implement before Issue 83 so the payload invariant covers the finalized status mapping
 
 ### Parent PRD
 

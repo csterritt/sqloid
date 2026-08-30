@@ -1,7 +1,7 @@
-## Issue 63: Enforce overwrite intent at the atomic persistence boundary
+## Issue 64: Enforce overwrite intent at the atomic persistence boundary
 
 **Type**: AFK
-**Blocked by**: None — can start immediately
+**Blocked by**: Issue 63 — preserve the short-write handling while restructuring the shared `WriteAtomic` persistence boundary
 
 ### Parent PRD
 

@@ -1,4 +1,4 @@
-## Issue 88: Delete stale Node project scripts
+## Issue 87: Delete stale Node project scripts
 
 **Type**: AFK
 **Blocked by**: None — can start immediately
