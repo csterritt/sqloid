@@ -56,6 +56,12 @@ func (m Model) View() string {
 		out = m.drawQuitOverlay(out)
 		return out
 	}
+	if m.prepOpen {
+		// Issue #40: the destructive preparation modal draws over the results
+		// region and never reflows any region's border or content rows.
+		out = m.drawPrepOverlay(out)
+		return out
+	}
 	if m.Popup != nil {
 		// Issue #8 overlay pattern: the popup draws over the results region
 		// and never reflows any region's border or content rows.

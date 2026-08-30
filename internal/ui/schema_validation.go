@@ -26,6 +26,7 @@ import (
 	"errors"
 	tea "github.com/charmbracelet/bubbletea"
 
+	qb "github.com/chris/sqloid/internal/querybuilder"
 	"github.com/chris/sqloid/internal/schema"
 )
 
@@ -183,12 +184,17 @@ func (m *Model) applyValidationSettled(msg ValidationSettledMsg) tea.Cmd {
 	}
 }
 
-// executionRoute returns the command Issue #22's execution workflow replaces.
-// Successful validation alone reaches it: the command emits the
-// execution-start lifecycle seam, which is the only path that appends query
-// history.
+// executionRoute returns the command the settled-validation handoff drives:
+// SELECT and INSERT proceed to the actual-execution lifecycle; runnable
+// UPDATE and DELETE open Issue #40's destructive preparation modal instead,
+// dispatching exactly one matching-target estimate with no history append.
 func (m *Model) executionRoute() tea.Cmd {
-	return func() tea.Msg { return ExecutionStartedMsg{} }
+	switch m.QB.Command() {
+	case qb.CommandUpdate, qb.CommandDelete:
+		return m.beginPreparation()
+	default:
+		return func() tea.Msg { return ExecutionStartedMsg{} }
+	}
 }
 
 // endValidation closes the validation workflow without touching builder or

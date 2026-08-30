@@ -210,6 +210,28 @@ type Model struct {
 	validationCancelling bool
 	validationAttempt    uint64
 
+	// Destructive preparation modal (Issue #40): Estimator performs the
+	// independent matching-target estimate; prepOpen/prepPending/prepCancelling
+	// carry the modal's phase; prepAttempt is the monotonic preparation/request
+	// identity guarding late or superseded responses; prepOperation/prepTable/
+	// prepSQL/prepNoWhere retain the continuously visible modal content;
+	// prepEstimate/prepErr retain the settled estimate outcome for the later
+	// confirmation seam. Opening, pending, success, failure, cancellation, and
+	// dismissal append neither query nor result history and never start the
+	// write.
+	Estimator      EstimateExecutor
+	prepOpen       bool
+	prepOperation  string
+	prepTable      string
+	prepSQL        string
+	prepNoWhere    bool
+	prepPending    bool
+	prepCancelling bool
+	prepAttempt    uint64
+	prepCancel     context.CancelFunc
+	prepEstimate   int64
+	prepErr        string
+
 	// History owns the session-only query-history store (Issue #20). Nil
 	// means no history is wired; execution-start appends then no-op. Append
 	// happens only through the ExecutionStartedMsg seam — never during
@@ -376,6 +398,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Produced by the cancellation closure dispatched at Ctrl+W; the model
 		// already entered its cancelling state before dispatching, so this
 		// settles nothing on its own (the workflow closes at true settlement).
+		return m, nil
+	case EstimateSettledMsg:
+		// Issue #40: one settled matching-target estimate, guarded by its
+		// preparation identity so stale responses never mutate the modal.
+		cmd := m.applyEstimateSettled(msg)
+		m.adjustScroll()
+		return m, cmd
+	case CancelEstimateMsg:
+		// Same settling handoff as validation cancellation: the estimate
+		// settles through its own response; the modal dismisses there.
 		return m, nil
 	case ExecutionStartedMsg:
 		// Issue #35: an actual execution exits history mode first, keeping the
@@ -603,6 +635,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// context and consumes all keys with no leakage until resolved.
 		return m.handleQuitConfirmKey(msg)
 	}
+	if m.prepOpen {
+		// Issue #40: the destructive preparation modal consumes keys above
+		// every other context until dismissed; Enter/y stay disabled.
+		return m.handlePreparationKey(msg)
+	}
 	if m.Popup != nil {
 		return m.handlePopupKey(msg)
 	}
@@ -685,6 +722,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.handleHorizontalKey(-1)
 		return m, nil
 	case "ctrl+w":
+		if m.prepOpen {
+			// Issue #40: scoped estimate cancellation, exact `cancelling…`
+			// until settlement; settlement then dismisses preparation.
+			return m, m.requestEstimateCancellation()
+		}
 		if m.validating {
 			// Issue #21: connection-scoped cancellation requested exactly once
 			// per request; exact `cancelling…` renders until settlement.
