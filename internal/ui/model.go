@@ -325,6 +325,16 @@ type Model struct {
 	saveNotice           string
 	savePrepared         *export.SQLSaveTarget
 
+	// Result-export capture state (Issue #49): exportNotice holds the exact
+	// shared non-tabular rejection; exportPrepared the immutable instant
+	// capture; exportWarnings the derived pre-destination warnings; and
+	// exportWarningsOpen the visible flow whose Esc/Enter restore the exact
+	// opener. All are set only in memory; no database work can start here.
+	exportNotice       string
+	exportPrepared     *export.Capture
+	exportWarnings     []string
+	exportWarningsOpen bool
+
 	// Active-SELECT lifetime state (Issue #34), kept distinct from request
 	// identity: selectActive reports the active lifetime (not any request's
 	// flight), activeExecID the owning execution ID, and finalizedExecID the
@@ -774,6 +784,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.terminalState != TerminalNone {
+		if msg.String() == "ctrl+x" {
+			// Issue #49: terminal Ctrl+X targets the current in-memory result
+			// selection entirely in memory; no work remains pending here.
+			return m.handleExportKey(), nil
+		}
+		if m.exportWarningsOpen {
+			return m.handleExportWarningsKey(msg)
+		}
 		// A terminal classification ended the session: no key may open
 		// popups, move builder state, or start any further database work.
 		// Issues #45 and #46: the terminal states own their reduced in-memory
@@ -783,6 +801,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleTerminalOutcomeUnknownKey(msg)
 		}
 		return m.handleTerminalHealthKey(msg)
+	}
+	if m.exportWarningsOpen {
+		// Issue #49: the pre-destination export warning flow consumes every
+		// key until resolved, exactly like the other top overlays.
+		return m.handleExportWarningsKey(msg)
 	}
 	if m.quitConfirm {
 		// Issue #27: the shared quit confirmation sits above every other
@@ -899,6 +922,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Issue #48: query save targeting resolves entirely from immutable
 		// in-memory state; no request or validation can start here.
 		return m.handleSQLSaveKey(), nil
+	case "ctrl+x":
+		// Issue #49: export targeting and capture resolve entirely from
+		// immutable in-memory state; pending requests were consumed by the
+		// generic gate above.
+		return m.handleExportKey(), nil
 	case "ctrl+p", "ctrl+n":
 		// Issue #35: entering query-history browsing from the base context
 		// selects the newest retained entry; with no retained entries the key

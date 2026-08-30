@@ -40,9 +40,19 @@ func (m Model) View() string {
 		// selected immutable history and reduced help — nothing may revive
 		// the shell or start any database work.
 		if m.terminalState == TerminalOutcomeUnknown {
-			return m.renderOutcomeUnknownTerminal()
+			out := m.renderOutcomeUnknownTerminal()
+			if m.exportWarningsOpen {
+				// Issue #49: the export warning flow also draws over a terminal
+				// opener, before any destination selection or confirmation.
+				out = m.drawExportWarningsOverlay(out)
+			}
+			return out
 		}
-		return m.renderHealthTerminal()
+		out := m.renderHealthTerminal()
+		if m.exportWarningsOpen {
+			out = m.drawExportWarningsOverlay(out)
+		}
+		return out
 	}
 	if m.Width <= 0 || m.Height <= 0 {
 		return ""
@@ -58,6 +68,11 @@ func (m Model) View() string {
 		// suspends the exact current context behind it.
 		out = m.drawQuitOverlay(out)
 		return out
+	}
+	if m.exportWarningsOpen {
+		// Issue #49: the export warnings draw over the results region before
+		// any destination selection or confirmation, never reflowing regions.
+		out = m.drawExportWarningsOverlay(out)
 	}
 	if m.prepOpen {
 		// Issue #40: the destructive preparation modal draws over the results
@@ -75,6 +90,16 @@ func (m Model) View() string {
 		out = m.drawValuePromptOverlay(out)
 	}
 	return out
+}
+
+// drawExportWarningsOverlay composites the pre-destination export warning
+// box over the composed shell inside the results region. Enter proceeds and
+// Esc cancels; both restore the exact opener.
+func (m Model) drawExportWarningsOverlay(base string) string {
+	lines := append([]string{"Export result"}, m.exportWarnings...)
+	lines = append(lines, "", "Enter continue — Esc cancel")
+	box := valuePromptStyle.Width(len(lines[0]) + 2).Height(len(lines)).Render(strings.Join(lines, "\n"))
+	return composeOverlay(base, box, 1, 1)
 }
 
 // drawQuitOverlay composites the shared quit confirmation box over the
@@ -252,6 +277,10 @@ func (m Model) renderFooter(width int) string {
 		// Issue #48: the exact Ctrl+S no-target feedback replaces the
 		// default hints; no picker opened and nothing serialized.
 		text = " " + m.saveNotice + " "
+	case m.exportNotice != "":
+		// Issue #49: the exact shared non-tabular export rejection replaces
+		// the default hints; no picker opened and nothing serialized.
+		text = " " + m.exportNotice + " "
 	case m.inFlightNotice != "":
 		text = " " + m.inFlightNotice + " "
 	}

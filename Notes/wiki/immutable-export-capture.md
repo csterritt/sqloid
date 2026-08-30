@@ -1,0 +1,47 @@
+# Immutable result-export capture and warnings (Issue #49)
+
+Issue #49 implements the Ctrl+X result-export path up to destination selection: pure in-memory targeting, the immutable instant capture, request gating, tabular eligibility, and the pre-destination metadata warning flow. The CSV/JSON serializers (Issues #50/#51), the file picker, and filesystem persistence remain owned by later issues; Ctrl+X here prepares one immutable capture, shows its warnings, and restores the exact opener on cancel or completion.
+
+## Targeting (Task 2)
+
+`internal/ui/export.go` resolves Ctrl+X entirely from immutable in-memory state, following the current in-memory result selection — never the database:
+
+- **Idle active** — the settled tabular `ResultView` (`Page != nil`, `Err == nil`). Rows come from the authoritative viewport cache in ascending position order when one exists, otherwise from the displayed page with its absolute offset. Metadata/completeness facts derive from the cache (`history.FactsFromCache`), the settled count state (`KnownTotal`), the view's byte-truncation flag, and the page's invalid-UTF flag; the terminal outcome stays undecided, so an active SELECT can never grow a terminal-outcome warning.
+- **Historical** — during result-history browsing (Issue #36), the stable-ID-selected retained entry. Only `history.KindTabular` entries are tabular; errors, write summaries, outcome-unknown entries, and cancelled-before-rows markers are not. Positions ascend from the entry's `RetainedStart` metadata (1 when absent).
+- **Terminal in-memory** — in the deletion/replacement (Issue #46) and outcome-unknown (Issue #45) terminals, Ctrl+X targets the same stable-ID selection that Ctrl+E/Y controls (initially the newest entry, which is the outcome-unknown entry or the most recent retained snapshot). Each Ctrl+E/Y change retargets the *next* Ctrl+X without consulting the database.
+
+## Capture timing and immutability (Tasks 1–2)
+
+Capture happens synchronously inside `Update`, before any picker-opening effect or later model mutation can run, through `export.CaptureRows` (`internal/export/export_capture.go`). The capture deep-copies deduplicated output names (`result.DeduplicateNames` full-set rule, shared with the grid), every typed cell — BLOB payloads byte-for-byte — and carries `history.SnapshotMetadata` plus `history.Completeness` **separately** from the serializable `Payload` (names, ascending one-based positions, rows). Later mutation of the live cache, history store, selected entry, original byte slices, or displayed page can never alter a captured value, and captured positions always ascend regardless of traversal order (Cache and snapshot invariant).
+
+Capture is an in-memory action: an active SELECT is neither finalized nor deactivated — its lifetime, execution ID, tracker identities, viewport generation, cache pointer, count state, and history selection are all preserved — and no page, count, health-check, refresh, validation, or other database request is created. The export flow state is `exportNotice`/`exportPrepared`/`exportWarnings`/`exportWarningsOpen`; warnings draw as an overlay over the results region (ordinary shell and both terminal views) before any destination selection or confirmation.
+
+## Request gating (Tasks 3–4)
+
+The authoritative gate is Issue #27's generic pending gate: `export is unavailable while a request is in flight` is the exact shared feedback for Ctrl+X during every request-bearing state — schema validation/refresh, estimate, SELECT first/later page, count-only work, cancellation settlement, and write beginning/executing/rollback/commit. The `handleExportKey` seam re-checks the same gate contract (never a second decision) for validation/refresh pending, which reach base-context handling.
+
+At idle, `internal/export` defines **one** typed eligibility contract (`EligibilityInput.Check`) owning the single shared rejection `selected result has no tabular data to export`; the UI never duplicates the literal. Every non-tabular selection reports it — empty/missing-backed selections, ordinary error views, error entries, write summaries, outcome-unknown entries, and cancelled-before-rows markers — with no capture, no warnings, no picker, and no serializer or database work. Retained-row cancelled/failed snapshots stay exportable (terminal outcome is never confused with data shape), as do zero-row SELECT snapshots with tabular columns (capturing zero rows at ascending positions).
+
+## Warning derivation and presentation (Tasks 5–6)
+
+`exportWarningsFor` derives warnings from captured typed metadata in one deterministic order:
+
+1. **Completeness state** — `Result is complete` (exclusive), `Result is partial`, `Result is truncated`; coexisting truthful labels each appear.
+2. **Truncation details** — row-cap evictions (`Rows evicted by the position cap: N`) and the byte cap reusing Issue #31's shared exact `Result truncated: 64 MiB cache limit` definition (`result.ByteCapWarning`), never a copy.
+3. **Terminal outcome** — `Cancelled: <reason>` / `Failed: <reason>`, with ` — last failure at row N` when a one-based failure position was recorded; success adds nothing.
+4. **Invalid UTF** — Issue #22/#47's shared `result.UTFWarning` (`invalid UTF-8 replaced with U+FFFD`), always last.
+
+Absent facts add no warning. Metadata drives the UI only: the `Capture.Payload` handed to future serializers carries exactly names/positions/rows (structurally pinned), so no warning, completeness, outcome, or UTF fact can ever become a CSV row, CSV column, JSON object, or JSON property. A base-context `esc` closes the flow (cancel) and `enter` completes it (the destination-selection issues own persistence); both restore the exact opener — mode, focus, selection, viewport, builder, active SELECT identity/lifetime, and terminal state — with the captured value stable throughout and zero database work.
+
+## Testing
+
+- `internal/export/export_capture_test.go` — capture immutability (post-capture mutation of labels, rows, cells, BLOB bytes), ascending/default positions, the pure eligibility matrix, the exact shared rejection literal, and the serializer-spy structural+behavioral proof that the payload excludes metadata.
+- `internal/ui/export_capture_test.go` — idle-active capture with full state-preservation and zero-executor assertions, live-mutation immunity, historical and terminal targeting across deletion/replacement and outcome-unknown selections including Ctrl+E/Y changes.
+- `internal/ui/export_gating_test.go` — table-driven gating across every request-bearing state with unchanged fake call counts, and the non-tabular rejection table with retained-row failed/zero-row tabular exportable controls.
+- `internal/ui/export_warnings_test.go` — the metadata-to-warning matrix in canonical order, the pre-destination flow from active/historical/terminal openers with exact opener fingerprints after Esc and completion, and payload/metadata separation.
+
+## References
+
+- Issues #22/#47 (shared typed result seam), #31 (byte-cap warning owner), #33/#34 (snapshot metadata and finalization), #26/#27 (identities and the generic pending gate), #35/#36 (history navigation), #45/#46 (terminal states owning terminal Ctrl+X), #48 (Ctrl+S analog), #49; CSV/JSON serialization and the picker remain with Issues #50/#51.
+- `Notes/PRD-sqloid.md`: Result export scope, Export warnings, SELECT lifecycle, Cache and snapshot invariant, Global Key Precedence and Context/Action Matrix, Export/UI Module Design, and Testing Decisions.
+- Related pages: [shared-typed-result-rendering.md](shared-typed-result-rendering.md), [snapshot-metadata.md](snapshot-metadata.md), [active-select-lifetime.md](active-select-lifetime.md), [positional-result-cache.md](positional-result-cache.md), [byte-cap-oversized-values.md](byte-cap-oversized-values.md), [in-flight-gating.md](in-flight-gating.md), [result-history-browsing.md](result-history-browsing.md), [outcome-unknown-terminal.md](outcome-unknown-terminal.md), [health-terminal.md](health-terminal.md), [sql-save-targeting-serialization.md](sql-save-targeting-serialization.md), [first-select-result-grid.md](first-select-result-grid.md).
