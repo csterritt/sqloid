@@ -259,6 +259,10 @@ func (m Model) handleValuePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.adjustScroll()
 		return m, nil
+	case tea.KeyCtrlC:
+		// Issue #55: Ctrl+C opens the shared quit confirmation over the exact
+		// open entry; q stays literal input because focused text owns it.
+		return m.openQuitConfirmation(), nil
 	}
 	m.ValuePrompt.HandleKey(msg)
 	m.adjustScroll()

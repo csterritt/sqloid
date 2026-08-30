@@ -882,6 +882,15 @@ func (m Model) resize(w, h int) Model {
 // Issue #55 and is delegated at each layer unchanged.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.suspended {
+		// Issue #55: the shared quit confirmation suspends even the too-small
+		// wrapper. While it is open it consumes every key; otherwise q/Ctrl+C
+		// open it before any other suspension shortcut runs.
+		if m.quitConfirm {
+			return m.handleQuitConfirmKey(msg)
+		}
+		if msg.String() == "q" || msg.String() == "ctrl+c" {
+			return m.openQuitConfirmation(), nil
+		}
 		if msg.String() == "ctrl+w" && m.ActiveCancellable && m.CancelCommand != nil {
 			return m, m.CancelCommand
 		}
@@ -920,6 +929,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.handleTerminalHealthKey(msg)
 	}
+	if m.quitConfirm {
+		// Issue #55: the shared quit confirmation sits above every other
+		// context — help, save/export flows, picker, preparation, popups, and
+		// focused input — and consumes all keys with no leakage until Esc/n
+		// restores the exact suspended context or the quit is accepted.
+		return m.handleQuitConfirmKey(msg)
+	}
 	if m.helpOpen {
 		// Issue #54: the contextual help overlay consumes every key above
 		// every other context. It opens only from eligible base contexts, so
@@ -945,11 +961,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Issue #52: the destination picker is the top overlay above every
 		// other context; it consumes all keys until Esc or completion.
 		return m.handlePickerKey(msg)
-	}
-	if m.quitConfirm {
-		// Issue #27: the shared quit confirmation sits above every other
-		// context and consumes all keys with no leakage until resolved.
-		return m.handleQuitConfirmKey(msg)
 	}
 	if m.prepOpen {
 		// Issue #40: the destructive preparation modal consumes keys above

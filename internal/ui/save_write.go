@@ -194,7 +194,9 @@ func (m Model) startSaveWrite() (tea.Model, tea.Cmd) {
 // shared quit confirmation. Nothing leaks into the picker below.
 func (m Model) handleOverwriteConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
+	case "q", "ctrl+c":
+		// Issue #55: both quit keys open the shared confirmation; the
+		// overwrite question owns no focused text input.
 		return m.openQuitConfirmation(), nil
 	case "enter", "y":
 		return m.startSaveWrite()
@@ -214,7 +216,9 @@ func (m Model) handleOverwriteConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // path, and every other key is consumed without leakage.
 func (m Model) handleSaveFailureKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c":
+	case "q", "ctrl+c":
+		// Issue #55: both quit keys open the shared confirmation; the
+		// inline failure owns no focused text input.
 		return m.openQuitConfirmation(), nil
 	case "enter", "y":
 		if m.saveCapture == nil {

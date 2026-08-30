@@ -31,6 +31,11 @@ var (
 // exactly TooSmallMessage and performs no state access.
 func (m Model) View() string {
 	if m.suspended {
+		// Issue #55: the quit confirmation draws over the exact too-small
+		// wrapper; without it only TooSmallMessage renders.
+		if m.quitConfirm {
+			return m.drawQuitOverlay(TooSmallMessage)
+		}
 		return TooSmallMessage
 	}
 	if m.terminalState != TerminalNone {

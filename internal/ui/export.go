@@ -231,6 +231,10 @@ func warningOutcome(label, reason string, hasPosition bool, position int64) stri
 // other key is consumed with no leakage.
 func (m Model) handleExportWarningsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "q", "ctrl+c":
+		// Issue #55: q and Ctrl+C open the shared quit confirmation over the
+		// intact warning flow; the warning overlay owns no focused text.
+		return m.openQuitConfirmation(), nil
 	case "enter":
 		// Issue #52: Enter proceeds to destination selection. The picker
 		// snapshot is captured first, so Esc from the picker restores the

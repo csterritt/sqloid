@@ -406,6 +406,17 @@ func (m Model) handlePopupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.adjustScrollAndReturn()
 	case "backspace":
 		m.Popup.BackspaceSearch()
+	case "ctrl+c":
+		// Issue #55: Ctrl+C opens the shared quit confirmation from every
+		// popup variant; the popup stays suspended behind it untouched.
+		return m.openQuitConfirmation(), nil
+	case "q":
+		// Issue #55: q is literal search input while the focused search owns
+		// it; a scroll-only popup owns no search, so q opens the confirmation.
+		if m.Popup.Mode == PopupScrollOnly {
+			return m.openQuitConfirmation(), nil
+		}
+		m.Popup.AppendSearchRune('q')
 	default:
 		if msg.Type == tea.KeySpace {
 			m.Popup.AppendSearchRune(' ')
