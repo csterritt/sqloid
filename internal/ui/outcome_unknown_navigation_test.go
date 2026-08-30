@@ -274,7 +274,11 @@ func TestTerminalReducedHelp(t *testing.T) {
 			t.Errorf("reduced help lacks %q", want)
 		}
 	}
-	for _, forbidden := range []string{"Ctrl+W", "Ctrl+S", "Ctrl+X", "Enter validates", "database"} {
+	// Issue #54: the reduced help lists the in-memory keys actually available
+	// in this terminal, which now include Ctrl+S save targeting and the Ctrl+X
+	// tabular-selection export rule (Issues #48/#49). Ctrl+W, builder
+	// validation, and any database-starting suggestion remain unavailable.
+	for _, forbidden := range []string{"Ctrl+W", "Enter validates", "refresh", "rerun", "Cancel command"} {
 		if strings.Contains(view, forbidden) {
 			t.Errorf("reduced help suggests %q, which is unavailable here", forbidden)
 		}

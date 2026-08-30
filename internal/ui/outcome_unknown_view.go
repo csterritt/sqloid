@@ -27,9 +27,16 @@ var outcomeUnknownHelpLines = []string{
 	"",
 	"Ctrl+P / Ctrl+N   select an older/newer query from history",
 	"Ctrl+E / Ctrl+Y   select an older/newer result from history",
+	"Ctrl+S            save the selected or most recent query (as SQL)",
+	"Ctrl+X            export the selected tabular result; non-tabular is rejected",
 	"Esc               dismiss help",
 	"q or Ctrl+C       quit immediately (status 1)",
 }
+
+// terminalHelpClosingLine closes every reduced terminal help view: only the
+// listed in-memory actions exist here, so the view states no remaining
+// capability without naming any unavailable operation.
+const terminalHelpClosingLine = "Only these in-memory actions are available."
 
 // selectedOutcomeUnknownEntry resolves the currently selected result entry
 // for the terminal view: the stable-ID selection while browsing, otherwise
@@ -61,6 +68,7 @@ func (m Model) renderOutcomeUnknownTerminal() string {
 	if m.terminalHelpOpen {
 		lines = append(lines, "", outcomeUnknownHelpLines[0])
 		lines = append(lines, outcomeUnknownHelpLines[1:]...)
+		lines = append(lines, "", terminalHelpClosingLine)
 	}
 	return strings.Join(lines, "\n")
 }

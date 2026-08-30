@@ -89,6 +89,11 @@ func (m Model) View() string {
 		// any destination selection or confirmation, never reflowing regions.
 		out = m.drawExportWarningsOverlay(out)
 	}
+	if m.helpOpen {
+		// Issue #54: the contextual help overlay draws over the composed shell
+		// and consumes every key until Esc restores its exact opener.
+		return m.drawHelpOverlay(out)
+	}
 	if m.prepOpen {
 		// Issue #40: the destructive preparation modal draws over the results
 		// region and never reflows any region's border or content rows.

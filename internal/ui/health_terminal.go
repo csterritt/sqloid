@@ -132,6 +132,7 @@ func (m Model) renderHealthTerminal() string {
 	if m.terminalHelpOpen {
 		lines = append(lines, "", healthTerminalHelpLines[0])
 		lines = append(lines, healthTerminalHelpLines[1:]...)
+		lines = append(lines, "", terminalHelpClosingLine)
 	}
 	return strings.Join(lines, "\n")
 }

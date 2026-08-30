@@ -413,6 +413,18 @@ type Model struct {
 	// are listed; no database suggestion appears.
 	terminalHelpOpen bool
 
+	// Contextual help overlay (Issue #54): helpOpen marks the single
+	// nonstacking help overlay, opened only from eligible base contexts and
+	// never stacked above another overlay. helpContext names the typed
+	// opener context (builder/where/result) that selects the rendered
+	// content, and helpOpener holds the exact opener copy restored atomically
+	// on Esc — focus, cursor, search query, highlighted popup item, popup and
+	// result viewport, and selected history are all captured and returned
+	// exactly. Opening and closing help never mutates history, request,
+	// viewport, or save/export state and never finalizes an active SELECT.
+	helpOpen       bool
+	helpKind       string
+	helpOpener     *Model
 	suspended      bool   // true while the terminal is below minimum size
 	suspendedModel *Model // exact copy retained across the undersized period
 
@@ -853,10 +865,21 @@ func (m Model) resize(w, h int) Model {
 	return m
 }
 
-// handleKey dispatches key input according to the suspension gate. Ordinary
-// keys are ignored while undersized so hidden state can neither leak through
-// nor be mutated; Ctrl+W alone may route to cancellation when hidden state
-// owns active cancellable work.
+// handleKey is the single ordered precedence dispatcher for every key event
+// (Issue #54). Non-quit keys route through these layers in exactly this
+// order, and each decision consumes the key so no lower layer can run:
+//
+//  1. terminal state (reduced in-memory key sets)
+//  2. the contextual help overlay (Issue #54)
+//  3. top overlays: export warnings, overwrite confirmation, inline save
+//     failure, destination picker, quit confirmation, preparation modal,
+//     popup, universal value entry
+//  4. history browsing contexts (Ctrl+P/N, Ctrl+E/Y, Esc)
+//  5. the generic request-in-flight gate (typed pending/cancellable phases)
+//  6. base builder/result context
+//
+// Universal q/Ctrl+C quit-confirmation suspension belongs to Issue #27 and
+// Issue #55 and is delegated at each layer unchanged.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.suspended {
 		if msg.String() == "ctrl+w" && m.ActiveCancellable && m.CancelCommand != nil {
@@ -896,6 +919,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.handleTerminalOutcomeUnknownKey(msg)
 		}
 		return m.handleTerminalHealthKey(msg)
+	}
+	if m.helpOpen {
+		// Issue #54: the contextual help overlay consumes every key above
+		// every other context. It opens only from eligible base contexts, so
+		// nothing can sit beneath it to leak into.
+		return m.handleHelpKey(msg)
 	}
 	if m.exportWarningsOpen {
 		// Issue #49: the pre-destination export warning flow consumes every
@@ -994,6 +1023,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Idle base context (Issue #27): both keys open the shared quit
 		// confirmation, suspending the exact current context.
 		return m.openQuitConfirmation(), nil
+	case "?":
+		// Issue #54: at the base context `?` opens one contextual help
+		// overlay classified from typed state — never a literal edit, because
+		// the base context owns no focused text input. Help is nonstacking and
+		// captures an exact opener snapshot restored on Esc.
+		return m.openContextualHelp(), nil
 	case "pgup", "pgdown":
 		// Issue #25: serialized adjacent-page navigation. While a page is
 		// pending this consumes repeated and opposite keys without stacking
@@ -1053,9 +1088,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.adjustScroll()
 		return m, nil
 	case "esc":
-		if m.validating && m.schemaStale && !m.validationCancelling {
-			// Cancel closes the stale validation flow with the exact
-			// pre-validation builder context and no execution.
+		if m.validating && !m.validationCancelling {
+			// Issue #54: Esc cancels the top validation overlay through its
+			// established cleanup, not just the stale retry phase: the exact
+			// pre-validation builder context stands, the attempt identity
+			// advances so an outstanding version response stays inert, and no
+			// execution or replacement request ever starts.
 			m.cancelValidation()
 			m.adjustScroll()
 			return m, nil
