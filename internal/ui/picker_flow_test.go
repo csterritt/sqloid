@@ -70,8 +70,9 @@ func runList(t *testing.T, m Model, cmd tea.Cmd) (Model, tea.Msg) {
 	return next.(Model), msg
 }
 
-// savePickerModel builds a model with a prepared save target, a picker
-// seeded against the fake boundary at /work, and the start listing settled.
+// savePickerModel builds a model with a serializable prepared save target,
+// a picker seeded against the fake boundary at /work, the start listing
+// settled, and an empty injected save boundary.
 func savePickerModel(t *testing.T, f *pickerFakeFS) (Model, Model) {
 	t.Helper()
 	if f.fail == nil {
@@ -83,7 +84,8 @@ func savePickerModel(t *testing.T, f *pickerFakeFS) (Model, Model) {
 	m := New()
 	m.PickerFS = f
 	m.PickerStart = "/work"
-	m.savePrepared = &export.SQLSaveTarget{}
+	m.SaveFS = newSaveFlowFakeFS()
+	m.savePrepared = &export.SQLSaveTarget{State: validSelectState()}
 	// Open directly through the seam: the Ctrl+S entry path (resolution,
 	// then picker open) is covered by the save-targeting tests.
 	pm := m
@@ -291,8 +293,11 @@ func TestPickerFilenameLiteralKeysAndValidation(t *testing.T) {
 	if v, ok := msg.(PickerVerifyMsg); !ok || v.Path != "/work/report.sql" {
 		t.Fatalf("verify = %+v ok=%v, want /work/report.sql", msg, ok)
 	}
-	if _, done := p.picker.Completed(); done {
-		t.Fatal("completed before the verify response applied")
+	// Issue #53: the verify response also minted the save-flow capture and
+	// issued the destination inspection; settle it before asserting.
+	p, _ = runSaveCmds(t, p, nil)
+	if _, done := p.picker.Completed(); !done {
+		t.Fatal("verification did not complete the picker")
 	}
 }
 
@@ -305,11 +310,15 @@ func TestPickerCompletionRestoresOpenerExactly(t *testing.T) {
 	p, _ = pressKey(p, tea.KeyMsg{Type: tea.KeyTab})
 	p, _ = pressKey(p, runeKey("report"))
 	p, cmd := pressKey(p, tea.KeyMsg{Type: tea.KeyEnter})
-	// The verify response is the completion boundary: Update restores the
-	// exact opener atomically and records the completed destination.
-	settled, msg := runList(t, p, cmd)
-	if _, ok := msg.(PickerVerifyMsg); !ok {
-		t.Fatalf("completion message = %T, want verify", msg)
+	// The verify response is the completion boundary: Update mints the
+	// Issue #53 capture, inspects the destination, writes, and restores the
+	// exact opener atomically with the completed destination recorded.
+	settled, msgs := runSaveCmds(t, p, cmd)
+	if len(msgs) == 0 {
+		t.Fatal("completion ran no save-flow messages")
+	}
+	if _, ok := msgs[0].(PickerVerifyMsg); !ok {
+		t.Fatalf("completion message = %T, want verify", msgs[0])
 	}
 	if settled.pickerOpen {
 		t.Fatal("picker still open after completion")
@@ -452,12 +461,16 @@ func TestPickerVerifyFailureRetainsEverythingForRetry(t *testing.T) {
 	if len(f.reads) != 2 {
 		t.Fatalf("reads = %v, want start list + submit verify only", f.reads)
 	}
-	// Retry then completes and restores the opener.
+	// Retry then completes and restores the opener through the Issue #53
+	// inspection and write stages.
 	delete(f.fail, "/work")
 	retried, cmd := pressKey(settled, tea.KeyMsg{Type: tea.KeyEnter})
-	final, msg2 := runList(t, retried, cmd)
-	if _, ok := msg2.(PickerVerifyMsg); !ok {
-		t.Fatalf("retry message = %T, want verify", msg2)
+	final, msgs2 := runSaveCmds(t, retried, cmd)
+	if len(msgs2) == 0 {
+		t.Fatal("retry ran no save-flow messages")
+	}
+	if _, ok := msgs2[0].(PickerVerifyMsg); !ok {
+		t.Fatalf("retry message = %T, want verify", msgs2[0])
 	}
 	if final.pickerOpen {
 		t.Fatal("picker still open after completed retry")

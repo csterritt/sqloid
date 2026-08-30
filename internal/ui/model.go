@@ -342,9 +342,9 @@ type Model struct {
 	// opener snapshot restored atomically on Esc or completion;
 	// exportFormat the closed CSV/JSON save format the export picker uses;
 	// saveCompletedPath/exportCompletedPath the verified destinations a
-	// successful completion handed back (persistence is owned by later
-	// issues). PickerFS and PickerStart are test seams for the fake
-	// filesystem boundary: nil/empty mean the real filesystem and os.Getwd.
+	// successful completion handed back. PickerFS and PickerStart are test
+	// seams for the fake filesystem boundary: nil/empty mean the real
+	// filesystem and os.Getwd.
 	pickerOpen          bool
 	picker              filepicker.Model
 	pickerFlowKind      pickerFlow
@@ -354,6 +354,25 @@ type Model struct {
 	exportCompletedPath string
 	PickerFS            filepicker.FS
 	PickerStart         string
+
+	// Save-flow confirmation and atomic write state (Issue #53):
+	// saveCapture is the frozen immutable save-flow identity (destination,
+	// format, serialized payload, selection provenance, warnings) minted at
+	// path resolution; saveAttempt its monotonic guard for stale
+	// destination and completion responses. overwriteOpen marks the single
+	// non-stacking overwrite confirmation above the intact picker;
+	// saveRunning the in-flight temp-file-plus-rename command;
+	// saveFailure/saveFailurePath the typed inline retry/cancel state.
+	// SaveFS is the injected save boundary seam; nil means the real
+	// filesystem. No branch after capture consults the live builder,
+	// active result, or current history selection.
+	saveCapture     *saveCapture
+	saveAttempt     uint64
+	overwriteOpen   bool
+	saveRunning     bool
+	saveFailure     string
+	saveFailurePath string
+	SaveFS          export.SaveFS
 
 	// Active-SELECT lifetime state (Issue #34), kept distinct from request
 	// identity: selectActive reports the active lifetime (not any request's
@@ -512,10 +531,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickerOpen {
 			m.picker.ApplyVerified(filepicker.VerifiedMsg{Path: msg.Path, Attempt: msg.Attempt, Err: msg.Err})
 			if path, done := m.picker.Completed(); done {
-				return m.pickerRestore(path), nil
+				// Issue #53: completion freezes the immutable save-flow capture
+				// and inspects the destination through the save boundary.
+				return m.beginSaveFlow(path)
 			}
 			return m, nil
 		}
+	case SaveInspectMsg:
+		// Issue #53: the save flow consumes its own destination-inspection
+		// response; stale attempts are inert inside the guard.
+		if m.pickerOpen && m.saveCapture != nil {
+			return m.applySaveInspect(msg)
+		}
+	case SaveCompletedMsg:
+		// Issue #53: one settled atomic write restores the exact opener and
+		// records the completed destination; duplicates and stale attempts
+		// are inert.
+		if m.saveRunning && msg.Attempt == m.saveAttempt && m.saveCapture != nil {
+			next := m.pickerRestore(m.saveCapture.path)
+			return next, nil
+		}
+		return m, nil
+	case SaveFailedMsg:
+		// Issue #53: a typed write-stage failure stays inline with the
+		// captured copy retained for retry; replacement is never claimed.
+		if m.saveRunning && msg.Attempt == m.saveAttempt {
+			m.saveRunning = false
+			m.saveFailure = msg.Err.Error()
+			return m, nil
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		next := m.resize(msg.Width, msg.Height)
 		// Issue #32: a visible resize (including suspension restoration) also
@@ -828,6 +873,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.exportWarningsOpen {
 			return m.handleExportWarningsKey(msg)
 		}
+		if m.overwriteOpen {
+			// Issue #53: the overwrite confirmation consumes every key above
+			// the intact picker.
+			return m.handleOverwriteConfirmKey(msg)
+		}
+		if m.saveFailure != "" {
+			// Issue #53: an inline save failure consumes keys with its
+			// retry/cancel path above the picker.
+			return m.handleSaveFailureKey(msg)
+		}
 		if m.pickerOpen {
 			// Issue #52: the picker overlay also serves terminal openers.
 			return m.handlePickerKey(msg)
@@ -846,6 +901,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Issue #49: the pre-destination export warning flow consumes every
 		// key until resolved, exactly like the other top overlays.
 		return m.handleExportWarningsKey(msg)
+	}
+	if m.overwriteOpen {
+		// Issue #53: the overwrite confirmation consumes every key above the
+		// intact picker until Enter/y or Esc/n, with no key leakage.
+		return m.handleOverwriteConfirmKey(msg)
+	}
+	if m.saveFailure != "" {
+		// Issue #53: the inline save failure consumes keys until retried or
+		// cancelled; nothing leaks into the picker below.
+		return m.handleSaveFailureKey(msg)
 	}
 	if m.pickerOpen {
 		// Issue #52: the destination picker is the top overlay above every

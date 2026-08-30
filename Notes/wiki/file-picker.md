@@ -43,4 +43,4 @@ The destination picker for Ctrl+S query save and Ctrl+X result export (Issue #52
 
 ## Later ownership
 
-- **Overwrite confirmation** of an existing destination and **atomic temp-and-rename persistence** belong to their owning later issues; the picker records the verified destination only. See [csv-export.md](csv-export.md), [json-export.md](json-export.md), [immutable-export-capture.md](immutable-export-capture.md), and [sql-save-targeting-serialization.md](sql-save-targeting-serialization.md) for the flows feeding the picker.
+- **Overwrite confirmation** of an existing destination and **atomic temp-and-rename persistence** were delivered by Issue #53; the verified destination is now frozen into the immutable save-flow capture and inspected through the save boundary before a single confirmation or the atomic write stage. See [atomic-saves.md](atomic-saves.md), [csv-export.md](csv-export.md), [json-export.md](json-export.md), [immutable-export-capture.md](immutable-export-capture.md), and [sql-save-targeting-serialization.md](sql-save-targeting-serialization.md) for the flows feeding the picker.
