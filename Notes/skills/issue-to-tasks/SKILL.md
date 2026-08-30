@@ -38,10 +38,10 @@ Label each task with its type:
 - **MIGRATE**: schema or data migration
 - **CONFIG**: environment, tooling, or infrastructure change
 - **DOCUMENT**: update docs, READMEs, the wiki in Notes/wiki (see Notes/wiki/wiki-rules.md for details) or other non-code artifacts
-- **CODE WALKTHROUGH**: Using showboat (run `uvx showboat --help` for details) create a walkthrough of the implementation, making a new directory under Notes/walkthroughs named {{TASK-ID}}/code-walkthrough, and put the files it generates there.
-- **REVIEW**: human decision required before proceeding
+- **CODE WALKTHROUGH**: Using showboat (run `uvx showboat --help` for details) create a walkthrough of the implementation, making a new directory under Notes/walkthroughs named {{TASK-ID}}/code-walkthrough, and put the file or files it generates there. The main walkthrough file should be in that directory, named "walkthrough.md".
+- **REVIEW**: human decision required before proceeding, but only for HITL (human in the loop) issues.
 
-Write the DOCUMENT and CODE WALKTHROUGH tasks after all code is written, just before the final REVIEW step.
+Write the DOCUMENT and CODE WALKTHROUGH tasks after all code is written, just before the final REVIEW step (if any).
 
 ### 4. Quiz the user
 
