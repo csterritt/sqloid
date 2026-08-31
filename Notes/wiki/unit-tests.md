@@ -27,11 +27,11 @@ Cross-references: [cli-contract.md](cli-contract.md), [source-code.md](source-co
 
 ## internal/cli
 
-### internal/cli/startup_test.go (Issue #2)
+### internal/cli/startup_test.go (Issue #2, extended by Issue #58)
 
 Startup-failure rendering with real fixtures through `Main` using the production `connection.Session` handler:
 
-- `TestStartupFailuresRenderOneLineOnStderr` — table over missing, unreadable, directory, invalid-header, and non-writable fixtures: each prints exactly its documented one stderr line, nothing on stdout, and exits 1. Skips under root, where mode-based unreadability cannot be exercised.
+- `TestStartupFailuresRenderOneLineOnStderr` — table over missing, unreadable, directory, invalid-header, and non-writable fixtures: each prints exactly its documented one stderr line, nothing on stdout, exits 1, names the exact target path, and creates no file (Issue #58 adds no-creation and exact-path assertions via before/after directory snapshots). Skips under root, where mode-based unreadability cannot be exercised.
 - `TestSuccessfulStartupIsSilent` — a valid database exits 0 with completely empty streams.
 - `TestStartupFailureKeepsStructuredCause` — startup errors remain `*connection.StartupError`, guarding structured classification for rendering.
 
@@ -46,6 +46,15 @@ Cross-references: [cli-contract.md](cli-contract.md), [sqlite-startup.md](sqlite
 ### internal/d1/discovery_test.go (Issue #3)
 
 Table-driven filesystem tests via `t.Chdir(t.TempDir())`: sole-candidate selection with exact joined path; zero candidates across directory-absent/empty/metadata-only/sidecar-only/wrong-case/nested/alternate-layout fixtures (`ErrNoCandidate`, empty path); multiple candidates including uppercase-`Metadata` names remaining eligible under the case-sensitive rule (`ErrMultipleCandidates`); exclusions leaving a surviving top-level candidate while metadata, sidecar, nested, and alternate-layout files are ignored.
+
+## internal/connection Issue #58 stat-boundary classification tests
+
+### internal/connection/stat_classify_test.go (Issue #58)
+
+Table-driven stat-boundary classification through the `classifyStatError` seam, exercising wrapped errors without depending on the test user's filesystem permissions:
+
+- `TestClassifyStatError` — EACCES/EPERM wrapped in `*os.PathError` produce `FailureUnreadable` with exactly `<path>: permission denied` and preserved causes inspectable via `errors.Is`/`errors.As` (both the `syscall.Errno` sentinel and the `*os.PathError` wrapper); `fs.ErrNotExist` and `syscall.ENOENT` retain `FailureMissing` with the missing-file diagnostic; unrelated stat errors (EIO, ELOOP, bare non-sentinel errors) are classified `FailureUnreadable`, never relabeled `FailureMissing`, with the cause preserved and the path present in the rendered line.
+- `TestClassifyStatErrorDoesNotFabricateAbsence` — pins that a non-not-existence stat error never renders the missing-file diagnostic, so unrelated failures are not silently converted to absence.
 
 ## Additional Issue #3 tests elsewhere
 

@@ -74,9 +74,26 @@ func noopStartupRunner(_ tea.Model) (tea.Model, error) { return nil, nil }
 
 func lineCount(s string) int { return len(strings.Split(strings.TrimSuffix(s, "\n"), "\n")) }
 
+// dirEntries records the names of files present under dir so startup-failure
+// tests can prove no file was created by a failed open attempt.
+func dirEntries(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading dir %q: %v", dir, err)
+	}
+	m := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		m[e.Name()] = true
+	}
+	return m
+}
+
 // TestStartupFailuresRenderOneLineOnStderr pins the Issue #2 CLI contract:
 // every file-validation/open startup failure prints exactly one stderr line —
-// the documented diagnostic — writes nothing to stdout, and exits 1.
+// the documented diagnostic — writes nothing to stdout, exits 1, names the
+// exact target path, and creates no file (Issue #58 extends the original
+// Issue #2 assertions with no-creation and exact-path checks).
 func TestStartupFailuresRenderOneLineOnStderr(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root; unreadable/non-writable fixtures cannot be exercised")
@@ -136,6 +153,8 @@ func TestStartupFailuresRenderOneLineOnStderr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path, wantLine := tt.setup(t)
+			parent := filepath.Dir(path)
+			before := dirEntries(t, parent)
 
 			stdout, stderr, status := runStartup(t, path)
 
@@ -147,6 +166,15 @@ func TestStartupFailuresRenderOneLineOnStderr(t *testing.T) {
 			}
 			if stderr == "" || lineCount(stderr) != 1 || strings.TrimSuffix(stderr, "\n") != wantLine {
 				t.Errorf("stderr = %q (%d lines), want exactly one line %q", stderr, lineCount(stderr), wantLine)
+			}
+			if !strings.Contains(stderr, path) {
+				t.Errorf("stderr = %q, want it to name the exact path %q", stderr, path)
+			}
+			after := dirEntries(t, parent)
+			for name := range after {
+				if !before[name] {
+					t.Errorf("startup failure created %q in %q; validation must not create files", name, parent)
+				}
 			}
 		})
 	}

@@ -43,7 +43,9 @@ Owns SQLite connection startup for explicit and discovered paths (Issue #2):
 
 - `FailureKind` — structured failure classes: `FailureMissing`, `FailureUnreadable`, `FailureNotADatabase`, `FailureReadWrite`.
 - `StartupError` — carries `Path`, `Kind`, and a preserved unwrappable `Cause`; `Error()` already produces the exact one-line diagnostics rendered verbatim by `internal/cli` (see [sqlite-startup.md](sqlite-startup.md) for the message table).
-- `Open(path)` — ordered, non-mutating pre-open validation: existence → readability → exact 16-byte `SQLite format 3\0` header (no driver involvement) → OS-level writability proof (`O_RDWR` open; prevents the driver's silent O_RDONLY fallback) → driver open with DSN `file:<path>?mode=rw` (never creates) → harmless `PRAGMA schema_version` probe. Journal mode is never changed; there is no read-only fallback.
+- `Open(path)` — ordered, non-mutating pre-open validation: existence/stat accessibility → readability → exact 16-byte `SQLite format 3\0` header (no driver involvement) → OS-level writability proof (`O_RDWR` open; prevents the driver's silent O_RDONLY fallback) → driver open with DSN `file:<path>?mode=rw` (never creates) → harmless `PRAGMA schema_version` probe. Journal mode is never changed; there is no read-only fallback.
+- `classifyStatError(path, err)` (Issue #58) — maps an initial `os.Stat` failure onto a `*StartupError`: only `os.IsNotExist` errors are classified `FailureMissing`; EACCES/EPERM and any other non-not-existence stat cause are classified `FailureUnreadable` with the preserved unwrappable cause, so absence is never fabricated for a path that may exist but cannot be accessed.
+- `unreadableDetail(cause)` (Issue #58) — renders the `FailureUnreadable` message fragment: EACCES/EPERM (including `*os.PathError` wrapping) render as `permission denied`; any other preserved errno or raw cause renders verbatim; nil cause defaults to `permission denied`.
 - `DB`/`Close()` — wraps the opened pool. `Session(path)` is the CLI-facing handler. After successful startup validation, `Open` records the validated target's path, device, and inode on the `DB` as the request-boundary health reference (Issue #7; see [session-health.md](session-health.md)).
 - Exact-two pool (Issue #5): `SetMaxOpenConns(2)` + `SetMaxIdleConns(2)` after opening; DSN carries `_busy_timeout=5000`, so every physical connection receives the five-second busy timeout at creation. Constants: `poolSize = 2`, `busyTimeoutMillis = 5000`, `sqlMaxLengthBytes = 64 MiB`.
 - `DB.Lease(ctx)` / `Lease` type — dedicated lease acquisition: verifies original-path identity before admitting any connection (retained or newly opened/replacement) for use (Issue #7), then checks out one pooled connection and applies `sqlite.Limit(conn, SQLITE_LIMIT_LENGTH, 64 MiB)` before handing it over (the documented modernc mechanism for connection-local limits); concurrent callers get distinct connections, a third blocks until release, release is idempotent-safe, and `Conn()` panics on reuse of a released lease. Carries the narrow `interruptFn` seam (nil in production; tests install hooks).
@@ -74,6 +76,10 @@ Platform split for identity capture under build tags: Unix reads device/inode fr
 ### internal/connection/startup_test.go
 
 Table-driven pre-open validation: missing file, directory, invalid/corrupt/short headers, and readability-before-header ordering (an unreadable invalid-header file classifies as unreadable). Every case snapshots size/mode/mtime/body before and after to prove pre-open validation neither creates a missing target nor modifies an existing one.
+
+### internal/connection/stat_classify_test.go (Issue #58)
+
+Table-driven stat-boundary classification through the `classifyStatError` seam: EACCES/EPERM wrapped in `*os.PathError` produce `FailureUnreadable` with exactly `<path>: permission denied` and preserved causes inspectable via `errors.Is`/`errors.As`; `fs.ErrNotExist` and `syscall.ENOENT` retain `FailureMissing`; unrelated stat errors (EIO, ELOOP, bare errors) are classified `FailureUnreadable` and never relabeled missing. No test depends on the test user's filesystem permissions.
 
 ### internal/connection/pool_config_test.go (Issue #5)
 

@@ -111,7 +111,7 @@ func (e *StartupError) Error() string {
 	case FailureMissing:
 		return fmt.Sprintf("%s: no such file or directory", e.Path)
 	case FailureUnreadable:
-		return fmt.Sprintf("%s: permission denied", e.Path)
+		return fmt.Sprintf("%s: %s", e.Path, unreadableDetail(e.Cause))
 	case FailureNotADatabase:
 		return fmt.Sprintf("%s: not a SQLite database", e.Path)
 	case FailureReadWrite:
@@ -123,6 +123,26 @@ func (e *StartupError) Error() string {
 	default:
 		return fmt.Sprintf("%s: unknown startup failure (%d)", e.Path, int(e.Kind))
 	}
+}
+
+// unreadableDetail maps a stat- or read-time accessibility failure onto its
+// message fragment. EACCES and EPERM (including *os.PathError wrapping) render
+// as "permission denied"; any other preserved errno or raw cause renders
+// verbatim so unrelated stat failures stay actionable rather than masquerading
+// as permission denial. A nil cause defaults to "permission denied" to keep the
+// pre-Issue #58 rendering for bare StartupError values.
+func unreadableDetail(cause error) string {
+	var errno syscall.Errno
+	if errors.As(cause, &errno) {
+		if errno == syscall.EACCES || errno == syscall.EPERM {
+			return "permission denied"
+		}
+		return errno.Error()
+	}
+	if cause != nil {
+		return cause.Error()
+	}
+	return "permission denied"
 }
 
 // readWriteDetail maps a mode=rw open failure onto its documented message
@@ -291,6 +311,19 @@ func mustFileURL(path string) url.URL {
 	return url.URL{Scheme: "file", Opaque: path}
 }
 
+// classifyStatError maps an initial os.Stat failure onto a *StartupError,
+// preserving the original cause unwrappable through the returned error. Only
+// os.IsNotExist errors are classified as missing (Issue #58); EACCES/EPERM
+// permission failures and any other non-not-existence stat cause are
+// classified as unreadable so absence is never fabricated for a path that may
+// exist but cannot be accessed.
+func classifyStatError(path string, err error) *StartupError {
+	if os.IsNotExist(err) {
+		return &StartupError{Path: path, Kind: FailureMissing, Cause: err}
+	}
+	return &StartupError{Path: path, Kind: FailureUnreadable, Cause: err}
+}
+
 // Open validates the database at path without creating or modifying it and,
 // when valid, opens it read-write through the pinned driver and probes the
 // schema with a harmless `PRAGMA schema_version`. Journal mode is never set
@@ -303,7 +336,7 @@ func mustFileURL(path string) url.URL {
 func Open(path string) (*DB, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, &StartupError{Path: path, Kind: FailureMissing, Cause: err}
+		return nil, classifyStatError(path, err)
 	}
 	f, err := os.Open(path)
 	if err != nil {
