@@ -9,7 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/chris/sqloid/internal/connection"
+	"github.com/chris/sqloid/internal/session"
 
 	_ "modernc.org/sqlite"
 )
@@ -29,8 +32,9 @@ func createFixture(t *testing.T, path string) {
 	}
 }
 
-// runStartup runs `sqloid sqlite <path>` through Main with the real Session
-// handler while capturing both streams.
+// runStartup runs `sqloid sqlite <path>` through Main with the production
+// session handler (injected with a no-op program runner so no TTY is
+// required) while capturing both streams.
 func runStartup(t *testing.T, path string) (stdout, stderr string, status int) {
 	t.Helper()
 
@@ -45,7 +49,9 @@ func runStartup(t *testing.T, path string) (stdout, stderr string, status int) {
 	}
 	os.Stdout, os.Stderr = outW, errW
 
-	status = Main([]string{"sqloid", "sqlite", path}, Handlers{SQLite: connection.Session})
+	status = Main([]string{"sqloid", "sqlite", path}, Handlers{SQLite: func(path string) error {
+		return session.RunSQLiteWith(path, noopStartupRunner, nil)
+	}})
 
 	os.Stdout, os.Stderr = savedOut, savedErr
 	outW.Close()
@@ -60,6 +66,11 @@ func runStartup(t *testing.T, path string) (stdout, stderr string, status int) {
 	}
 	return outBuf.String(), errBuf.String(), status
 }
+
+// noopStartupRunner is the injected program runner for startup tests: it
+// returns immediately without touching the TTY, proving the open → compose →
+// close lifecycle succeeds silently.
+func noopStartupRunner(_ tea.Model) (tea.Model, error) { return nil, nil }
 
 func lineCount(s string) int { return len(strings.Split(strings.TrimSuffix(s, "\n"), "\n")) }
 

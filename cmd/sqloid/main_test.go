@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	_ "modernc.org/sqlite"
 
 	"github.com/chris/sqloid/internal/cli"
-	"github.com/chris/sqloid/internal/connection"
+	"github.com/chris/sqloid/internal/session"
 )
 
 // The real binary's exact stream and exit-status contracts are asserted by
@@ -25,9 +27,12 @@ func TestMain(m *testing.M) {
 			D1:     func() error { return appendRecord(record, "d1") },
 		}
 		// SQLOID_CLI_REAL routes through the production sqlite session
-		// handler instead of the recording stub, for Issue #2 startup tests.
+		// handler (with a no-op program runner so no TTY is required)
+		// instead of the recording stub, for Issue #2 startup tests.
 		if os.Getenv("SQLOID_CLI_REAL") != "" {
-			handlers.SQLite = connection.Session
+			handlers.SQLite = func(path string) error {
+				return session.RunSQLiteWith(path, func(_ tea.Model) (tea.Model, error) { return nil, nil }, nil)
+			}
 		}
 		os.Exit(cli.Main(append([]string{"sqloid"}, strings.Fields(args)...), handlers))
 	}

@@ -3,8 +3,10 @@ package cli
 import (
 	"errors"
 
-	"github.com/chris/sqloid/internal/connection"
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/chris/sqloid/internal/d1"
+	"github.com/chris/sqloid/internal/session"
 )
 
 // zeroCandidateHint is the exact second diagnostic line required by Issue #4
@@ -17,15 +19,27 @@ const zeroCandidateHint = "Expected " + d1.Dir + "; your Wrangler version may us
 // candidate path from internal/d1's exact-rule discovery, maps every typed
 // discovery failure onto its exact Issue #4 diagnostic without calling the
 // opener, and passes a discovered path unchanged to the shared Issue #2
-// pre-open validation, read-write open, and schema-probe flow in
-// internal/connection. There is deliberately no D1-specific validation or
-// SQLite-opening path here.
+// pre-open validation, read-write open, schema-probe, and production
+// composition flow in internal/connection and internal/session. There is
+// deliberately no D1-specific validation or SQLite-opening path here.
 //
 // Discovery failures carry typed outcomes from internal/d1 and are mapped
 // here to the exact Issue #4 diagnostics before Main renders them verbatim
 // with exit status 1; no database target is created for any of them.
 func RunD1() error {
-	return runD1With(d1.Discover, connection.Session)
+	return runD1With(d1.Discover, session.RunSQLite)
+}
+
+// RunD1WithRunner is the testable D1 handler: it uses the injected program
+// runner (and nil close hook, which means the session's own Close) instead of
+// tea.NewProgram so the discovery → open → compose → run → close lifecycle
+// can be exercised without a real TTY.
+func RunD1WithRunner(run func(tea.Model) (tea.Model, error)) func() error {
+	return func() error {
+		return runD1With(d1.Discover, func(path string) error {
+			return session.RunSQLiteWith(path, run, nil)
+		})
+	}
 }
 
 // runD1With composes discovery with a shared opener, with both injected for

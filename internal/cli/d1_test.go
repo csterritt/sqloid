@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/chris/sqloid/internal/d1"
 )
 
@@ -331,7 +333,9 @@ func sameFileSet(a, b []string) bool {
 
 // runD1 executes `sqloid d1` through Main with the production D1 handler
 // composition while capturing both streams, mirroring runStartup in
-// startup_test.go.
+// startup_test.go. It injects a no-op program runner so the discovery → open
+// → compose → run → close lifecycle is exercised without a real TTY; the
+// real TUI is covered by the PTY integration test in cmd/sqloid.
 func runD1(t *testing.T) (stdout, stderr string, status int) {
 	savedOut, savedErr := os.Stdout, os.Stderr
 	defer func() { os.Stdout, os.Stderr = savedOut, savedErr }()
@@ -345,7 +349,7 @@ func runD1(t *testing.T) (stdout, stderr string, status int) {
 	}
 	os.Stdout, os.Stderr = outW, errW
 
-	status = Main([]string{"sqloid", "d1"}, Handlers{D1: RunD1})
+	status = Main([]string{"sqloid", "d1"}, Handlers{D1: RunD1WithRunner(noopRunner)})
 
 	outW.Close()
 	errW.Close()
@@ -355,3 +359,8 @@ func runD1(t *testing.T) (stdout, stderr string, status int) {
 	io.Copy(&errBuf, errR)
 	return outBuf.String(), errBuf.String(), status
 }
+
+// noopRunner is the injected program runner for D1 end-to-end tests: it
+// returns immediately without touching the TTY, proving the discovery → open
+// → compose → close lifecycle succeeds silently.
+func noopRunner(_ tea.Model) (tea.Model, error) { return nil, nil }

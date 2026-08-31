@@ -42,8 +42,8 @@ An immediate entry of that directory is a candidate when **all** rules hold:
 ## Handoff chain
 
 1. `internal/d1.Discover()` performs the filesystem scan above. It never opens SQLite and owns nothing beyond path strings; it returns typed sentinel outcomes (`ErrNoCandidate`, `ErrMultipleCandidates`) so `internal/cli` can render diagnostics without this package duplicating them.
-2. `internal/cli.RunD1` receives the sole candidate path and passes it **unchanged** to `internal/connection.Session` — the same pre-open validation, read-write mode=rw open, and schema-probe flow as `sqloid sqlite <file>`. There is no D1-specific validation or SQLite-opening path anywhere.
-3. `cmd/sqloid/main.go` wires `Handlers{SQLite: connection.Session, D1: cli.RunD1}` and stays a thin executable entrypoint.
+2. `internal/cli.RunD1` receives the sole candidate path and passes it **unchanged** to `internal/session.RunSQLite` — the same pre-open validation, read-write mode=rw open, schema-probe, and production composition flow as `sqloid sqlite <file>` (see [production-tui-composition.md](production-tui-composition.md)). There is no D1-specific validation or SQLite-opening path anywhere.
+3. `cmd/sqloid/main.go` wires `Handlers{SQLite: session.RunSQLite, D1: cli.RunD1}` and stays a thin executable entrypoint.
 
 ## Relative-path URI detail
 

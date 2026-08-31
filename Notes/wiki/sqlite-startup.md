@@ -11,7 +11,7 @@ How Sqloid starts a session on a SQLite database: ordered pre-open validation, r
 - `Lease(ctx) (*Lease, error)` / `(*Lease).Conn` / `(*Lease).Release` — dedicated-connection leasing over the exact-two pool; see [connection-pool.md](connection-pool.md) for ownership, busy timeout, length limits, and journal invariants (Issue #5).
 - `StartupError` / `FailureKind` / `DB` / `Close` as the public surface for classification and rendering.
 
-`internal/cli` only renders diagnostics and exit statuses; `cmd/sqloid/main.go` wires `Handlers{SQLite: connection.Session}` and stays a thin entrypoint.
+`internal/cli` only renders diagnostics and exit statuses; `cmd/sqloid/main.go` wires `Handlers{SQLite: session.RunSQLite}` (see [production-tui-composition.md](production-tui-composition.md)) and stays a thin entrypoint.
 
 ## Validation order (non-mutating)
 

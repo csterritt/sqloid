@@ -6,7 +6,7 @@ Summaries of all source files under `cmd/` and `internal/`.
 
 ### cmd/sqloid/main.go
 
-The executable entrypoint and thin process boundary. Maps `os.Exit(cli.Main(os.Args, handlers))` with `handlers.SQLite = connection.Session`, connecting the shell to real database startup; all other construction and dispatch live in `internal/cli`. `cmd/sqloid/main_test.go` re-executes the test binary as the CLI to assert exact streams and exit statuses, including the production connection path via `SQLOID_CLI_REAL=1` (see [unit-tests.md](unit-tests.md)).
+The executable entrypoint and thin process boundary. Maps `os.Exit(cli.Main(os.Args, handlers))` with `handlers.SQLite = session.RunSQLite` and `handlers.D1 = cli.RunD1`, connecting the shell to the production composition root in `internal/session`; all other construction and dispatch live in `internal/cli` and `internal/session`. `cmd/sqloid/main_test.go` re-executes the test binary as the CLI to assert exact streams and exit statuses, including the production session path via `SQLOID_CLI_REAL=1` with an injected no-op program runner (see [unit-tests.md](unit-tests.md)). `cmd/sqloid/pty_integration_test.go` builds the real binary and runs it under `github.com/creack/pty` through a real terminal to prove the full composition root works end-to-end (see [production-tui-composition.md](production-tui-composition.md)).
 
 ## internal/cli
 
@@ -20,6 +20,20 @@ The mow.cli command shell (PRD-mandated structure):
 - `Main(args, h) int` — runs the app and maps a usage-error return onto status 2; successful dispatch returns 0 with no CLI-authored output. Returns the status instead of calling `os.Exit` so tests and the entrypoint control termination.
 
 Cross-references: [cli-contract.md](cli-contract.md), [project-overview.md](project-overview.md).
+
+## internal/session
+
+### internal/session/session.go (Issue #57)
+
+The production composition root that bridges `internal/connection` and `internal/ui`:
+
+- `Compose(db) (*Session, error)` — loads the initial schema catalog synchronously via `db.ReadCatalog`, installs it through `SchemaRefreshedMsg` so the `QueryBuilder` reflects the real database from the first frame, wires every database seam (`Select`, `Count`, `Page`, `VersionReader`, `Refresher`, `Estimator`, `Write`) to a thin adapter over `db`, installs fresh `history.Store` and `history.ResultStore`, and leaves `PickerFS`/`SaveFS` nil so the real `filepicker.OSFS` and `export.OSSaveFS` are used. A catalog failure returns the wrapped cause (preserving the `*connection.HealthError` chain) so the CLI stops before Bubble Tea starts; `Compose` never closes `db` itself.
+- `Session` — owns `db`, the retained `catalog`, and the wired `model`; `Close()` releases the pool exactly once and is a safe no-op on a second call.
+- `RunSQLite(path) error` — the CLI-facing handler: opens, composes, runs `tea.NewProgram`, and closes in the reverse order (program teardown before pool release).
+- `RunSQLiteWith(path, run, closeHook) error` — the testable lifecycle with an injected program runner and observable close hook; a startup or catalog failure never invokes `run`; a runner error is returned after the session is closed.
+- The database seam adapters map `connection.RequestResult` onto the UI's typed results: `errors.Is(err, context.Canceled)` classifies lease-boundary cancellation as `Cancelled`; `*connection.HealthError` is surfaced as `Err` when `Err` is nil but `Health` is set so `healthTerminalFor` classifies it via `errors.As`; `*result.LimitFailure` is preserved via `errors.As`; `Write` drains the phase stream through the callback before `Wait()`.
+
+`internal/session/compose_test.go` opens a real temporary SQLite database and exercises every seam; `internal/session/lifecycle_test.go` covers the deterministic lifecycle with an injected runner and close hooks. See [production-tui-composition.md](production-tui-composition.md).
 
 ## internal/connection
 
