@@ -67,8 +67,9 @@ func TestReadCatalogConcurrentRequestsLeaseDistinctConnections(t *testing.T) {
 }
 
 // TestReadCatalogCancelledContextFailsWithCancellation proves the catalog
-// read honours its context: an already-cancelled context yields a failed
-// outcome whose cause unwraps to context.Canceled through the refresh wrapper.
+// read honours its context: an already-cancelled context yields a cancelled
+// outcome (Issue #60 pre-lease cancellation) whose cause unwraps to
+// context.Canceled through the refresh wrapper.
 func TestReadCatalogCancelledContextFailsWithCancellation(t *testing.T) {
 	path := t.TempDir() + "/cancelled.db"
 	createDatabase(t, path)
@@ -78,14 +79,14 @@ func TestReadCatalogCancelledContextFailsWithCancellation(t *testing.T) {
 	cancel()
 
 	cat, res := db.ReadCatalog(ctx)
-	if res.Outcome != OutcomeFailed {
-		t.Errorf("cancelled ReadCatalog outcome = %s, want failed", res.Outcome)
+	if res.Outcome != OutcomeCancelled {
+		t.Errorf("cancelled ReadCatalog outcome = %s, want cancelled", res.Outcome)
 	}
 	if !errors.Is(res.Err, context.Canceled) {
 		t.Errorf("cancelled ReadCatalog error = %v, want context.Canceled cause preserved unwrappable", res.Err)
 	}
 	if cat != nil {
-		t.Errorf("failed ReadCatalog returned catalog %+v, want zero value", cat)
+		t.Errorf("cancelled ReadCatalog returned catalog %+v, want zero value", cat)
 	}
 }
 

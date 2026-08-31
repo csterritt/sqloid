@@ -192,7 +192,8 @@ func TestRunFirstPageBindsParamsInOrder(t *testing.T) {
 
 // TestRunFirstPagePrecancelledContext pins the boundary classification for
 // a request whose context is already cancelled when issued: no page is
-// returned, the outcome is an ordinary failure at this boundary, and the
+// returned, the outcome is cancelled at this boundary (Issue #60: pre-lease
+// cancellation classifies as the existing cancelled outcome), and the
 // cancellation cause stays inspectable through errors.Is. (Mid-flight
 // cancellation classification is owned and proven by the Issue #6 request
 // lifecycle; Ctrl+W routing for SELECT pages arrives with later issues.)
@@ -205,11 +206,11 @@ func TestRunFirstPagePrecancelledContext(t *testing.T) {
 	if page != nil {
 		t.Error("cancelled request returned a page")
 	}
-	if res.Outcome != OutcomeFailed {
-		t.Errorf("outcome = %v, want failed", res.Outcome)
+	if res.Outcome != OutcomeCancelled {
+		t.Errorf("outcome = %v, want cancelled", res.Outcome)
 	}
 	if !errors.Is(res.Err, context.Canceled) {
-		t.Errorf("failure error %v does not unwrap to context.Canceled", res.Err)
+		t.Errorf("cancelled error %v does not unwrap to context.Canceled", res.Err)
 	}
 }
 

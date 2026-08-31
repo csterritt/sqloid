@@ -49,11 +49,15 @@ func (db *DB) startRequest(parent context.Context, op func(ctx context.Context, 
 
 	lease, err := db.Lease(parent)
 	if err != nil {
-		var he *HealthError
-		if errors.As(err, &he) {
-			s.done <- RequestResult{Outcome: OutcomeFailed, Health: he}
+		if errors.Is(err, context.Canceled) {
+			s.done <- RequestResult{Outcome: OutcomeCancelled, Err: err}
 		} else {
-			s.done <- RequestResult{Outcome: OutcomeFailed, Err: err}
+			var he *HealthError
+			if errors.As(err, &he) {
+				s.done <- RequestResult{Outcome: OutcomeFailed, Health: he}
+			} else {
+				s.done <- RequestResult{Outcome: OutcomeFailed, Err: err}
+			}
 		}
 		close(s.settled)
 		return s

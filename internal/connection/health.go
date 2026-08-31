@@ -122,6 +122,9 @@ type RequestResult struct {
 func (db *DB) RunRequest(parent context.Context, op func(ctx context.Context, conn *sql.Conn) error) RequestResult {
 	lease, err := db.Lease(parent)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return RequestResult{Outcome: OutcomeCancelled, Err: err}
+		}
 		var he *HealthError
 		if errors.As(err, &he) {
 			return RequestResult{Outcome: OutcomeFailed, Health: he}

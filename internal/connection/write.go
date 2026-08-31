@@ -185,11 +185,15 @@ func (db *DB) StartWrite(parent context.Context, execution uint64, statement str
 
 	lease, err := db.Lease(parent)
 	if err != nil {
-		var he *HealthError
-		if errors.As(err, &he) {
-			w.deliver(WriteResult{Outcome: WriteFailed, Err: err, Health: he})
+		if errors.Is(err, context.Canceled) {
+			w.deliver(WriteResult{Outcome: WriteCancelled, Err: err})
 		} else {
-			w.deliver(WriteResult{Outcome: WriteFailed, Err: err})
+			var he *HealthError
+			if errors.As(err, &he) {
+				w.deliver(WriteResult{Outcome: WriteFailed, Err: err, Health: he})
+			} else {
+				w.deliver(WriteResult{Outcome: WriteFailed, Err: err})
+			}
 		}
 		return w
 	}

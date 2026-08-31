@@ -4,7 +4,7 @@ How `internal/connection` runs every database request as a cancellable, identity
 
 ## Scope vs. later wiring
 
-Issue #6 is the reusable infrastructure layer only: request identity, cancellable context ownership, interrupt dispatch, settlement, late-success classification, no force-close, and pinned-driver capability evidence. SELECT page/count cancellation is Issue #28 (documented in [scoped-select-cancellation.md](scoped-select-cancellation.md)), which consumes these primitives unchanged; write-phase cancellation with its commit boundary is deferred to Issues #42/#43, and history effects/quit integration to their owning issues.
+Issue #6 is the reusable infrastructure layer only: request identity, cancellable context ownership, interrupt dispatch, settlement, late-success classification, no force-close, and pinned-driver capability evidence. SELECT page/count cancellation is Issue #28 (documented in [scoped-select-cancellation.md](scoped-select-cancellation.md)), which consumes these primitives unchanged; pre-lease cancellation — when the context is cancelled while the request is queued for a lease before any work starts — is Issue #60 (documented in [prelease-cancellation.md](prelease-cancellation.md)); write-phase cancellation with its commit boundary is deferred to Issues #42/#43, and history effects/quit integration to their owning issues.
 
 ## Request lifecycle
 

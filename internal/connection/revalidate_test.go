@@ -39,7 +39,9 @@ func TestReadSchemaVersionReturnsCurrentVersion(t *testing.T) {
 }
 
 // TestReadSchemaVersionCancelledContextFailsWithCancellation proves the
-// version read honours its context like any other request.
+// version read honours its context like any other request: an
+// already-cancelled context classifies as cancelled (Issue #60 pre-lease
+// cancellation) with the cause preserved.
 func TestReadSchemaVersionCancelledContextFailsWithCancellation(t *testing.T) {
 	path := t.TempDir() + "/version-cancelled.db"
 	createDatabase(t, path)
@@ -49,8 +51,8 @@ func TestReadSchemaVersionCancelledContextFailsWithCancellation(t *testing.T) {
 	cancel()
 
 	_, res := db.ReadSchemaVersion(ctx)
-	if res.Outcome != OutcomeFailed {
-		t.Fatalf("ReadSchemaVersion outcome = %v, want failed", res.Outcome)
+	if res.Outcome != OutcomeCancelled {
+		t.Fatalf("ReadSchemaVersion outcome = %v, want cancelled", res.Outcome)
 	}
 	if !errors.Is(res.Err, context.Canceled) {
 		t.Errorf("error = %v, want a context.Canceled cause", res.Err)
