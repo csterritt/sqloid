@@ -22,6 +22,8 @@ How `internal/connection` owns the exact-two SQLite pool, dedicated leases, per-
 
 Both values are constants in `internal/connection`. Neither modifies the database file: the busy timeout is connection state, and the length limit is reset whenever the driver would recycle the connection — Sqloid re-applies it on every lease acquisition.
 
+The DSN carrying `_busy_timeout` and `mode=rw` is built by `dsn(path)` through `mustFileURL(path)`, which percent-encodes relative filesystem paths via `url.URL.EscapedPath()` into the URL `Opaque` field so reserved characters (`?`, `#`, spaces) remain filename data and no `//` authority is invented (Issue #59; see [sqlite-startup.md](sqlite-startup.md) for the full DSN construction and escaping contract).
+
 ## Journal invariants
 
 WAL and rollback-journal modes are neither set nor changed anywhere in `Connection`: the opener records fixture mode before opening, and opening plus concurrent lease use leaves `PRAGMA journal_mode` identical (`delete` fixtures stay `delete`, `wal` stays `wal`). No journal pragma appears in any DSN, hook, or lease configuration.

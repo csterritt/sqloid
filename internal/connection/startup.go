@@ -300,15 +300,21 @@ func dsn(path string) string {
 // mustFileURL renders path as a file: URI whose query string can be extended;
 // it only panics for inputs that cannot occur from normal callers.
 //
-// Relative paths render as opaque "file:<path>" URIs: url.URL.String() would
-// otherwise promote the first path segment to a URI authority ("file://.
-// wrangler/..."), which the SQLite URI parser rejects with "invalid uri
-// authority" while diagnostics keep referring to the caller's relative path.
+// Relative paths render as opaque "file:<escaped-path>" URIs: the path is
+// percent-encoded through url.URL.EscapedPath so reserved characters such as
+// '?', '#', and spaces remain filename data rather than becoming query or
+// fragment delimiters, and the escaped result is placed in Opaque so
+// url.URL.String() does not promote the first path segment to a URI authority
+// ("file://.wrangler/..."), which the SQLite URI parser rejects with "invalid
+// uri authority" while diagnostics keep referring to the caller's relative
+// path. Absolute paths use URL.Path, whose EscapedPath escaping is applied
+// automatically by String() under the standard file:// authority form.
 func mustFileURL(path string) url.URL {
 	if filepath.IsAbs(path) {
 		return url.URL{Scheme: "file", Path: path}
 	}
-	return url.URL{Scheme: "file", Opaque: path}
+	u := url.URL{Path: path}
+	return url.URL{Scheme: "file", Opaque: u.EscapedPath()}
 }
 
 // classifyStatError maps an initial os.Stat failure onto a *StartupError,
