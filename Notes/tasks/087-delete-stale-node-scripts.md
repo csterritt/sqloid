@@ -2,6 +2,9 @@
 
 Parent issue: #87
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: none
+**Acceptance criteria**: AC1–AC4 → Task 1
+**Manual verification**: Task 2 is a lightweight cleanup walkthrough with path/reference checks and verification output; no interactive TUI demonstration is required.
 
 ## Tasks
 

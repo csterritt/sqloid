@@ -2,6 +2,9 @@
 
 Parent issue: #86
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: none
+**Acceptance criteria**: AC1–AC5 → Task 1; Task 2 records review evidence.
+**Manual verification**: Task 2 is a lightweight documentation walkthrough with rendered text and focused verification output; no interactive TUI demonstration is required.
 
 ## Tasks
 

@@ -2,18 +2,23 @@
 
 Parent issue: #69
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: none
+**Acceptance criteria**: AC1–AC3 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
-### 1. Specify reachable picker key routing and dead-arm removal
+### 1. Lock reachable picker key-routing behavior
 
-**Type**: RED  
-**Output**: Failing focused checks require no Left/Right arms in applyPickerFilenameKey while behavior tests lock picker-level format routing and reachable filename edits.  
+**Type**: REFACTOR
+**Output**: Passing behavioral tests lock picker-level format routing and every reachable filename edit before dead code is removed.
+**Verification obligation**: The behavioral safety net is green before the refactor and remains green afterward; production behavior does not change.
+**Supplemental checks**: none
 **Depends on**: none
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Extend the key-routing coverage in `internal/ui/picker_flow_test.go`, following its injected picker and exact state assertions. In both directory and filename focus, send Left and Right through `Model.Update` and require them to change only the export format through `pickerToggleFormat`, preserve filename text/cursor and directory state, and never reach filename mutation. Add the repository-appropriate focused source/AST assertion for the acceptance criterion that `applyPickerFilenameKey` itself has no `tea.KeyLeft` or `tea.KeyRight` switch arms; this assertion must fail against the current dead branches before Task 2. Exercise every remaining reachable filename editing route—printable runes, Backspace/Ctrl+H, Delete, Home/Ctrl+A, End/Ctrl+E, Ctrl+U—plus Tab, Enter, and Esc at the picker dispatcher, requiring unchanged edit/focus/submit/cancel behavior. Keep this task test-only and avoid broad snapshots or unrelated linter configuration.
+Extend the key-routing coverage in `internal/ui/picker_flow_test.go`, following its injected picker and exact state assertions. In both directory and filename focus, send Left and Right through `Model.Update` and require them to change only the export format through `pickerToggleFormat`, preserve filename text/cursor and directory state, and never reach filename mutation. Exercise every remaining reachable filename editing route—printable runes, Backspace/Ctrl+H, Delete, Home/Ctrl+A, End/Ctrl+E, Ctrl+U—plus Tab, Enter, and Esc at the picker dispatcher, requiring unchanged edit/focus/submit/cancel behavior. Run this behavioral safety net before production edits and record that it is green; do not add an AST unit test, broad snapshots, or unrelated linter configuration.
 
 ---
 
@@ -21,9 +26,11 @@ Extend the key-routing coverage in `internal/ui/picker_flow_test.go`, following 
 
 **Type**: REFACTOR  
 **Output**: applyPickerFilenameKey contains no unreachable Left/Right arms and all picker routing tests pass unchanged.  
+**Verification obligation**: Task 1's behavioral safety net passes unchanged; production behavior does not change.
+**Supplemental checks**: Focused grep/static build evidence shows the dead Left/Right arms are absent; `go build ./...` and `go vet ./...` pass.
 **Depends on**: 1
 
-Refactor `applyPickerFilenameKey` in `internal/ui/filepicker.go` by removing only its `tea.KeyLeft` and `tea.KeyRight` cases. Preserve the earlier picker-level `msg.String()` Left/Right branch in `handlePickerKey`, which must continue toggling export format before focus-specific filename dispatch in both picker focuses. Do not add replacement cursor bindings, reorder global/pending/focus precedence, or alter any reachable filename mutation, focus, validation, submission, cancellation, opener restoration, or format behavior. Update nearby comments only where needed to state the actual reachable editing contract, and run the focused UI picker tests plus the repository's established Go verification commands.
+Refactor `applyPickerFilenameKey` in `internal/ui/filepicker.go` by removing only its `tea.KeyLeft` and `tea.KeyRight` cases. Preserve the earlier picker-level `msg.String()` Left/Right branch in `handlePickerKey`, which must continue toggling export format before focus-specific filename dispatch in both picker focuses. Do not add replacement cursor bindings, reorder global/pending/focus precedence, or alter any reachable filename mutation, focus, validation, submission, cancellation, opener restoration, or format behavior. Update nearby comments only where needed to state the actual reachable editing contract. Run the unchanged focused UI picker safety net and repository verification, then use a focused grep/static build check as supplemental evidence that the two dead switch arms are absent; do not encode private function shape in a unit test.
 
 ---
 

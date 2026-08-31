@@ -2,6 +2,10 @@
 
 Parent issue: #76
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #71, #72, #75
+**Coordinates with**: #75; preserve its warning metadata while extending the shared `Finalization`/`SnapshotMetadata`/`projectHistoryEntry` seam.
+**Acceptance criteria**: AC1–AC4 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +17,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Begin only after Issues #71 and #72 are complete. Add table-driven lifecycle tests in `internal/ui` beside `bytecap_test.go`, `snapshot_finalize_test.go`, and `result_history_browse_test.go`, with immutable entry assertions in `internal/history` where the typed metadata is stored. For both `result.KindPage` and `result.KindValue`, settle/finalize an active SELECT carrying a `result.LimitFailure` at representative one-based logical positions after complete leading rows have entered the contiguous cache. Require the finalized snapshot to preserve kind and position as typed facts, historical projection at smaller and larger terminal heights to restore `ResultView.LimitFailure`, and rendering to reuse the exact `result.LimitFailure.Error` line for page versus value failures. Assert retained leading rows, absolute positions, typed cells, and BLOB bytes remain unchanged and export capture keeps their immutable snapshot metadata without a partial row. Include source/projection mutation checks and a no-failure control that remains unset through finalization and projection. Keep this task test-only and do not duplicate failure message literals in UI production code.
+Begin only after Issues #71, #72, and #75 are complete. Preserve Issue #75's warning metadata while extending the shared `Finalization`/`SnapshotMetadata`/`projectHistoryEntry` seam with typed limit failures. Add table-driven lifecycle tests in `internal/ui` beside `bytecap_test.go`, `snapshot_finalize_test.go`, and `result_history_browse_test.go`, with immutable entry assertions in `internal/history` where the typed metadata is stored. For both `result.KindPage` and `result.KindValue`, settle/finalize an active SELECT carrying a `result.LimitFailure` at representative one-based logical positions after complete leading rows have entered the contiguous cache. Require the finalized snapshot to preserve kind and position as typed facts, historical projection at smaller and larger terminal heights to restore `ResultView.LimitFailure`, and rendering to reuse the exact `result.LimitFailure.Error` line for page versus value failures. Assert retained leading rows, absolute positions, typed cells, and BLOB bytes remain unchanged and export capture keeps their immutable snapshot metadata without a partial row. Include source/projection mutation checks and a no-failure control that remains unset through finalization and projection. Keep this task test-only and do not duplicate failure message literals in UI production code.
 
 ---
 

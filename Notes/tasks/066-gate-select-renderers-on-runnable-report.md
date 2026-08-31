@@ -2,6 +2,9 @@
 
 Parent issue: #66
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #65
+**Acceptance criteria**: AC1–AC2 → Tasks 1–2; AC3 → Tasks 3–4
+**Manual verification**: Task 6 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +16,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-After Issue #65 is complete, add a shared rejection matrix in the existing SELECT/page/count renderer tests under `internal/querybuilder`, using `internal/querybuilder/runnable_test.go` builders as the authoritative validity source. Cover missing command/table/projection, stale table, stale named Value and aggregate projections, incomplete or stale WHERE, every invalid grouping and ORDER BY class, malformed/zero/negative/overflow Limit, and any open value state. For each case first assert `RunnableReport().Runnable` is false, then require `SelectSQL`, `PageSQL`, and `CountSQL` to return empty strings and `SelectParams`, `PageParams`, and `CountParams` to return no parameters, including cases whose component state is locally formattable. Keep this task test-only and avoid independently restating renderer validity rules in test helpers.
+Begin only after Issue #65 is complete. Add a shared rejection matrix in the existing SELECT/page/count renderer tests under `internal/querybuilder`, using `internal/querybuilder/runnable_test.go` builders as the authoritative validity source. Cover missing command/table/projection, stale table, stale named Value and aggregate projections, incomplete or stale WHERE, every invalid grouping and ORDER BY class, malformed/zero/negative/overflow Limit, and any open value state. For each case first assert `RunnableReport().Runnable` is false, then require `SelectSQL`, `PageSQL`, and `CountSQL` to return empty strings and `SelectParams`, `PageParams`, and `CountParams` to return no parameters, including cases whose component state is locally formattable. Keep this task test-only and avoid independently restating renderer validity rules in test helpers.
 
 ---
 

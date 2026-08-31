@@ -24,24 +24,27 @@ Explore the parts of the codebase touched by this issue. Focus on:
 
 ### 3. Draft the task list
 
-Break the issue into ordered tasks. Each task must:
+Break the issue into ordered tasks. Copy the parent issue's cross-issue prerequisites into the structured `Blocked by issues` header; `Depends on` is reserved for sibling task ordinals. Add an explicit AC-to-task map and name the task that owns manual verification so schedulers do not have to infer either relationship from prose. Standardize repeated gate wording as `Begin only after Issue #X is complete.`
+
+Each task must:
 
 - Be completable in a single AI session (one focused prompt exchange)
 - Have a clear, verifiable output (a file, a passing test, a working endpoint)
 - Follow the dependency order: schema before logic, logic before API, API before UI, tests alongside or immediately after each layer
+- Preserve cross-issue ordering on shared files or functions; explicitly sequence otherwise-independent issues that edit the same seam
 
-Label each task with its type:
+Label each task with exactly one of these types and satisfy its verification obligation:
 
-- **RED**: create tests that must fail before any code is written to make them pass.
-- **GREEN**: create or modify just enough production code to make the tests pass.
-- **REFACTOR**: improve existing code without changing behavior
-- **MIGRATE**: schema or data migration
-- **CONFIG**: environment, tooling, or infrastructure change
-- **DOCUMENT**: update docs, READMEs, the wiki in Notes/wiki (see Notes/wiki/wiki-rules.md for details) or other non-code artifacts
-- **CODE WALKTHROUGH**: Using showboat (run `uvx showboat --help` for details) create a walkthrough of the implementation, making a new directory under Notes/walkthroughs named {{TASK-ID}}/code-walkthrough, and put the file or files it generates there. The main walkthrough file should be in that directory, named "walkthrough.md".
-- **REVIEW**: human decision required before proceeding, but only for HITL (human in the loop) issues.
+- **RED**: add an externally observable contract test that fails for the intended reason before production changes. Do not use private source/AST shape as the primary RED gate; when behavior cannot expose a cleanup requirement, specify a separate lint/build check instead.
+- **GREEN**: create or modify only enough production code to make its preceding RED contract pass, then run the focused and repository-standard verification.
+- **REFACTOR**: improve code without changing behavior. Begin from an already-green behavioral safety net, run it unchanged after the edit, and use lint/build/source checks only as supplemental evidence for structural cleanup.
+- **MIGRATE**: apply a schema or data migration and verify both migration correctness and the supported upgrade/rollback contract.
+- **CONFIG**: change environment, tooling, or infrastructure; validate syntax/configuration, execute the affected gate where possible, and include a fail-closed negative check when the configuration enforces a release requirement.
+- **DOCUMENT**: update docs, READMEs, the wiki in `Notes/wiki` (see `Notes/wiki/wiki-rules.md`), or other non-code artifacts; verify links, terminology, and claimed commands against the implementation.
+- **CODE WALKTHROUGH**: use showboat (run `uvx showboat --help` for details) to create evidence under `Notes/walkthroughs/{{TASK-ID}}/code-walkthrough`, with the main file named `walkthrough.md`. Demonstrate the acceptance contracts and retain verification output. For a documentation-only or mechanical no-behavior-change issue, a lightweight walkthrough containing the changed artifact plus focused verification output is sufficient; do not require a full interactive product demonstration.
+- **REVIEW**: require a recorded human decision before proceeding; use only for HITL issues.
 
-Write the DOCUMENT and CODE WALKTHROUGH tasks after all code is written, just before the final REVIEW step (if any).
+Write DOCUMENT and CODE WALKTHROUGH tasks after implementation, just before the final REVIEW step (if any). RED must pair with GREEN when production behavior changes. A REFACTOR instead starts from existing behavioral coverage and must not be presented as the GREEN half of a structural-test-only RED/REFACTOR cycle.
 
 ### 4. Quiz the user
 
@@ -72,6 +75,9 @@ Use the task file template below.
 
 Parent issue: #<issue-number>
 Parent PRD: #<prd-issue-number>
+**Blocked by issues**: <issue IDs or "none">
+**Acceptance criteria**: <AC-to-task map>
+**Manual verification**: <state which task owns it; for unattended work, normally the final walkthrough after the production composition prerequisite is available>
 
 ## Tasks
 
@@ -79,7 +85,7 @@ Parent PRD: #<prd-issue-number>
 
 **Type**: RED / GREEN / REFACTOR / MIGRATE / CONFIG / DOCUMENT / CODE WALKTHROUGH / REVIEW  
 **Output**: <what exists or passes when done>  
-**Depends on**: <task numbers or "none">
+**Depends on**: <sibling task numbers or "none">
 
 <For RED and GREEN tasks include a short paragraph asking the AI to read and follow the coding standards in Notes/skills/AGENTS.md>
 

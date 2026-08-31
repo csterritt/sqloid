@@ -2,6 +2,14 @@
 
 Parent issue: #57
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: none
+**Acceptance criteria**: AC1 → Tasks 1–2; AC2 → Tasks 1–2 and 5–6; AC3 → Tasks 3–4; AC4 → Tasks 5–6; AC5 → Tasks 3–4
+**Manual verification**: Task 8 owns both Phase A lifecycle checks and Phase B built-binary PTY interaction evidence.
+
+## Delivery phases
+
+- **Phase A — Tasks 1–4:** production composition root plus terminal lifecycle and shutdown. This is a separately landable prerequisite that unblocks Issues #58–#87's shipped-TUI manual and end-to-end verification.
+- **Phase B — Tasks 5–8:** unattended PTY-driven built-binary capability gate, documentation, and evidence. Phase B begins only after Phase A lands and does not delay downstream package work.
 
 ## Tasks
 
@@ -56,12 +64,13 @@ Extend the production session path to run `tea.NewProgram` only after successful
 ### 5. Specify a headless production binary capability path
 
 **Type**: RED  
-**Output**: A failing unattended binary/integration test drives real startup, SELECT, confirmed write, export, quit, and persisted effects through production wiring.  
-**Depends on**: 4
+**Output**: A failing unattended binary/integration test drives real startup, SELECT, confirmed write, export, quit, and persisted effects through the built `sqloid` binary under a PTY.
+**Depends on**: 4 (Phase A landed)
+**Vetted dependency**: `github.com/creack/pty v1.1.24` (test harness; Linux/macOS)
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Add a production-level integration test under `cmd/sqloid` using a pseudo-terminal or an equivalent Bubble Tea input/output harness that is unattended and stable in headless CI. Build or invoke the shipped command against a real temporary SQLite database, assert it remains running after validation and renders the initial full-screen builder, then drive a baseline SELECT to visible rows, a deliberately confirmed UPDATE/DELETE/INSERT to a persisted database change, and Ctrl+S or Ctrl+X through the real picker and atomic save boundary to exact output bytes. Quit through the documented confirmation, assert status 0 and complete resource cleanup, and reopen the database/output to verify effects. Exercise both explicit `sqlite` routing and D1 discovery into the same TUI composition, while keeping one focused full interaction path if duplicating the whole script would be excessive. Require the test to fail when the program launch, any real adapter, or the TUI run is bypassed even if package fake-seam tests pass; use deterministic input synchronization and terminal markers rather than arbitrary sleeps.
+Add `github.com/creack/pty v1.1.24` with the Go package manager as a direct test dependency, then add a production-level integration test under `cmd/sqloid` that builds the shipped `sqloid` command and runs that binary under the PTY unattended in headless CI. Do not substitute an in-process Bubble Tea harness or the Go test binary. Run the built command against a real temporary SQLite database, assert it remains running after validation and renders the initial full-screen builder, then drive a baseline SELECT to visible rows, a deliberately confirmed UPDATE/DELETE/INSERT to a persisted database change, and Ctrl+S or Ctrl+X through the real picker and atomic save boundary to exact output bytes. Quit through the documented confirmation, assert status 0 and complete resource cleanup, and reopen the database/output to verify effects. Exercise both explicit `sqlite` routing and D1 discovery into the same TUI composition, while keeping one focused full interaction path if duplicating the whole script would be excessive. Require the test to fail when the program launch, any real adapter, or the TUI run is bypassed even if package fake-seam tests pass; use deterministic input synchronization and terminal markers rather than arbitrary sleeps.
 
 ---
 
@@ -73,14 +82,14 @@ Add a production-level integration test under `cmd/sqloid` using a pseudo-termin
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Make the minimum test-harness and production adjustments needed for Task 5 to pass without adding test-only behavior to the shipped binary. Keep terminal setup, window sizing, input sequencing, output normalization, temporary working directory, D1 fixture layout, and timeouts inside the integration test or existing test seams; production must still use the real Bubble Tea program, connection adapters, `filepicker.OSFS`, and `export.OSSaveFS`. Ensure the script waits on observable UI state before each key sequence, confirms destructive writes and overwrite only through normal UI actions, and leaves no goroutines, leases, temporary save artifacts, or open database handles. Run the relevant package tests and the repository's established Go verification command, addressing flakiness with synchronization rather than retries or weakened assertions.
+Make the minimum test-harness and production adjustments needed for Task 5 to pass without adding test-only behavior to the shipped binary. The harness must execute the built `sqloid` binary under `github.com/creack/pty`, not an in-process Bubble Tea program or the Go test binary, so it proves the production composition root is reached. Keep terminal setup, window sizing, input sequencing, output normalization, temporary working directory, D1 fixture layout, and timeouts inside the integration test or existing test seams; production must still use the real Bubble Tea program, connection adapters, `filepicker.OSFS`, and `export.OSSaveFS`. Ensure the script waits on observable UI state before each key sequence, confirms destructive writes and overwrite only through normal UI actions, and leaves no goroutines, leases, temporary save artifacts, or open database handles. Run the relevant package tests and the repository's established Go verification command, addressing flakiness with synchronization rather than retries or weakened assertions.
 
 ---
 
-### 7. Document production composition and shutdown
+### 7. Document both production-composition delivery phases
 
 **Type**: DOCUMENT  
-**Output**: Wiki documentation records the composition root, adapter mapping, startup ownership, terminal statuses, cleanup order, and headless binary gate.  
+**Output**: Wiki documentation separately records the Phase A composition/lifecycle contract and Phase B headless built-binary gate.
 **Depends on**: 6
 
 Read and follow `Notes/wiki/wiki-rules.md` and the schema in `Notes/wiki/AGENTS.md`, then ingest the completed Issue #57 implementation and tests from `cmd/sqloid`, `internal/cli`, `internal/connection`, `internal/ui`, `internal/filepicker`, and `internal/export` into the appropriate pages under `Notes/wiki`. Document the single explicit/D1 path from discovery or argument through open, initial catalog load, production model construction, every real executor, and Bubble Tea launch. Record ownership of `connection.DB`, mapping of request/write/filesystem outcomes, normal versus terminal process status, exactly-one stderr behavior, accepted-quit settlement, program completion, and database-close ordering. Describe the unattended production binary capability test, the real SELECT/write/export effects it proves, and why package fake seams cannot replace it. Cross-reference Issue #57 and the Startup validation, Execution and Result Lifecycle, Writes and commit boundary, File picker, Atomic saves, Module Design, Testing Decisions, and Acceptance Criteria sections of `Notes/PRD-sqloid.md`; update `Notes/wiki/index.md` and append the required dated ingest entry to `Notes/wiki/log.md` without rewriting prior entries.

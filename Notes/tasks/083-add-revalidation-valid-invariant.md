@@ -2,6 +2,9 @@
 
 Parent issue: #83
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #82
+**Acceptance criteria**: AC1–AC4 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +16,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Begin only after Issue #82 has landed and finalized malformed-attempt settlement. Extend `internal/schema/revalidate_test.go` with a complete truth table for a new `Revalidation.Valid()` method, following the structure and payload-discipline coverage of `Attempt.Valid()` and its tests in `internal/schema/refresh.go` and `refresh_test.go`. Require unchanged and refreshed statuses to accept exactly a non-nil catalog with nil cause; refresh failed to accept exactly a non-nil cause with nil catalog; deleted and replaced to accept only nil catalog and nil cause; and zero or unknown statuses to return false. Include every missing-required-field and forbidden-extra-field combination, then exercise unchanged, changed-success, ordinary-failure, terminal, and Issue #82 malformed-attempt outputs from `Revalidate` and require each actual result to be valid. Keep this task test-only and do not alter the settled status mapping.
+Begin only after Issue #82 is complete. Reuse its finalized malformed-attempt settlement. Extend `internal/schema/revalidate_test.go` with a complete truth table for a new `Revalidation.Valid()` method, following the structure and payload-discipline coverage of `Attempt.Valid()` and its tests in `internal/schema/refresh.go` and `refresh_test.go`. Require unchanged and refreshed statuses to accept exactly a non-nil catalog with nil cause; refresh failed to accept exactly a non-nil cause with nil catalog; deleted and replaced to accept only nil catalog and nil cause; and zero or unknown statuses to return false. Include every missing-required-field and forbidden-extra-field combination, then exercise unchanged, changed-success, ordinary-failure, terminal, and Issue #82 malformed-attempt outputs from `Revalidate` and require each actual result to be valid. Keep this task test-only and do not alter the settled status mapping.
 
 ---
 

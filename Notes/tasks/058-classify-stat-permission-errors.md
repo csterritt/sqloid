@@ -2,6 +2,9 @@
 
 Parent issue: #58
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: none
+**Acceptance criteria**: AC1–AC3 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 

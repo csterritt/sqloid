@@ -2,6 +2,9 @@
 
 Parent issue: #79
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #78
+**Acceptance criteria**: AC1–AC3 → Task 1
+**Manual verification**: Task 3 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -9,9 +12,11 @@ Parent PRD: PRD-sqloid.md
 
 **Type**: REFACTOR  
 **Output**: `TraversalFacts` and every producer/fixture omit HasLimit and Limit while the complete classification matrix and UI metadata tests remain unchanged.  
+**Verification obligation**: The existing classifier truth table and behavioral tests pass unchanged; no classification semantics change.
+**Supplemental checks**: Repository-wide build and test pass; any truth-table label change is a regression, not an expectation update.
 **Depends on**: none
 
-Begin only after Issue #78 is complete, as the third change in the Issue #77 → #78 → #79 → #80 classifier sequence. Remove `HasLimit` and `Limit` from `history.TraversalFacts` in `internal/history/snapshot_classify.go`, from `SnapshotFacts` in `internal/ui/snapshot_metadata.go`, from `activeExportFacts` in `internal/ui/export.go`, and from every production initializer and test fixture found across `internal/history` and `internal/ui`. Update nearby comments so they accurately say that a successful known total already counts the complete SELECT including the user's Limit and therefore classification needs no raw builder Limit. Do not change any remaining traversal fact, endpoint derivation, no-clamping behavior, or complete/partial/truncated outcomes. Update the existing classifier truth table to compare limited known-total cases against equivalent unbounded fact sets and run focused history, finalization, and export metadata tests plus the repository's established Go verification command; treat any label change as a regression rather than adjusting expectations.
+Begin only after Issue #78 is complete. This is the third change in the Issue #77 → #78 → #79 → #80 classifier sequence. Remove `HasLimit` and `Limit` from `history.TraversalFacts` in `internal/history/snapshot_classify.go`, from `SnapshotFacts` in `internal/ui/snapshot_metadata.go`, from `activeExportFacts` in `internal/ui/export.go`, and from every production initializer and test fixture found across `internal/history` and `internal/ui`. Update nearby comments so they accurately say that a successful known total already counts the complete SELECT including the user's Limit and therefore classification needs no raw builder Limit. Do not change any remaining traversal fact, endpoint derivation, no-clamping behavior, or complete/partial/truncated outcomes. Update the existing classifier truth table to compare limited known-total cases against equivalent unbounded fact sets and run focused history, finalization, and export metadata tests plus the repository's established Go verification command; treat any label change as a regression rather than adjusting expectations.
 
 ---
 

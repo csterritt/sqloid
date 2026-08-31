@@ -2,6 +2,9 @@
 
 Parent issue: #64
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #63
+**Acceptance criteria**: AC1 and AC4–AC5 → Tasks 1–2; AC2–AC3 → Tasks 3–4
+**Manual verification**: Task 6 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +16,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Add Linux/macOS filesystem-boundary tests in `internal/export` that carry explicit overwrite intent plus the exact destination state returned by inspection into `WriteAtomic`. Use deterministic barriers at the final persistence boundary to cover: inspection reports missing and another process creates the path before an unconfirmed save; inspection reports existing, the user confirms it, and another process replaces, removes/recreates, or materially changes that destination before persistence; and confirmed state remains unchanged. Require unconfirmed saves to use atomic no-replace creation and preserve the raced file, confirmed saves to compare the current destination with the inspected identity/state before destination-local temp-file-plus-rename, changed state to return a typed destination-existing/changed result without replacement, and unchanged state to replace atomically. In every branch require staging in the destination directory, exact immutable bytes, no leaked artifacts, and no false success. Retain all Issue #53 stage failures and Issue #63 `(n < len, nil)`/`io.ErrShortWrite` behavior. Keep this task test-only, separate portable contracts from OS-specific primitives with the repository's supported-platform conventions, and do not rely on sleeps.
+Begin only after Issue #63 is complete. Both issues modify the shared `WriteAtomic` persistence boundary. Add Linux/macOS filesystem-boundary tests in `internal/export` that carry explicit overwrite intent plus the exact destination state returned by inspection into `WriteAtomic`. Use deterministic barriers at the final persistence boundary to cover: inspection reports missing and another process creates the path before an unconfirmed save; inspection reports existing, the user confirms it, and another process replaces, removes/recreates, or materially changes that destination before persistence; and confirmed state remains unchanged. Require unconfirmed saves to use atomic no-replace creation and preserve the raced file, confirmed saves to compare the current destination with the inspected identity/state before destination-local temp-file-plus-rename, changed state to return a typed destination-existing/changed result without replacement, and unchanged state to replace atomically. In every branch require staging in the destination directory, exact immutable bytes, no leaked artifacts, and no false success. Retain all Issue #53 stage failures and Issue #63 `(n < len, nil)`/`io.ErrShortWrite` behavior. Keep this task test-only, separate portable contracts from OS-specific primitives with the repository's supported-platform conventions, and do not rely on sleeps.
 
 ---
 

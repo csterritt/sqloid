@@ -2,6 +2,9 @@
 
 Parent issue: #80
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #73, #79
+**Acceptance criteria**: AC1–AC4 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +16,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Begin only after Issues #73 and #79 are complete, as the final change in the Issue #77 → #78 → #79 → #80 classifier sequence. Add a table-driven parity suite in the closest `internal/ui` export and finalization test files, following `snapshot_finalize_test.go`, export warning fixtures, and the production `activeExportFacts`/`appendFinalizedResultEntry` seams. For one active model state, capture active export facts, then finalize a copy and compare retained range, known total, `ReachedLow`, `ReachedHigh`, `ObservedShortFinalPage`, count/cache inconsistency, eviction facts, and completeness labels. Cover a fully retained successful limited count, count unavailable with an accepted short/empty final page, missing low, missing high, unfinished work, row- and byte-cap eviction, known rows beyond retention, and successful count below retained end. Require active pre-picker warnings and finalized export labels to agree, preserve contradictory total/range without clamping, and prove export itself does not finalize or mutate the active SELECT. Keep this task test-only.
+Begin only after Issues #73 and #79 are complete. This is the final change in the Issue #77 → #78 → #79 → #80 classifier sequence. Add a table-driven parity suite in the closest `internal/ui` export and finalization test files, following `snapshot_finalize_test.go`, export warning fixtures, and the production `activeExportFacts`/`appendFinalizedResultEntry` seams. For one active model state, capture active export facts, then finalize a copy and compare retained range, known total, `ReachedLow`, `ReachedHigh`, `ObservedShortFinalPage`, count/cache inconsistency, eviction facts, and completeness labels. Cover a fully retained successful limited count, count unavailable with an accepted short/empty final page, missing low, missing high, unfinished work, row- and byte-cap eviction, known rows beyond retention, and successful count below retained end. Require active pre-picker warnings and finalized export labels to agree, preserve contradictory total/range without clamping, and prove export itself does not finalize or mutate the active SELECT. Keep this task test-only.
 
 ---
 

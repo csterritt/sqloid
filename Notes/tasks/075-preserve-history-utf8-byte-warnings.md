@@ -2,6 +2,10 @@
 
 Parent issue: #75
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #72, #74
+**Coordinates with**: #76; #75 lands first on the shared `Finalization`/`SnapshotMetadata`/`projectHistoryEntry` seam.
+**Acceptance criteria**: AC1–AC3 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +17,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Begin only after Issues #72 and #74 are complete. Add focused lifecycle tests in `internal/ui` beside `snapshot_finalize_test.go`, `result_history_browse_test.go`, `bytecap_test.go`, and `export_warnings_test.go`, using the existing `history.ResultEntry`, `history.SnapshotMetadata`, `ResultView`, and export-capture fixtures. Drive an accepted active page with malformed TEXT separately from a page/cache with persistent `TruncatedByByteCap`, then finalize via `appendFinalizedResultEntry`, enter result history, project at multiple terminal page sizes, render, and open export. Require active `Page.InvalidUTF` to become immutable snapshot `InvalidUTF`; require historical projection to restore both `Page.InvalidUTF` and `ResultView.ByteTruncated`; and require the existing shared UTF and 64 MiB warnings to appear in browsing and before export destination selection. Mutate live pages, projected views, source BLOBs, and cache state after finalization and prove stored rows/metadata remain unchanged. Add serializer-spy or existing CSV/JSON capture assertions proving neither warning becomes a row, column, object property, or data value. Keep this task test-only.
+Begin only after Issues #72 and #74 are complete. Land this issue before Issue #76; both extend the shared `Finalization`/`SnapshotMetadata`/`projectHistoryEntry` metadata seam. Add focused lifecycle tests in `internal/ui` beside `snapshot_finalize_test.go`, `result_history_browse_test.go`, `bytecap_test.go`, and `export_warnings_test.go`, using the existing `history.ResultEntry`, `history.SnapshotMetadata`, `ResultView`, and export-capture fixtures. Drive an accepted active page with malformed TEXT separately from a page/cache with persistent `TruncatedByByteCap`, then finalize via `appendFinalizedResultEntry`, enter result history, project at multiple terminal page sizes, render, and open export. Require active `Page.InvalidUTF` to become immutable snapshot `InvalidUTF`; require historical projection to restore both `Page.InvalidUTF` and `ResultView.ByteTruncated`; and require the existing shared UTF and 64 MiB warnings to appear in browsing and before export destination selection. Mutate live pages, projected views, source BLOBs, and cache state after finalization and prove stored rows/metadata remain unchanged. Add serializer-spy or existing CSV/JSON capture assertions proving neither warning becomes a row, column, object property, or data value. Keep this task test-only.
 
 ---
 

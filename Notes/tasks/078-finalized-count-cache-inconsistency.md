@@ -2,6 +2,9 @@
 
 Parent issue: #78
 Parent PRD: PRD-sqloid.md
+**Blocked by issues**: #77
+**Acceptance criteria**: AC1–AC4 → Tasks 1–2
+**Manual verification**: Task 4 owns the issue's manual checks; shipped-TUI evidence begins after Issue #57 Phase A lands.
 
 ## Tasks
 
@@ -13,7 +16,7 @@ Parent PRD: PRD-sqloid.md
 
 Before changing code, read and follow the coding standards in `Notes/skills/AGENTS.md`.
 
-Begin only after Issue #77 is complete, as the second change in the Issue #77 → #78 → #79 → #80 classifier sequence. Add focused tests beside `internal/ui/snapshot_finalize_test.go` and the exactly-once finalization tests for `appendFinalizedResultEntry`. Build active caches whose retained end is greater than, equal to, and less than a successful `result.CountState.Total`, finalize through the production seam, and inspect the stored `history.ResultEntry`, `SnapshotMetadata`, `TraversalFacts`-driven completeness, and export selection. Require only the greater-than case to propagate `CountCacheInconsistent=true`; preserve the original known total and retained start/end without clamping either; and require completeness never to be complete. Add pending, unavailable, failed, and cancelled count controls with the same cache range and require no successful-count contradiction flag. Include empty-cache and exact-boundary controls and prove finalization remains immutable and exactly once. Keep this task test-only.
+Begin only after Issue #77 is complete. This is the second change in the Issue #77 → #78 → #79 → #80 classifier sequence. Add focused tests beside `internal/ui/snapshot_finalize_test.go` and the exactly-once finalization tests for `appendFinalizedResultEntry`. Build active caches whose retained end is greater than, equal to, and less than a successful `result.CountState.Total`, finalize through the production seam, and inspect the stored `history.ResultEntry`, `SnapshotMetadata`, `TraversalFacts`-driven completeness, and export selection. Require only the greater-than case to propagate `CountCacheInconsistent=true`; preserve the original known total and retained start/end without clamping either; and require completeness never to be complete. Add pending, unavailable, failed, and cancelled count controls with the same cache range and require no successful-count contradiction flag. Include empty-cache and exact-boundary controls and prove finalization remains immutable and exactly once. Keep this task test-only.
 
 ---
 
