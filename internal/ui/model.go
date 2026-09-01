@@ -565,14 +565,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case SaveFailedMsg:
-		// Issue #53: a typed write-stage failure stays inline with the
-		// captured copy retained for retry; replacement is never claimed.
-		if m.saveRunning && msg.Attempt == m.saveAttempt {
-			m.saveRunning = false
-			m.saveFailure = msg.Err.Error()
-			return m, nil
-		}
-		return m, nil
+		// Issue #53/#64: a typed write-stage failure stays inline with the
+		// captured copy retained for retry; a race failure (destination
+		// exists/changed) triggers fresh inspection and renewed
+		// confirmation via applySaveFailure.
+		return m.applySaveFailure(msg)
 	case tea.WindowSizeMsg:
 		next := m.resize(msg.Width, msg.Height)
 		// Issue #32: a visible resize (including suspension restoration) also

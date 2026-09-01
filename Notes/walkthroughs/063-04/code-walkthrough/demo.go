@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/chris/sqloid/internal/export"
 )
 
 // miniFakeFS is a minimal SaveFS for the walkthrough demonstration, modeled
-// on the Issue #53 fake filesystem in internal/export/save_write_test.go.
+// on the Issue #53/#64 fake filesystem in internal/export/save_write_test.go.
 type miniFakeFile struct {
 	fs   *miniFakeFS
 	name string
@@ -44,11 +45,13 @@ func (f *miniFakeFile) Close() error {
 }
 
 type miniFakeFS struct {
-	exists            map[string]bool
-	contents          map[string][]byte
-	calls             []string
-	tempSeq           int
-	failWriteAfter    int
+	exists             map[string]bool
+	contents           map[string][]byte
+	identity           map[string]export.DestinationIdentity
+	calls              []string
+	tempSeq            int
+	idSeq              int
+	failWriteAfter     int
 	shortWriteNilAfter int
 }
 
@@ -56,14 +59,34 @@ func newMiniFakeFS() *miniFakeFS {
 	return &miniFakeFS{
 		exists:             map[string]bool{},
 		contents:           map[string][]byte{},
+		identity:           map[string]export.DestinationIdentity{},
 		failWriteAfter:     -1,
 		shortWriteNilAfter: -1,
 	}
 }
 
-func (f *miniFakeFS) Exists(path string) (bool, error) {
-	f.calls = append(f.calls, "exists:"+path)
-	return f.exists[path], nil
+func (f *miniFakeFS) freshID() export.DestinationIdentity {
+	f.idSeq++
+	return export.DestinationIdentity{Ino: uint64(f.idSeq)}
+}
+
+func (f *miniFakeFS) Stat(path string) (export.DestinationIdentity, error) {
+	f.calls = append(f.calls, "stat:"+path)
+	if !f.exists[path] {
+		return export.DestinationIdentity{}, os.ErrNotExist
+	}
+	return f.identity[path], nil
+}
+
+func (f *miniFakeFS) CreateExclusive(path string) (export.SaveFile, error) {
+	f.calls = append(f.calls, "create-exclusive:"+path)
+	if f.exists[path] {
+		return nil, os.ErrExist
+	}
+	f.exists[path] = true
+	f.identity[path] = f.freshID()
+	f.tempSeq++
+	return &miniFakeFile{fs: f, name: path}, nil
 }
 
 func (f *miniFakeFS) TempFile(dir, pattern string) (export.SaveFile, error) {
@@ -79,14 +102,26 @@ func (f *miniFakeFS) Name(fl export.SaveFile) string { return fl.(*miniFakeFile)
 func (f *miniFakeFS) Rename(oldPath, newPath string) error {
 	f.calls = append(f.calls, "rename:"+oldPath+"->"+newPath)
 	f.contents[newPath] = f.contents[oldPath]
+	f.identity[newPath] = f.freshID()
 	delete(f.contents, oldPath)
+	delete(f.identity, oldPath)
 	return nil
 }
 
 func (f *miniFakeFS) Remove(path string) error {
 	f.calls = append(f.calls, "remove:"+path)
 	delete(f.contents, path)
+	if f.exists[path] {
+		delete(f.exists, path)
+		delete(f.identity, path)
+	}
 	return nil
+}
+
+func (f *miniFakeFS) setExisting(path string, contents []byte) {
+	f.exists[path] = true
+	f.contents[path] = append([]byte(nil), contents...)
+	f.identity[path] = f.freshID()
 }
 
 func (f *miniFakeFS) tempName() string {
@@ -112,12 +147,16 @@ func runCase(label string, existing bool, setup func(*miniFakeFS)) {
 	f := newMiniFakeFS()
 	dst := "/work/out.csv"
 	if existing {
-		f.exists[dst] = true
-		f.contents[dst] = []byte("original bytes")
+		f.setExisting(dst, []byte("original bytes"))
 	}
 	setup(f)
 	data := []byte("payload")
-	err := export.WriteAtomic(f, dst, data)
+	state, _ := export.InspectDestination(f, dst)
+	intent := export.IntentNoReplace
+	if existing {
+		intent = export.IntentReplace
+	}
+	err := export.WriteAtomic(f, dst, data, state, intent)
 	fmt.Printf("  error:              %v\n", err)
 	fmt.Printf("  errors.Is(ErrShortWrite): %v\n", errors.Is(err, io.ErrShortWrite))
 	var se *export.StageError

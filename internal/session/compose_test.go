@@ -492,7 +492,12 @@ func TestComposeSaveFlowResolvesToRealOSSaveFS(t *testing.T) {
 		t.Fatalf("model.SaveFS = %T, want nil for the real OSSaveFS", m.SaveFS)
 	}
 	dest := filepath.Join(t.TempDir(), "saved.sql")
-	if err := export.WriteAtomic(export.OSSaveFS{}, dest, []byte("SELECT 1;\n")); err != nil {
+	fs := export.OSSaveFS{}
+	state, err := export.InspectDestination(fs, dest)
+	if err != nil {
+		t.Fatalf("InspectDestination: %v", err)
+	}
+	if err := export.WriteAtomic(fs, dest, []byte("SELECT 1;\n"), state, export.IntentNoReplace); err != nil {
 		t.Fatalf("WriteAtomic: %v", err)
 	}
 	got, err := os.ReadFile(dest)

@@ -19,6 +19,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,7 +32,9 @@ import (
 // saveCapture is the frozen Issue #53 save-flow identity: one resolved
 // destination and format plus the complete immutable serialized payload,
 // source-selection provenance, and warnings. Nothing inside it is ever
-// re-resolved or re-serialized from mutable state.
+// re-resolved or re-serialized from mutable state. Issue #64 adds the
+// inspected destination state token so the persistence boundary can
+// refuse a raced destination without a check-then-act fallback.
 type saveCapture struct {
 	flow      pickerFlow
 	path      string
@@ -39,15 +42,17 @@ type saveCapture struct {
 	payload   []byte
 	selection string
 	warnings  []string
+	state     export.DestinationState
 }
 
 // SaveInspectMsg answers one issued destination-inspection request. The
-// Status classifies the resolved destination through the export boundary;
-// Attempt guards stale responses against the capture identity.
+// State carries the destination status and durable identity token from the
+// export boundary; Attempt guards stale responses against the capture
+// identity.
 type SaveInspectMsg struct {
 	Path    string
 	Attempt uint64
-	Status  export.DestinationStatus
+	State   export.DestinationState
 	Err     error
 }
 
@@ -134,8 +139,8 @@ func (m Model) beginSaveFlow(path string) (tea.Model, tea.Cmd) {
 	attempt := m.saveAttempt
 	fs := m.saveFS()
 	return m, func() tea.Msg {
-		status, err := export.InspectDestination(fs, path)
-		return SaveInspectMsg{Path: path, Attempt: attempt, Status: status, Err: err}
+		state, err := export.InspectDestination(fs, path)
+		return SaveInspectMsg{Path: path, Attempt: attempt, State: state, Err: err}
 	}
 }
 
@@ -143,9 +148,10 @@ func (m Model) beginSaveFlow(path string) (tea.Model, tea.Cmd) {
 // identity whose capture has since been replaced is inert. An inspection
 // error stays inline with the same retry/cancel path as a write failure; a
 // new destination advances the captured capture straight to the write
-// stage, and an existing destination opens exactly one overwrite
-// confirmation — the destination is never opened, truncated, or replaced
-// here.
+// stage with IntentNoReplace, and an existing destination opens exactly
+// one overwrite confirmation — the destination is never opened, truncated,
+// or replaced here. Issue #64: the inspected state token is stored in the
+// capture so the persistence boundary can refuse a raced destination.
 func (m Model) applySaveInspect(msg SaveInspectMsg) (tea.Model, tea.Cmd) {
 	if m.saveCapture == nil || msg.Attempt != m.saveAttempt || msg.Path != m.saveCapture.path {
 		return m, nil
@@ -155,8 +161,10 @@ func (m Model) applySaveInspect(msg SaveInspectMsg) (tea.Model, tea.Cmd) {
 		m.saveFailurePath = msg.Path
 		return m, nil
 	}
-	if msg.Status == export.DestinationExisting {
+	m.saveCapture.state = msg.State
+	if msg.State.Status == export.DestinationExisting {
 		m.overwriteOpen = true
+		m.saveRunning = false
 		return m, nil
 	}
 	return m.startSaveWrite()
@@ -165,6 +173,10 @@ func (m Model) applySaveInspect(msg SaveInspectMsg) (tea.Model, tea.Cmd) {
 // startSaveWrite advances the current captured capture to the write stage:
 // the destination-local temp-file-plus-rename boundary runs outside Update
 // and reports through typed messages guarded by this attempt identity.
+// Issue #64: the write carries the inspected state token and an explicit
+// intent — IntentNoReplace for a previously missing destination, or
+// IntentReplace tied to the inspected state for a confirmed existing
+// destination.
 func (m Model) startSaveWrite() (tea.Model, tea.Cmd) {
 	if m.saveCapture == nil {
 		return m, nil
@@ -176,14 +188,57 @@ func (m Model) startSaveWrite() (tea.Model, tea.Cmd) {
 	m.saveAttempt++
 	attempt := m.saveAttempt
 	capture := *m.saveCapture
+	intent := export.IntentNoReplace
+	if capture.state.Status == export.DestinationExisting {
+		intent = export.IntentReplace
+	}
 	fs := m.saveFS()
 	cmd := func() tea.Msg {
-		if err := export.WriteAtomic(fs, capture.path, capture.payload); err != nil {
+		if err := export.WriteAtomic(fs, capture.path, capture.payload, capture.state, intent); err != nil {
 			return SaveFailedMsg{Attempt: attempt, Err: err}
 		}
 		return SaveCompletedMsg{Attempt: attempt}
 	}
 	return m, cmd
+}
+
+// applySaveFailure handles a failed atomic write. Ordinary stage failures
+// (StageError) stay inline with the captured copy retained for retry.
+// Issue #64 race failures — DestinationExistsError (unconfirmed save raced
+// by external creation) and DestinationChangedError (confirmed replacement
+// raced by external change) — preserve the immutable capture and issue a
+// fresh destination inspection with a new attempt identity so the user
+// sees the latest state and must renew confirmation before any replacement
+// rather than blindly retrying the stale authorization.
+func (m Model) applySaveFailure(msg SaveFailedMsg) (tea.Model, tea.Cmd) {
+	if !m.saveRunning || msg.Attempt != m.saveAttempt {
+		return m, nil
+	}
+	var existsErr *export.DestinationExistsError
+	var changedErr *export.DestinationChangedError
+	if errors.As(msg.Err, &existsErr) || errors.As(msg.Err, &changedErr) {
+		// Race recovery: preserve the immutable capture and re-inspect the
+		// destination with a fresh attempt identity. The capture's path,
+		// format, payload, selection, and warnings are untouched; only the
+		// state token will be updated when the fresh inspection arrives.
+		m.saveRunning = true
+		m.saveFailure = ""
+		m.saveFailurePath = ""
+		m.overwriteOpen = false
+		m.saveAttempt++
+		attempt := m.saveAttempt
+		path := m.saveCapture.path
+		fs := m.saveFS()
+		return m, func() tea.Msg {
+			state, err := export.InspectDestination(fs, path)
+			return SaveInspectMsg{Path: path, Attempt: attempt, State: state, Err: err}
+		}
+	}
+	// Ordinary stage failure: inline retry/cancel with the captured copy
+	// retained.
+	m.saveRunning = false
+	m.saveFailure = msg.Err.Error()
+	return m, nil
 }
 
 // handleOverwriteConfirmKey consumes every key while the overwrite

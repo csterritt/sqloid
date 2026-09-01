@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -26,32 +27,77 @@ import (
 
 // saveFlowFakeFS is the fake export.SaveFS boundary for the save-flow tests:
 // every call is recorded, staged failures inject deterministically, and
-// existing destinations keep byte-for-byte contents.
+// existing destinations keep byte-for-byte contents. Identity tokens use a
+// monotonic counter so a replaced file gets a new identity even with
+// identical contents.
 type saveFlowFakeFS struct {
-	existing           map[string]bool
-	contents           map[string][]byte
-	calls              []string
-	tempSeq            int
-	failCreate         error
-	failWriteAfter     int // -1 never; n fails any write larger than n bytes
-	shortWriteNilAfter int // -1 never; n returns (n, nil) for a write larger than n bytes
-	failSync           bool
-	failClose          bool
-	failRename         error
+	existing            map[string]bool
+	contents            map[string][]byte
+	identity            map[string]export.DestinationIdentity
+	calls               []string
+	tempSeq             int
+	idSeq               int
+	failCreate          error
+	failCreateExclusive error
+	failWriteAfter      int // -1 never; n fails any write larger than n bytes
+	shortWriteNilAfter  int // -1 never; n returns (n, nil) for a write larger than n bytes
+	failSync            bool
+	failClose           bool
+	failRename          error
+	raceOnCreate        bool   // simulates external creation before CreateExclusive
+	raceOnReplace       bool   // simulates external replacement before pre-rename Stat
+	raceOnReplaceDone   bool   // one-shot guard for raceOnReplace
+	raceContents        []byte // contents written by the simulated external race
 }
 
 func newSaveFlowFakeFS() *saveFlowFakeFS {
 	return &saveFlowFakeFS{
 		existing:           map[string]bool{},
 		contents:           map[string][]byte{},
+		identity:           map[string]export.DestinationIdentity{},
 		failWriteAfter:     -1,
 		shortWriteNilAfter: -1,
 	}
 }
 
-func (f *saveFlowFakeFS) Exists(path string) (bool, error) {
-	f.calls = append(f.calls, "exists:"+path)
-	return f.existing[path], nil
+func (f *saveFlowFakeFS) freshID() export.DestinationIdentity {
+	f.idSeq++
+	return export.DestinationIdentity{Ino: uint64(f.idSeq)}
+}
+
+func (f *saveFlowFakeFS) Stat(path string) (export.DestinationIdentity, error) {
+	f.calls = append(f.calls, "stat:"+path)
+	// Issue #64: simulate an external replacement during the write stage.
+	// The first Stat (inspection) runs before any temp file is created; the
+	// pre-rename Stat runs after TempFile, so hasCall("create:") is true.
+	// The one-shot guard prevents re-mutation during race-recovery
+	// re-inspection.
+	if f.raceOnReplace && !f.raceOnReplaceDone && f.hasCall("create:") {
+		f.replaceExisting(path, f.raceContents)
+		f.raceOnReplaceDone = true
+	}
+	if !f.existing[path] {
+		return export.DestinationIdentity{}, os.ErrNotExist
+	}
+	return f.identity[path], nil
+}
+
+func (f *saveFlowFakeFS) CreateExclusive(path string) (export.SaveFile, error) {
+	f.calls = append(f.calls, "create-exclusive:"+path)
+	// Issue #64: simulate external creation before the exclusive create.
+	if f.raceOnCreate {
+		f.createExternal(path, f.raceContents)
+	}
+	if f.failCreateExclusive != nil {
+		return nil, f.failCreateExclusive
+	}
+	if f.existing[path] {
+		return nil, os.ErrExist
+	}
+	f.existing[path] = true
+	f.identity[path] = f.freshID()
+	f.tempSeq++
+	return &saveFlowFakeFile{fs: f, name: path}, nil
 }
 
 func (f *saveFlowFakeFS) TempFile(dir, pattern string) (export.SaveFile, error) {
@@ -75,14 +121,50 @@ func (f *saveFlowFakeFS) Rename(oldPath, newPath string) error {
 		return f.failRename
 	}
 	f.contents[newPath] = f.contents[oldPath]
+	f.identity[newPath] = f.freshID()
 	delete(f.contents, oldPath)
+	delete(f.identity, oldPath)
 	return nil
 }
 
 func (f *saveFlowFakeFS) Remove(path string) error {
 	f.calls = append(f.calls, "remove:"+path)
 	delete(f.contents, path)
+	if f.existing[path] {
+		delete(f.existing, path)
+		delete(f.identity, path)
+	}
 	return nil
+}
+
+// setExisting marks path as an existing destination with the given contents
+// and a fresh identity token.
+func (f *saveFlowFakeFS) setExisting(path string, contents []byte) {
+	f.existing[path] = true
+	f.contents[path] = append([]byte(nil), contents...)
+	f.identity[path] = f.freshID()
+}
+
+// replaceExisting simulates an external process replacing the destination.
+func (f *saveFlowFakeFS) replaceExisting(path string, contents []byte) {
+	f.existing[path] = true
+	f.contents[path] = append([]byte(nil), contents...)
+	f.identity[path] = f.freshID()
+}
+
+// removeExisting simulates an external process removing the destination.
+func (f *saveFlowFakeFS) removeExisting(path string) {
+	delete(f.existing, path)
+	delete(f.contents, path)
+	delete(f.identity, path)
+}
+
+// createExternal simulates an external process creating a previously
+// missing destination.
+func (f *saveFlowFakeFS) createExternal(path string, contents []byte) {
+	f.existing[path] = true
+	f.contents[path] = append([]byte(nil), contents...)
+	f.identity[path] = f.freshID()
 }
 
 type saveFlowFakeFile struct {
@@ -128,6 +210,16 @@ func (f *saveFlowFakeFS) createdTempName() string {
 		}
 	}
 	return ""
+}
+
+// hasCall reports whether any recorded boundary call starts with prefix.
+func (f *saveFlowFakeFS) hasCall(prefix string) bool {
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // destructiveCalls lists every boundary call that would touch a destination.
@@ -216,8 +308,7 @@ func TestExistingDestinationOpensExactlyOneConfirmationWithoutReplacement(t *tes
 	f := pickerNewFakeFS()
 	f.dirs["/work"] = []pickerFakeEntry{{"out", true}}
 	s := newSaveFlowFakeFS()
-	s.existing["/work/report.sql"] = true
-	s.contents["/work/report.sql"] = []byte("SELECT 1;")
+	s.setExisting("/work/report.sql", []byte("SELECT 1;"))
 	_, p := savePickerFlowModel(t, f, s)
 
 	p = submitDestination(t, p, "report")
@@ -244,7 +335,7 @@ func TestConfirmationCapturesImmutablePayloadAndSelection(t *testing.T) {
 	f := pickerNewFakeFS()
 	f.dirs["/work"] = []pickerFakeEntry{}
 	s := newSaveFlowFakeFS()
-	s.existing["/work/new.sql"] = true
+	s.setExisting("/work/new.sql", nil)
 	_, p := savePickerFlowModel(t, f, s)
 
 	// Reach the confirmation, then mutate live builder and prepared-target
@@ -282,7 +373,7 @@ func TestOverwriteCancelRestoresIntactPickerAndCapturedCopy(t *testing.T) {
 	f := pickerNewFakeFS()
 	f.dirs["/work"] = []pickerFakeEntry{}
 	s := newSaveFlowFakeFS()
-	s.existing["/work/r.sql"] = true
+	s.setExisting("/work/r.sql", nil)
 	_, p := savePickerFlowModel(t, f, s)
 	p = submitDestination(t, p, "r")
 	if !p.overwriteOpen {
@@ -350,7 +441,7 @@ func TestExportConfirmationCapturesWarningsAndPayload(t *testing.T) {
 	m.exportWarnings = []string{"Result is complete"}
 	m.exportWarningsOpen = true
 	m.exportFormat = filepicker.FormatCSV
-	s.existing["/work/out.csv"] = true
+	s.setExisting("/work/out.csv", nil)
 	opened, cmd := pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
 	opened, _ = runList(t, opened, cmd)
 	p := submitDestination(t, opened, "out")
@@ -388,8 +479,7 @@ func TestSaveAtomicSuccessNewAndExistingDestinations(t *testing.T) {
 			f.dirs["/work"] = []pickerFakeEntry{}
 			s := newSaveFlowFakeFS()
 			if tc.existing {
-				s.existing["/work/r.sql"] = true
-				s.contents["/work/r.sql"] = []byte(tc.before)
+				s.setExisting("/work/r.sql", []byte(tc.before))
 			}
 			_, p := savePickerFlowModel(t, f, s)
 			baseline := openerFingerprint(p)
@@ -442,8 +532,7 @@ func TestSaveStageFailuresPreserveCleanupAndRetryInline(t *testing.T) {
 			f := pickerNewFakeFS()
 			f.dirs["/work"] = []pickerFakeEntry{}
 			s := newSaveFlowFakeFS()
-			s.existing["/work/r.sql"] = true
-			s.contents["/work/r.sql"] = []byte("SELECT 1;")
+			s.setExisting("/work/r.sql", []byte("SELECT 1;"))
 			tc.setup(s)
 			_, p := savePickerFlowModel(t, f, s)
 			baseline := openerFingerprint(p)
@@ -498,8 +587,7 @@ func TestSaveShortWriteNilErrorShowsInlineFailureWithErrShortWrite(t *testing.T)
 	f := pickerNewFakeFS()
 	f.dirs["/work"] = []pickerFakeEntry{}
 	s := newSaveFlowFakeFS()
-	s.existing["/work/r.sql"] = true
-	s.contents["/work/r.sql"] = []byte("SELECT 1;")
+	s.setExisting("/work/r.sql", []byte("SELECT 1;"))
 	s.shortWriteNilAfter = 3
 	_, p := savePickerFlowModel(t, f, s)
 	baseline := openerFingerprint(p)
@@ -558,7 +646,7 @@ func TestSaveFailureCancelRestoresOpenerExactly(t *testing.T) {
 	f.dirs["/work"] = []pickerFakeEntry{}
 	s := newSaveFlowFakeFS()
 	s.failRename = errors.New("busy")
-	s.existing["/work/r.sql"] = true
+	s.setExisting("/work/r.sql", nil)
 	opener, p := savePickerFlowModel(t, f, s)
 	baseline := openerFingerprint(opener)
 	reached := submitDestination(t, p, "r")
@@ -593,7 +681,7 @@ func TestStaleSaveCompletionsAndDuplicateConfirmsAreInert(t *testing.T) {
 		t.Fatal("duplicate completion mutated restored state")
 	}
 	// A stale inspection response carrying an old attempt identity is inert.
-	stale2, _ := p.Update(SaveInspectMsg{Path: "/work/r.sql", Attempt: 1, Status: export.DestinationExisting})
+	stale2, _ := p.Update(SaveInspectMsg{Path: "/work/r.sql", Attempt: 1, State: export.DestinationState{Status: export.DestinationExisting}})
 	if sm := stale2.(Model); sm.overwriteOpen || sm.pickerOpen || sm.saveFailure != "" {
 		t.Fatal("stale inspection response mutated settled state")
 	}
@@ -601,5 +689,331 @@ func TestStaleSaveCompletionsAndDuplicateConfirmsAreInert(t *testing.T) {
 	final, _ := pressKey(stale2.(Model), runeKey("x"))
 	if final.overwriteOpen || final.saveFailure != "" || final.pickerOpen {
 		t.Fatal("post-settlement key leaked into save-flow state")
+	}
+}
+
+// TestNewFileSaveRacedByExternalCreationRoutesToRenewedConfirmation
+// requires an unconfirmed no-replace save raced by external creation to
+// preserve the external bytes, clear running state, avoid completion, and
+// route the user through a fresh inspection followed by a new overwrite
+// confirmation for the latest state. The immutable capture (path, format,
+// payload, selection) remains intact. Confirming the renewed confirmation
+// saves successfully with IntentReplace tied to the fresh state.
+func TestNewFileSaveRacedByExternalCreationRoutesToRenewedConfirmation(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.raceOnCreate = true
+	s.raceContents = []byte("external bytes")
+	_, p := savePickerFlowModel(t, f, s)
+	baseline := openerFingerprint(p)
+
+	// Submit the destination: inspection finds it missing, the no-replace
+	// write is raced by external creation, race recovery re-inspects and
+	// opens the renewed confirmation.
+	p = submitDestination(t, p, "r")
+	if !p.overwriteOpen {
+		t.Fatal("race recovery did not open the renewed overwrite confirmation")
+	}
+	if p.saveRunning {
+		t.Fatal("race recovery left the save running")
+	}
+	if p.saveFailure != "" {
+		t.Fatalf("race recovery left an inline failure: %q", p.saveFailure)
+	}
+	if p.saveCompletedPath != "" {
+		t.Fatal("race recovery claimed a completed destination")
+	}
+	// The external bytes are preserved.
+	if got := s.contents["/work/r.sql"]; string(got) != "external bytes" {
+		t.Fatalf("external bytes changed: %q, want %q", got, "external bytes")
+	}
+	// The immutable capture is intact.
+	if p.saveCapture == nil || p.saveCapture.path != "/work/r.sql" {
+		t.Fatal("captured destination was discarded after race")
+	}
+	want := "SELECT * FROM \"items\";"
+	if string(p.saveCapture.payload) != want {
+		t.Fatalf("captured payload = %q, want %q", p.saveCapture.payload, want)
+	}
+	if p.saveCapture.format != filepicker.FormatSQL {
+		t.Fatalf("captured format = %q", p.saveCapture.format)
+	}
+	if p.saveCapture.selection != "runnable-builder" {
+		t.Fatalf("captured selection = %q", p.saveCapture.selection)
+	}
+	// The picker is still open underneath.
+	if !p.pickerOpen {
+		t.Fatal("picker was discarded after race")
+	}
+	// The view shows exactly one confirmation.
+	if view := p.View(); strings.Count(view, "Overwrite existing file?") != 1 {
+		t.Fatalf("renewed confirmation not shown exactly once: %q", view)
+	}
+	// Confirm the renewed confirmation: the save succeeds with IntentReplace
+	// tied to the fresh state.
+	final := confirmSave(t, p)
+	if got := s.contents["/work/r.sql"]; string(got) != want {
+		t.Fatalf("post-confirmation bytes = %q, want %q", got, want)
+	}
+	if final.saveCompletedPath != "/work/r.sql" {
+		t.Fatalf("saveCompletedPath = %q", final.saveCompletedPath)
+	}
+	if fp := openerFingerprint(final); fp != baseline {
+		t.Errorf("completion fingerprint drifted:\n%s\nvs\n%s", fp, baseline)
+	}
+}
+
+// TestConfirmedReplaceSaveRacedByExternalChangeRoutesToRenewedConfirmation
+// requires a confirmed replacement raced by external change to preserve
+// the changed bytes, clear running state, avoid completion, and route the
+// user through a fresh inspection followed by a new overwrite confirmation.
+// The immutable capture remains intact. Confirming the renewed
+// confirmation saves successfully with IntentReplace tied to the fresh
+// state.
+func TestConfirmedReplaceSaveRacedByExternalChangeRoutesToRenewedConfirmation(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.setExisting("/work/r.sql", []byte("original"))
+	s.raceOnReplace = true
+	s.raceContents = []byte("external replacement")
+	_, p := savePickerFlowModel(t, f, s)
+	baseline := openerFingerprint(p)
+
+	// Submit: inspection finds existing, confirmation opens.
+	p = submitDestination(t, p, "r")
+	if !p.overwriteOpen {
+		t.Fatal("initial confirmation did not open")
+	}
+	// Confirm: the replace write is raced by external replacement, race
+	// recovery re-inspects and opens the renewed confirmation.
+	final := confirmSave(t, p)
+	if !final.overwriteOpen {
+		t.Fatal("race recovery did not open the renewed overwrite confirmation")
+	}
+	if final.saveRunning {
+		t.Fatal("race recovery left the save running")
+	}
+	if final.saveFailure != "" {
+		t.Fatalf("race recovery left an inline failure: %q", final.saveFailure)
+	}
+	if final.saveCompletedPath != "" {
+		t.Fatal("race recovery claimed a completed destination")
+	}
+	// The external bytes are preserved.
+	if got := s.contents["/work/r.sql"]; string(got) != "external replacement" {
+		t.Fatalf("external bytes changed: %q, want %q", got, "external replacement")
+	}
+	// The immutable capture is intact.
+	if final.saveCapture == nil || final.saveCapture.path != "/work/r.sql" {
+		t.Fatal("captured destination was discarded after race")
+	}
+	want := "SELECT * FROM \"items\";"
+	if string(final.saveCapture.payload) != want {
+		t.Fatalf("captured payload = %q, want %q", final.saveCapture.payload, want)
+	}
+	// Confirm the renewed confirmation: the save succeeds with IntentReplace
+	// tied to the fresh state.
+	final = confirmSave(t, final)
+	if got := s.contents["/work/r.sql"]; string(got) != want {
+		t.Fatalf("post-renewed-confirmation bytes = %q, want %q", got, want)
+	}
+	if final.saveCompletedPath != "/work/r.sql" {
+		t.Fatalf("saveCompletedPath = %q", final.saveCompletedPath)
+	}
+	if fp := openerFingerprint(final); fp != baseline {
+		t.Errorf("completion fingerprint drifted:\n%s\nvs\n%s", fp, baseline)
+	}
+}
+
+// TestRaceRecoveryStaleMessagesAreInert requires stale SaveFailedMsg and
+// SaveInspectMsg from the pre-race attempt to be inert during and after
+// race recovery. The monotonic attempt identity prevents stale messages
+// from reusing old authorization.
+func TestRaceRecoveryStaleMessagesAreInert(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.raceOnCreate = true
+	s.raceContents = []byte("external bytes")
+	_, p := savePickerFlowModel(t, f, s)
+	preAttempt := p.saveAttempt
+	p = submitDestination(t, p, "r")
+	if !p.overwriteOpen {
+		t.Fatal("race recovery did not open the renewed confirmation")
+	}
+	// A stale SaveFailedMsg from the pre-race attempt is inert.
+	stale, _ := p.Update(SaveFailedMsg{Attempt: preAttempt, Err: errors.New("stale")})
+	if sm := stale.(Model); sm.saveFailure != "" || !sm.overwriteOpen {
+		t.Fatal("stale SaveFailedMsg mutated the renewed confirmation state")
+	}
+	// A stale SaveInspectMsg from the pre-race attempt is inert.
+	stale2, _ := p.Update(SaveInspectMsg{Path: "/work/r.sql", Attempt: preAttempt, State: export.DestinationState{Status: export.DestinationNew}})
+	if sm := stale2.(Model); sm.overwriteOpen != true || sm.saveFailure != "" {
+		t.Fatal("stale SaveInspectMsg mutated the renewed confirmation state")
+	}
+}
+
+// TestRaceRecoveryEscCancelRestoresIntactPicker requires Esc/n from the
+// renewed confirmation to cancel only the overwrite question and return to
+// the intact picker with the captured copy retained.
+func TestRaceRecoveryEscCancelRestoresIntactPicker(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.raceOnCreate = true
+	s.raceContents = []byte("external bytes")
+	_, p := savePickerFlowModel(t, f, s)
+	p = submitDestination(t, p, "r")
+	if !p.overwriteOpen {
+		t.Fatal("race recovery did not open the renewed confirmation")
+	}
+	// Esc cancels only the confirmation: the picker returns intact with
+	// the captured copy retained.
+	cancelled, _ := pressKey(p, tea.KeyMsg{Type: tea.KeyEscape})
+	if cancelled.overwriteOpen {
+		t.Fatal("Esc did not close the renewed confirmation")
+	}
+	if !cancelled.pickerOpen {
+		t.Fatal("Esc discarded the intact picker")
+	}
+	if cancelled.saveCapture == nil || cancelled.saveCapture.path != "/work/r.sql" {
+		t.Fatal("Esc discarded the captured immutable copy")
+	}
+	if got := cancelled.picker.Filename(); got != "r" {
+		t.Fatalf("picker filename = %q, want r", got)
+	}
+	// n cancels identically from a fresh confirmation reached through the
+	// retained filename and focus.
+	p2, cmd := pressKey(cancelled, tea.KeyMsg{Type: tea.KeyEnter})
+	p2, _ = runSaveCmds(t, p2, cmd)
+	if !p2.overwriteOpen {
+		t.Fatal("re-submission did not reopen the confirmation")
+	}
+	p2, _ = pressKey(p2, runeKey("n"))
+	if p2.overwriteOpen || !p2.pickerOpen || p2.saveCapture == nil {
+		t.Fatal("n did not restore the intact picker with the captured copy")
+	}
+}
+
+// TestRaceRecoveryQuitSuspendRestore requires q/Ctrl+C from the renewed
+// confirmation to open the shared quit confirmation, and Esc/n to restore
+// the renewed confirmation exactly.
+func TestRaceRecoveryQuitSuspendRestore(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.raceOnCreate = true
+	s.raceContents = []byte("external bytes")
+	_, p := savePickerFlowModel(t, f, s)
+	p = submitDestination(t, p, "r")
+	if !p.overwriteOpen {
+		t.Fatal("race recovery did not open the renewed confirmation")
+	}
+	// q opens the shared quit confirmation above the renewed confirmation.
+	quit, _ := pressKey(p, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if !quit.quitConfirm {
+		t.Fatal("q did not open the quit confirmation from the renewed confirmation")
+	}
+	// The quit confirmation sits above the overwrite confirmation; the
+	// overwriteOpen flag stays in the suspended copy for exact restoration.
+	if quit.quitSuspended == nil || !quit.quitSuspended.overwriteOpen {
+		t.Fatal("quit confirmation did not suspend the renewed overwrite confirmation")
+	}
+	// Esc/n restores the renewed confirmation.
+	restore, _ := pressKey(quit, tea.KeyMsg{Type: tea.KeyEscape})
+	if restore.quitConfirm {
+		t.Fatal("Esc did not close the quit confirmation")
+	}
+	if !restore.overwriteOpen {
+		t.Fatal("Esc did not restore the renewed overwrite confirmation")
+	}
+	if restore.saveCapture == nil || restore.saveCapture.path != "/work/r.sql" {
+		t.Fatal("quit suspend/restore discarded the captured copy")
+	}
+}
+
+// TestOrdinaryStageFailureStaysOnSameCaptureRetryPath requires an ordinary
+// StageError (not a race error) to stay on the existing inline retry/cancel
+// path, not trigger race recovery. Retry writes the same captured copy.
+func TestOrdinaryStageFailureStaysOnSameCaptureRetryPath(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.setExisting("/work/r.sql", []byte("SELECT 1;"))
+	s.failSync = true
+	_, p := savePickerFlowModel(t, f, s)
+	baseline := openerFingerprint(p)
+	reached := submitDestination(t, p, "r")
+	failed := confirmSave(t, reached)
+	if failed.saveFailure == "" {
+		t.Fatal("ordinary stage failure did not show an inline failure")
+	}
+	if failed.overwriteOpen {
+		t.Fatal("ordinary stage failure triggered race recovery (confirmation open)")
+	}
+	if failed.saveRunning {
+		t.Fatal("ordinary stage failure left the save running")
+	}
+	// The existing destination is preserved.
+	if got := s.contents["/work/r.sql"]; string(got) != "SELECT 1;" {
+		t.Fatalf("existing destination changed: %q", got)
+	}
+	// Retry writes the same captured copy.
+	s.failSync = false
+	retried, cmd := pressKey(failed, tea.KeyMsg{Type: tea.KeyEnter})
+	final, _ := runSaveCmds(t, retried, cmd)
+	want := "SELECT * FROM \"items\";"
+	if got := s.contents["/work/r.sql"]; string(got) != want {
+		t.Fatalf("retry bytes = %q, want %q", got, want)
+	}
+	if final.saveCompletedPath != "/work/r.sql" {
+		t.Fatal("successful retry did not complete")
+	}
+	if fp := openerFingerprint(final); fp != baseline {
+		t.Errorf("retry completion fingerprint drifted:\n%s\nvs\n%s", fp, baseline)
+	}
+}
+
+// TestRaceRecoverySuccessfulSaveAfterUnchangedFreshConfirmation requires
+// the full race-recovery → renewed confirmation → successful save cycle
+// to produce the exact captured bytes at the destination with no temp leak
+// and exact opener restoration.
+func TestRaceRecoverySuccessfulSaveAfterUnchangedFreshConfirmation(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.setExisting("/work/r.sql", []byte("original"))
+	s.raceOnReplace = true
+	s.raceContents = []byte("external replacement")
+	_, p := savePickerFlowModel(t, f, s)
+	baseline := openerFingerprint(p)
+	// Submit + confirm: race triggers recovery, renewed confirmation opens.
+	p = submitDestination(t, p, "r")
+	p = confirmSave(t, p)
+	if !p.overwriteOpen {
+		t.Fatal("race recovery did not open the renewed confirmation")
+	}
+	// Confirm the renewed confirmation: save succeeds.
+	final := confirmSave(t, p)
+	want := "SELECT * FROM \"items\";"
+	if got := s.contents["/work/r.sql"]; string(got) != want {
+		t.Fatalf("post-renewed-confirmation bytes = %q, want %q", got, want)
+	}
+	if final.saveCompletedPath != "/work/r.sql" {
+		t.Fatalf("saveCompletedPath = %q", final.saveCompletedPath)
+	}
+	if final.pickerOpen {
+		t.Fatal("picker left open after completion")
+	}
+	// No temp leaked.
+	if name := s.createdTempName(); name != "" {
+		if _, ok := s.contents[name]; ok {
+			t.Fatalf("temporary artifact %q leaked", name)
+		}
+	}
+	if fp := openerFingerprint(final); fp != baseline {
+		t.Errorf("completion fingerprint drifted:\n%s\nvs\n%s", fp, baseline)
 	}
 }

@@ -292,7 +292,7 @@ func escSuiteCases() []escCase {
 				f := pickerNewFakeFS()
 				f.dirs["/work"] = []pickerFakeEntry{}
 				s := newSaveFlowFakeFS()
-				s.existing["/work/r.sql"] = true
+				s.setExisting("/work/r.sql", nil)
 				_, p := savePickerFlowModel(t, f, s)
 				return submitDestination(t, p, "r")
 			},
@@ -319,7 +319,7 @@ func escSuiteCases() []escCase {
 				f.dirs["/work"] = []pickerFakeEntry{}
 				s := newSaveFlowFakeFS()
 				s.failRename = errors.New("busy")
-				s.existing["/work/r.sql"] = true
+				s.setExisting("/work/r.sql", nil)
 				_, p := savePickerFlowModel(t, f, s)
 				reached := submitDestination(t, p, "r")
 				failed := confirmSave(t, reached)
