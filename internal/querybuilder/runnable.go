@@ -79,6 +79,10 @@ const (
 	ReasonStaleTable = "the selected table no longer exists"
 	// ReasonNoProjection reports a SELECT with no committed projection entry.
 	ReasonNoProjection = "select at least one column"
+	// ReasonStaleProjectionColumn reports a committed named projection whose
+	// declared column no longer exists among the selected object's visible
+	// columns after a refresh.
+	ReasonStaleProjectionColumn = "the projected column no longer exists"
 	// ReasonIncompletePrompt reports any open value prompt or incomplete
 	// guided state: the common no-incomplete-value-prompt gate.
 	ReasonIncompletePrompt = "complete the open value prompt"
@@ -146,10 +150,16 @@ func (q QueryBuilder) RunnableReport() RunnableReport {
 
 // reportSelect evaluates a SELECT in visual order: projection, WHERE,
 // grouping, ORDER BY, Limit — reusing the Issue #18 validators for the rules
-// they already own.
+// they already own. Every committed named projection entry is validated
+// against the selected object's current visible columns before later SELECT
+// fields; the synthetic wildcard and COUNT(*) sentinel identities are
+// exempt by identity, never by display text.
 func (q QueryBuilder) reportSelect() RunnableReport {
 	if q.ProjectionEmpty() {
 		return RunnableReport{Field: RunFieldProjection, Reason: ReasonNoProjection}
+	}
+	if issue, invalid := q.reportStaleProjection(); invalid {
+		return issue
 	}
 	if r, invalid := q.reportWhere(); invalid {
 		return r
@@ -164,6 +174,29 @@ func (q QueryBuilder) reportSelect() RunnableReport {
 		return RunnableReport{Field: RunFieldLimit, Reason: issue.Reason}
 	}
 	return RunnableReport{Runnable: true}
+}
+
+// reportStaleProjection validates every committed named projection entry
+// against the selected object's current visible columns, returning the first
+// stale entry as a RunFieldProjection report. The synthetic wildcard and
+// COUNT(*) sentinel identities are exempt by identity (Kind), never by
+// display text, so a real column literally named `*` or `COUNT(*)` is still
+// validated as a named identifier. Reuses selectedColumns for the
+// visibility/identity pattern shared by reportWhere and validateGrouping.
+func (q QueryBuilder) reportStaleProjection() (RunnableReport, bool) {
+	visible := make(map[string]bool, len(q.projection))
+	for _, col := range q.selectedColumns() {
+		visible[col.Name] = true
+	}
+	for _, e := range q.projection {
+		if e.Kind != ProjectionColumn {
+			continue
+		}
+		if !visible[e.Column] {
+			return RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn}, true
+		}
+	}
+	return RunnableReport{}, false
 }
 
 // reportUpdate evaluates an UPDATE in visual order: SET assignments, then the

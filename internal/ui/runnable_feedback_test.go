@@ -15,7 +15,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/chris/sqloid/internal/history"
 	qb "github.com/chris/sqloid/internal/querybuilder"
+	"github.com/chris/sqloid/internal/schema"
 )
 
 // enterPress drives one Enter through Update, returning the model and cmd.
@@ -225,5 +227,181 @@ func TestRunnableDataTooSmallConsumesEnter(t *testing.T) {
 	}
 	if !next.suspended {
 		t.Error("suspended Enter ended suspension")
+	}
+}
+
+// whereUICatalogDropsEmail returns a refreshed whereUICatalog whose users
+// table no longer declares the email column, keeping id and note, so a
+// committed projection on email goes stale without clearing state through
+// the revalidation helper.
+func whereUICatalogDropsEmail() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 18,
+		Objects: []*schema.Object{
+			{
+				Name:          "users",
+				Kind:          schema.KindOrdinaryTable,
+				WriteEligible: true,
+				Rowid:         schema.RowidHas,
+				Columns:       []schema.Column{{Name: "id"}, {Name: "note"}},
+			},
+			{Name: "logs", Kind: schema.KindView, Columns: []schema.Column{{Name: "line"}}},
+		},
+	}
+}
+
+// staleProjectionValueQB commits "email" as a named Value projection over
+// users, then refreshes against a catalog where email vanished — without
+// using the state-clearing Revalidate helper.
+func staleProjectionValueQB() qb.QueryBuilder {
+	q := qb.NewQuery().RefreshSchema(whereUICatalog()).
+		SelectCommand(qb.CommandSelect).SelectTable("users")
+	out := q.AcceptProjection(qb.ProjectionCandidate{Kind: qb.ProjectionColumn, Column: "email"})
+	return out.Builder.CompleteProjectionAggregate("email", qb.AggregateValue).Builder.
+		RefreshSchema(whereUICatalogDropsEmail())
+}
+
+// staleProjectionAggregateQB commits "email" as a named Min aggregate
+// projection over users, then refreshes against a catalog where email
+// vanished — without using the state-clearing Revalidate helper.
+func staleProjectionAggregateQB() qb.QueryBuilder {
+	q := qb.NewQuery().RefreshSchema(whereUICatalog()).
+		SelectCommand(qb.CommandSelect).SelectTable("users")
+	out := q.AcceptProjection(qb.ProjectionCandidate{Kind: qb.ProjectionColumn, Column: "email"})
+	return out.Builder.CompleteProjectionAggregate("email", qb.AggMin).Builder.
+		RefreshSchema(whereUICatalogDropsEmail())
+}
+
+// currentNamedValueQB commits "email" as a named Value projection over users
+// with a completed WHERE, staying runnable without any refresh.
+func currentNamedValueQB() qb.QueryBuilder {
+	q := qb.NewQuery().RefreshSchema(whereUICatalog()).
+		SelectCommand(qb.CommandSelect).SelectTable("users")
+	out := q.AcceptProjection(qb.ProjectionCandidate{Kind: qb.ProjectionColumn, Column: "email"})
+	q = out.Builder.CompleteProjectionAggregate("email", qb.AggregateValue).Builder
+	return completeWhereQB(q, "x")
+}
+
+// currentNamedAggregateQB commits "email" as a named Min aggregate projection
+// over users with a completed WHERE, staying runnable without any refresh.
+func currentNamedAggregateQB() qb.QueryBuilder {
+	q := qb.NewQuery().RefreshSchema(whereUICatalog()).
+		SelectCommand(qb.CommandSelect).SelectTable("users")
+	out := q.AcceptProjection(qb.ProjectionCandidate{Kind: qb.ProjectionColumn, Column: "email"})
+	q = out.Builder.CompleteProjectionAggregate("email", qb.AggMin).Builder
+	return completeWhereQB(q, "x")
+}
+
+// countStarSentinelQB commits the synthetic COUNT(*) sentinel over users with
+// a completed WHERE, staying runnable without any refresh.
+func countStarSentinelQB() qb.QueryBuilder {
+	q := qb.NewQuery().RefreshSchema(whereUICatalog()).
+		SelectCommand(qb.CommandSelect).SelectTable("users")
+	q = q.AcceptProjection(qb.ProjectionCandidate{Kind: qb.ProjectionCountStar}).Builder
+	return completeWhereQB(q, "x")
+}
+
+// TestEnterOnStaleProjectionFocusesColumns covers Issue #65 Task 3: Enter on
+// stale named Value or aggregate projections starts no request, appends no
+// history, and focuses Column(s) with the authoritative stale-projection
+// reason verbatim, whether Enter is pressed from the Command field or the
+// Limit field. Wildcard, COUNT(*), and current named projections still reach
+// the pre-execution seam unchanged.
+func TestEnterOnStaleProjectionFocusesColumns(t *testing.T) {
+	staleCases := []struct {
+		name string
+		qb   qb.QueryBuilder
+	}{
+		{"stale named Value projection", staleProjectionValueQB()},
+		{"stale named Min aggregate projection", staleProjectionAggregateQB()},
+	}
+	for _, tc := range staleCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := modelWithQB(tc.qb)
+			m.History = history.NewStore()
+			m = focusField(m, commandFieldLabel) // Enter from a non-opener field
+			before := m.QB
+			beforeHistory := m.History
+			beforeResultHistory := m.ResultHistory
+			next, cmd := enterPress(m)
+			if cmd != nil {
+				t.Fatalf("stale-projection Enter returned a command %v", cmd)
+			}
+			if next.Popup != nil {
+				t.Error("stale-projection Enter opened a popup")
+			}
+			if next.ValuePrompt != nil {
+				t.Error("stale-projection Enter opened a value prompt")
+			}
+			if got := next.Fields[next.Focus].Label; got != columnsFieldLabel {
+				t.Fatalf("focus = %q, want %q (Column(s))", got, columnsFieldLabel)
+			}
+			want := qb.ReasonStaleProjectionColumn
+			if content := next.Fields[next.Focus].Content; !strings.Contains(content, want) {
+				t.Errorf("inline content = %q, want it to contain %q verbatim", content, want)
+			}
+			if view := next.View(); !strings.Contains(view, want) {
+				t.Error("rendered view lacks the authoritative stale-projection reason")
+			}
+			if !reflect.DeepEqual(next.QB, before) {
+				t.Error("stale-projection Enter mutated builder state")
+			}
+			if !reflect.DeepEqual(next.History, beforeHistory) {
+				t.Error("stale-projection Enter mutated query history")
+			}
+			if !reflect.DeepEqual(next.ResultHistory, beforeResultHistory) {
+				t.Error("stale-projection Enter mutated result history")
+			}
+		})
+	}
+
+	// Enter from the Limit field (an opener field with the special earlier-
+	// field bypass) also focuses Column(s) when the projection is stale and
+	// Limit holds invalid nonempty text.
+	t.Run("stale projection from Limit field focuses Column(s)", func(t *testing.T) {
+		m := modelWithQB(staleProjectionValueQB().SetLimitInput("abc"))
+		m = focusField(m, limitFieldLabel)
+		next, cmd := enterPress(m)
+		if cmd != nil {
+			t.Fatalf("stale-projection Enter from Limit returned a command %v", cmd)
+		}
+		if next.ValuePrompt != nil {
+			t.Fatal("stale-projection Enter from Limit reopened the value prompt")
+		}
+		if got := next.Fields[next.Focus].Label; got != columnsFieldLabel {
+			t.Fatalf("focus = %q, want %q (Column(s))", got, columnsFieldLabel)
+		}
+		if content := next.Fields[next.Focus].Content; !strings.Contains(content, qb.ReasonStaleProjectionColumn) {
+			t.Errorf("inline content = %q, want it to contain %q verbatim", content, qb.ReasonStaleProjectionColumn)
+		}
+	})
+
+	// Controls: valid projections still reach the pre-execution seam.
+	controlCases := []struct {
+		name string
+		qb   qb.QueryBuilder
+	}{
+		{"wildcard projection", validSelectQB()},
+		{"COUNT(*) sentinel projection", countStarSentinelQB()},
+		{"current named Value projection", currentNamedValueQB()},
+		{"current named Min aggregate projection", currentNamedAggregateQB()},
+	}
+	for _, tc := range controlCases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := modelWithQB(tc.qb)
+			m = focusField(m, commandFieldLabel)
+			next, cmd := enterPress(m)
+			if cmd == nil {
+				t.Fatal("runnable Enter returned no command")
+			}
+			msg, ok := cmd().(PreExecutionRequestedMsg)
+			if !ok {
+				t.Fatalf("cmd produced %T, want PreExecutionRequestedMsg", msg)
+			}
+			_ = msg
+			if next.Popup != nil || next.ValuePrompt != nil {
+				t.Error("runnable Enter opened an overlay")
+			}
+		})
 	}
 }

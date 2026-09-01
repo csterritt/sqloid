@@ -15,7 +15,7 @@ Cancellable pre-execution schema-version validation per Issue #21, the Execution
 - vanished projection entries, GROUP BY names, committed WHERE predicates and drafts, ORDER BY column expressions, UPDATE SET assignments, and INSERT prompts for columns that became hidden/non-insertable are removed individually;
 - unrelated completed state — Limit, surviving entries, surviving assignments — is always preserved, and focus follows the established clearing rule only through removed states.
 
-The transition performs no validation workflow, history effect, or execution; the UI consumes the report's first specific invalid field and reason.
+The transition performs no validation workflow, history effect, or execution; the UI consumes the report's first specific invalid field and reason. Issue #65 extends the authoritative `RunnableReport` itself to validate every committed named projection against refreshed visible columns before later SELECT fields, so a stale projection is caught at `RunFieldProjection` with `the projected column no longer exists` even when `Revalidate` has not been invoked (for example when `RefreshSchema` swapped the catalog without the state-clearing repair).
 
 ## Validation workflow — `internal/ui/schema_validation.go`
 

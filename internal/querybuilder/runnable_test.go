@@ -61,6 +61,28 @@ func itemsCatalogDropsScore() *schema.Catalog {
 	return &schema.Catalog{Version: 20, Objects: kept}
 }
 
+// itemsCatalogDropsScoreOnly returns a refreshed snapshot whose items table
+// drops only the score column while keeping id and name, so a committed
+// projection on name survives while GROUP BY or ORDER BY on score goes stale.
+func itemsCatalogDropsScoreOnly() *schema.Catalog {
+	c := runnableCatalog()
+	kept := make([]*schema.Object, 0, len(c.Objects))
+	for _, o := range c.Objects {
+		if o.Name == "items" {
+			o = &schema.Object{
+				Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "name", DeclaredType: "TEXT", Insertable: true},
+				},
+				InsertableCount: 2,
+			}
+		}
+		kept = append(kept, o)
+	}
+	return &schema.Catalog{Version: 20, Objects: kept}
+}
+
 // assertReport compares one report against the expected outcome.
 func assertReport(t *testing.T, name string, got, want RunnableReport) {
 	t.Helper()
@@ -100,6 +122,13 @@ func selectWildcard(q QueryBuilder) QueryBuilder {
 func buildPlainSelect() QueryBuilder {
 	out := buildSelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "name"})
 	return out.Builder.CompleteProjectionAggregate("name", AggregateValue).Builder
+}
+
+// buildAggSelect commits the named column with the given aggregate over items,
+// for stale-identifier tests that need a surviving aggregate projection.
+func buildAggSelect(column string, agg Aggregate) QueryBuilder {
+	out := buildSelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: column})
+	return out.Builder.CompleteProjectionAggregate(column, agg).Builder
 }
 
 // whereCompleteEq completes a WHERE draft with an `=` submission.
@@ -235,22 +264,22 @@ func TestRunnableSelectCoversEveryPrerequisite(t *testing.T) {
 		{
 			name: "stale grouped column blocks after refresh",
 			build: func() QueryBuilder {
-				next, ok := buildPlainSelect().AcceptGroupColumn("name")
+				next, ok := buildAggSelect("name", AggCount).AcceptGroupColumn("score")
 				if !ok {
 					panic("setup: AcceptGroupColumn failed")
 				}
-				return next.RefreshSchema(itemsCatalogDropsScore())
+				return next.RefreshSchema(itemsCatalogDropsScoreOnly())
 			},
 			want: RunnableReport{Field: RunFieldGroupBy, Reason: StaleGroupColumnReason},
 		},
 		{
 			name: "stale ORDER BY expression blocks after refresh",
 			build: func() QueryBuilder {
-				next, ok := buildPlainSelect().AcceptOrderBy("order-column:name")
+				next, ok := buildPlainSelect().AcceptOrderBy("order-column:score")
 				if !ok {
 					panic("setup: AcceptOrderBy failed")
 				}
-				return next.RefreshSchema(itemsCatalogDropsScore())
+				return next.RefreshSchema(itemsCatalogDropsScoreOnly())
 			},
 			want: RunnableReport{Field: RunFieldOrderBy, Reason: StaleOrderByExpressionReason},
 		},
@@ -570,6 +599,230 @@ func TestRunnableInsertCoversEveryPrerequisite(t *testing.T) {
 			name:  "valid all-omit state is runnable",
 			build: func() QueryBuilder { return insertChoiceAllOmit(buildInsert()) },
 			want:  RunnableReport{Runnable: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertReport(t, tc.name, tc.build().RunnableReport(), tc.want)
+		})
+	}
+}
+
+// trickyNamesCatalog returns a catalog whose sole table declares visible
+// columns literally named `*` and `COUNT(*)` alongside id, so the synthetic
+// wildcard and sentinel identities can be distinguished from named
+// identifiers that merely share their display text.
+func trickyNamesCatalog() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 19,
+		Objects: []*schema.Object{
+			{
+				Name: "tricky", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", Insertable: true},
+					{Name: "*"},
+					{Name: "COUNT(*)"},
+				},
+			},
+		},
+	}
+}
+
+// trickyDropsStar returns a refreshed tricky catalog whose literal `*` named
+// column is absent, while id and the literal `COUNT(*)` named column survive.
+func trickyDropsStar() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 20,
+		Objects: []*schema.Object{
+			{
+				Name: "tricky", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", Insertable: true},
+					{Name: "COUNT(*)"},
+				},
+			},
+		},
+	}
+}
+
+// trickyDropsCountStar returns a refreshed tricky catalog whose literal
+// `COUNT(*)` named column is absent, while id and the literal `*` named
+// column survive.
+func trickyDropsCountStar() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 20,
+		Objects: []*schema.Object{
+			{
+				Name: "tricky", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", Insertable: true},
+					{Name: "*"},
+				},
+			},
+		},
+	}
+}
+
+// buildTrickySelect drives a fresh builder to SELECT over the tricky table.
+func buildTrickySelect() QueryBuilder {
+	return NewQuery().RefreshSchema(trickyNamesCatalog()).SelectCommand(CommandSelect).SelectTable("tricky")
+}
+
+// buildScoreProjection commits the named "score" column with the given
+// aggregate over the items table, through the existing QueryBuilder
+// transitions.
+func buildScoreProjection(agg Aggregate) QueryBuilder {
+	out := buildSelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "score"})
+	return out.Builder.CompleteProjectionAggregate("score", agg).Builder
+}
+
+// TestRunnableSelectGatesStaleNamedProjections covers Issue #65 Task 1: every
+// committed named Value and aggregate projection is checked against the
+// selected object's refreshed visible columns before later SELECT fields,
+// returning RunFieldProjection with one specific stale-projection reason,
+// while wildcard, synthetic COUNT(*), and current named projections remain
+// runnable. Schemas with literal `*` and `COUNT(*)` column names prove
+// sentinel identity is never confused with named identifiers.
+func TestRunnableSelectGatesStaleNamedProjections(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() QueryBuilder
+		want  RunnableReport
+	}{
+		// Stale named Value and each named aggregate projection block with
+		// the exact stale-projection reason at the projection field.
+		{
+			name: "stale named Value projection blocks",
+			build: func() QueryBuilder {
+				return buildScoreProjection(AggregateValue).RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name:  "stale named Count projection blocks",
+			build: func() QueryBuilder { return buildScoreProjection(AggCount).RefreshSchema(itemsCatalogDropsScore()) },
+			want:  RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name:  "stale named Min projection blocks",
+			build: func() QueryBuilder { return buildScoreProjection(AggMin).RefreshSchema(itemsCatalogDropsScore()) },
+			want:  RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name:  "stale named Max projection blocks",
+			build: func() QueryBuilder { return buildScoreProjection(AggMax).RefreshSchema(itemsCatalogDropsScore()) },
+			want:  RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name:  "stale named Avg projection blocks",
+			build: func() QueryBuilder { return buildScoreProjection(AggAvg).RefreshSchema(itemsCatalogDropsScore()) },
+			want:  RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name:  "stale named Sum projection blocks",
+			build: func() QueryBuilder { return buildScoreProjection(AggSum).RefreshSchema(itemsCatalogDropsScore()) },
+			want:  RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		// Stale projection blocks before later WHERE, GROUP BY, ORDER BY, and
+		// Limit failures in visual order.
+		{
+			name: "stale projection blocks before open WHERE draft",
+			build: func() QueryBuilder {
+				q := buildScoreProjection(AggregateValue)
+				next, _ := q.StartWhere("name") // name still exists after refresh
+				return next.RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name: "stale projection blocks before mixed grouping failure",
+			build: func() QueryBuilder {
+				q := buildScoreProjection(AggregateValue)
+				out := q.AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "name"})
+				q = out.Builder.CompleteProjectionAggregate("name", AggMin).Builder
+				return q.RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name: "stale projection blocks before stale ORDER BY",
+			build: func() QueryBuilder {
+				q := buildScoreProjection(AggregateValue)
+				next, ok := q.AcceptOrderBy("order-column:score")
+				if !ok {
+					panic("setup: AcceptOrderBy failed")
+				}
+				return next.RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name: "stale projection blocks before invalid Limit",
+			build: func() QueryBuilder {
+				return buildScoreProjection(AggregateValue).SetLimitInput("abc").RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		// Valid named Value and aggregate projections remain runnable when
+		// their column survives the refresh.
+		{
+			name:  "valid named Value projection remains runnable",
+			build: func() QueryBuilder { return buildScoreProjection(AggregateValue).RefreshSchema(runnableCatalog()) },
+			want:  RunnableReport{Runnable: true},
+		},
+		{
+			name:  "valid named Min projection remains runnable",
+			build: func() QueryBuilder { return buildScoreProjection(AggMin).RefreshSchema(runnableCatalog()) },
+			want:  RunnableReport{Runnable: true},
+		},
+		// Wildcard and synthetic COUNT(*) sentinel remain runnable regardless
+		// of which named columns vanish.
+		{
+			name:  "wildcard remains runnable after refresh",
+			build: func() QueryBuilder { return selectWildcard(buildSelect()).RefreshSchema(itemsCatalogDropsScore()) },
+			want:  RunnableReport{Runnable: true},
+		},
+		{
+			name: "synthetic COUNT(*) sentinel remains runnable after refresh",
+			build: func() QueryBuilder {
+				out := buildSelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionCountStar})
+				return out.Builder.RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Runnable: true},
+		},
+		// Schemas with literal `*` and `COUNT(*)` column names: a named
+		// projection on those identifiers is stale when the column vanishes,
+		// while the synthetic wildcard and sentinel survive.
+		{
+			name: "literal star named column dropped blocks",
+			build: func() QueryBuilder {
+				out := buildTrickySelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "*"})
+				return out.Builder.CompleteProjectionAggregate("*", AggregateValue).Builder.RefreshSchema(trickyDropsStar())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name: "literal COUNT star named column dropped blocks",
+			build: func() QueryBuilder {
+				out := buildTrickySelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "COUNT(*)"})
+				return out.Builder.CompleteProjectionAggregate("COUNT(*)", AggregateValue).Builder.RefreshSchema(trickyDropsCountStar())
+			},
+			want: RunnableReport{Field: RunFieldProjection, Reason: ReasonStaleProjectionColumn},
+		},
+		{
+			name: "synthetic wildcard survives when literal star named column drops",
+			build: func() QueryBuilder {
+				return selectWildcard(buildTrickySelect()).RefreshSchema(trickyDropsStar())
+			},
+			want: RunnableReport{Runnable: true},
+		},
+		{
+			name: "synthetic COUNT star sentinel survives when literal COUNT star named column drops",
+			build: func() QueryBuilder {
+				out := buildTrickySelect().AcceptProjection(ProjectionCandidate{Kind: ProjectionCountStar})
+				return out.Builder.RefreshSchema(trickyDropsCountStar())
+			},
+			want: RunnableReport{Runnable: true},
 		},
 	}
 	for _, tc := range cases {

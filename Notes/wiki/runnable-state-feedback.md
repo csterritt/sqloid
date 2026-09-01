@@ -4,19 +4,19 @@ The authoritative, UI-independent runnable report, whole-value clearing, and bas
 
 ## The runnable report (`internal/querybuilder/runnable.go`)
 
-`QueryBuilder.RunnableReport()` returns one pure `RunnableReport{Runnable bool, Field RunField, Reason string}` — either runnable data, or the first invalid **typed field** plus one **specific reason**, ordered by each command's **visual builder order** rather than validation implementation order. It reuses the Issue #18 grouping/ORDER BY/LIMIT validators and Schema identity contracts instead of duplicating them, carries no UI action, and never starts validation, estimation, execution, or history append. Test-asserted reason constants include `select a command`, `select a table`, `the selected table no longer exists`, `select at least one column`, `complete the open value prompt`, `the where column no longer exists`, `add at least one SET assignment`, `SET columns must be unique`, `the SET column no longer exists`, `table has no insertable columns`, `complete the choice for column %s`, and `submit a value for column %s`; LIMIT failures reuse exactly `Limit must be an integer from 1 to 9223372036854775807`.
+`QueryBuilder.RunnableReport()` returns one pure `RunnableReport{Runnable bool, Field RunField, Reason string}` — either runnable data, or the first invalid **typed field** plus one **specific reason**, ordered by each command's **visual builder order** rather than validation implementation order. It reuses the Issue #18 grouping/ORDER BY/LIMIT validators and Schema identity contracts instead of duplicating them, carries no UI action, and never starts validation, estimation, execution, or history append. Test-asserted reason constants include `select a command`, `select a table`, `the selected table no longer exists`, `select at least one column`, `the projected column no longer exists`, `complete the open value prompt`, `the where column no longer exists`, `add at least one SET assignment`, `SET columns must be unique`, `the SET column no longer exists`, `table has no insertable columns`, `complete the choice for column %s`, and `submit a value for column %s`; LIMIT failures reuse exactly `Limit must be an integer from 1 to 9223372036854775807`.
 
 `RunField` identities map onto visual fields: `Command`, `Table`, `Column(s)`, `SET`, `INSERT`, `WHERE`, `GROUP BY`, `ORDER BY`, `Limit`.
 
 ### Common gates
 
 - **Selected command**: an unselected command blocks at `Command`.
-- **Refreshed identifiers**: the selected table must still exist in the latest eligible catalog; a committed WHERE naming a vanished column blocks at `WHERE`; stale groups/orders report through the Issue #18 reasons.
+- **Refreshed identifiers**: the selected table must still exist in the latest eligible catalog; a committed named projection (Value or aggregate) naming a vanished column blocks at `Column(s)` with `the projected column no longer exists` (Issue #65); a committed WHERE naming a vanished column blocks at `WHERE`; stale groups/orders report through the Issue #18 reasons. The synthetic wildcard and `COUNT(*)` sentinel identities are exempt by `ProjectionKind`, never by display text, so a real column literally named `*` or `COUNT(*)` is still validated as a named identifier.
 - **No incomplete value prompt**: an open WHERE draft or any structurally incomplete predicate blocks at `WHERE`; pending write choices and unsubmitted Value entries block at their write fields (see below).
 
 ### Command prerequisites in visual order
 
-- **SELECT**: nonempty projection → complete/present WHERE → grouping matrix → valid grouped ORDER BY → empty (unbounded) or valid Limit.
+- **SELECT**: nonempty projection → every committed named projection entry validated against refreshed visible columns (Issue #65) → complete/present WHERE → grouping matrix → valid grouped ORDER BY → empty (unbounded) or valid Limit.
 - **UPDATE**: at least one SET assignment → unique SET columns → every assignment's complete {Value, NULL} choice with submitted Value entries → optional complete WHERE.
 - **DELETE**: eligible table only; the optional WHERE must not be incomplete.
 - **INSERT**: at least one insertable column (zero blocks with `table has no insertable columns`) → every per-column prompt carrying exactly one {Value, NULL, Default/Omit} choice with submitted Value entries; **all-omit is valid**.
@@ -41,7 +41,7 @@ Keys inside an open popup or focused value prompt keep that context's editing be
 
 Base-context Enter consults the report **after** every higher-precedence context (popups, value prompts, pending requests, the stale-refresh overlay, suspension, terminal states) has consumed the key:
 
-- **Invalid data**: the key is consumed — focus moves to the report's typed first-invalid field and its reason renders verbatim inline; no validation, estimation, execution, or history command returns. The `Set` and `Insert` field-bar entries render UPDATE/INSERT prompt targets in visual order.
+- **Invalid data**: the key is consumed — focus moves to the report's typed first-invalid field and its reason renders verbatim inline; no validation, estimation, execution, or history command returns. The `Set` and `Insert` field-bar entries render UPDATE/INSERT prompt targets in visual order. Issue #65 extends this to stale named projections: Enter on a stale Value or aggregate projection starts no request, appends no query or result history, and focuses `Column(s)` with the exact `the projected column no longer exists` reason — the existing generic `RunFieldProjection` → `columnsFieldLabel` mapping and `showRunnableReason` rendering satisfy the contract with no UI production change.
 - **Runnable data**: Enter emits only the `PreExecutionRequestedMsg` seam (consumed by Issue #21's schema validation and later destructive preparation); no SQL executes in this issue.
 - **Field openers**: fields owning Enter-driven editing openers (Table, Column(s), Set, Where, Group By, Order By, Limit) keep consuming Enter locally, preserving the Issue #12–#18 and #37 openers. The authoritative exception is the Limit field holding nonempty invalid committed text: Enter never reopens universal entry — it shows exactly `Limit must be an integer from 1 to 9223372036854775807`, or moves focus to an earlier invalid field when the report points elsewhere.
 
@@ -49,4 +49,4 @@ Inline reasons are transient: the next `applyBuilder` rebuild rebuilds the field
 
 ## Cross-references
 
-Issues #15–#19; forward to Issues #21 (pre-execution schema validation), #37/#39 (write flows), #38; the [where-guided-predicates.md](where-guided-predicates.md) and [group-order-limit.md](group-order-limit.md) contracts; the Runnable-State Contract, Builder and Display Interaction, Global Key Precedence, QueryBuilder, UI, and Testing Decisions of `Notes/PRD-sqloid.md`.
+Issues #15–#19, #65; forward to Issues #21 (pre-execution schema validation), #37/#39 (write flows), #38; the [where-guided-predicates.md](where-guided-predicates.md), [group-order-limit.md](group-order-limit.md), [projection-count-star.md](projection-count-star.md), [projection-ordered-editing.md](projection-ordered-editing.md), and [schema-validation-workflow.md](schema-validation-workflow.md) contracts; the Runnable-State Contract, Builder and Display Interaction, Global Key Precedence, QueryBuilder, UI, and Testing Decisions of `Notes/PRD-sqloid.md`.
