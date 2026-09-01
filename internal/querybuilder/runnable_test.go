@@ -608,6 +608,256 @@ func TestRunnableInsertCoversEveryPrerequisite(t *testing.T) {
 	}
 }
 
+// itemsCatalogDropsName returns a refreshed snapshot whose items table no
+// longer declares the name column, keeping id and score insertable, so a
+// stored prompt naming name goes stale while the table remains eligible.
+func itemsCatalogDropsName() *schema.Catalog {
+	c := runnableCatalog()
+	kept := make([]*schema.Object, 0, len(c.Objects))
+	for _, o := range c.Objects {
+		if o.Name == "items" {
+			o = &schema.Object{
+				Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "score", DeclaredType: "REAL", Insertable: true},
+				},
+				InsertableCount: 2,
+			}
+		}
+		kept = append(kept, o)
+	}
+	return &schema.Catalog{Version: 20, Objects: kept}
+}
+
+// itemsCatalogHidesName returns a refreshed snapshot whose items table marks
+// name as a hidden module-style column (Hidden=true), so it remains declared
+// but is no longer insertable while id and score stay insertable.
+func itemsCatalogHidesName() *schema.Catalog {
+	c := runnableCatalog()
+	kept := make([]*schema.Object, 0, len(c.Objects))
+	for _, o := range c.Objects {
+		if o.Name == "items" {
+			o = &schema.Object{
+				Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "name", DeclaredType: "TEXT", Hidden: true},
+					{Name: "score", DeclaredType: "REAL", Insertable: true},
+				},
+				InsertableCount: 2,
+			}
+		}
+		kept = append(kept, o)
+	}
+	return &schema.Catalog{Version: 20, Objects: kept}
+}
+
+// itemsCatalogGeneratedName returns a refreshed snapshot whose items table
+// marks name as a generated column (Hidden=true with a GENERATED declared
+// type), so it remains declared and visible-by-position but is no longer
+// insertable while id and score stay insertable.
+func itemsCatalogGeneratedName() *schema.Catalog {
+	c := runnableCatalog()
+	kept := make([]*schema.Object, 0, len(c.Objects))
+	for _, o := range c.Objects {
+		if o.Name == "items" {
+			o = &schema.Object{
+				Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "name", DeclaredType: "INTEGER GENERATED ALWAYS AS (id+1) STORED", Hidden: true},
+					{Name: "score", DeclaredType: "REAL", Insertable: true},
+				},
+				InsertableCount: 2,
+			}
+		}
+		kept = append(kept, o)
+	}
+	return &schema.Catalog{Version: 20, Objects: kept}
+}
+
+// itemsCatalogNameNotInsertable returns a refreshed snapshot whose items
+// table keeps name declared and visible (Hidden=false) but marks
+// Insertable=false, representing the otherwise-non-insertable case while id
+// and score stay insertable.
+func itemsCatalogNameNotInsertable() *schema.Catalog {
+	c := runnableCatalog()
+	kept := make([]*schema.Object, 0, len(c.Objects))
+	for _, o := range c.Objects {
+		if o.Name == "items" {
+			o = &schema.Object{
+				Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: "id", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "name", DeclaredType: "TEXT", Insertable: false},
+					{Name: "score", DeclaredType: "REAL", Insertable: true},
+				},
+				InsertableCount: 2,
+			}
+		}
+		kept = append(kept, o)
+	}
+	return &schema.Catalog{Version: 20, Objects: kept}
+}
+
+// itemsCatalogDropsNameAndScore returns a refreshed snapshot whose items
+// table keeps only id insertable, dropping both name and score, so multiple
+// stored prompts go stale at once and the first in schema order is reported.
+func itemsCatalogDropsNameAndScore() *schema.Catalog {
+	c := runnableCatalog()
+	kept := make([]*schema.Object, 0, len(c.Objects))
+	for _, o := range c.Objects {
+		if o.Name == "items" {
+			o = &schema.Object{
+				Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns:         []schema.Column{{Name: "id", DeclaredType: "INTEGER", Insertable: true}},
+				InsertableCount: 1,
+			}
+		}
+		kept = append(kept, o)
+	}
+	return &schema.Catalog{Version: 20, Objects: kept}
+}
+
+// insertCompleteMixed completes every items prompt with a mixed choice set:
+// id as a submitted Value, name as NULL, and score as Default/Omit. The
+// builder is driven only through the immutable INSERT choice transitions.
+func insertCompleteMixed(q QueryBuilder) QueryBuilder {
+	next, ok := q.ChooseInsertColumn("id", InsertChoiceValue)
+	if !ok {
+		panic("setup: ChooseInsertColumn failed")
+	}
+	next, _ = next.SubmitInsertValue("id", "1")
+	next, ok = next.ChooseInsertColumn("name", InsertChoiceNull)
+	if !ok {
+		panic("setup: ChooseInsertColumn failed")
+	}
+	next, ok = next.ChooseInsertColumn("score", InsertChoiceOmit)
+	if !ok {
+		panic("setup: ChooseInsertColumn failed")
+	}
+	return next
+}
+
+// TestRunnableInsertGatesStalePrompts covers Issue #67 Task 1: every stored
+// INSERT prompt whose column is dropped, hidden, generated, or otherwise no
+// longer insertable blocks at RunFieldInsertColumns with the specific
+// stale-column reason before completeness checks on current prompts,
+// regardless of the stale prompt's former choice or submitted value.
+// Multiple stale prompts prove deterministic stored/schema-order handling,
+// and controls prove every current prompt set remains runnable.
+func TestRunnableInsertGatesStalePrompts(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() QueryBuilder
+		want  RunnableReport
+	}{
+		// Stale prompts: a stored prompt whose column is no longer in the
+		// current InsertableColumns set blocks with the exact stale-column
+		// reason, regardless of the former choice.
+		{
+			name: "dropped name column blocks stale NULL prompt",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsName())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "dropped score column blocks stale Omit prompt",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsScore())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "dropped id column blocks stale Value prompt",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsNameAndScore())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "hidden name column blocks stale prompt",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogHidesName())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "generated name column blocks stale prompt",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogGeneratedName())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "non-insertable name column blocks stale prompt",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogNameNotInsertable())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		// Multiple stale prompts report the first in stored/schema order
+		// (name before score), deterministically.
+		{
+			name: "multiple stale prompts report the first in schema order",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsNameAndScore())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		// The stale check fires before completeness checks on current
+		// prompts: a stale prompt alongside an incomplete current column
+		// still reports the stale condition first.
+		{
+			name: "stale prompt blocks before incomplete current prompt",
+			build: func() QueryBuilder {
+				q := buildInsert()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("id", "1")
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceNull)
+				// score left incomplete (InsertChoiceNone)
+				return q.RefreshSchema(itemsCatalogDropsName())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		// Controls: every stored prompt remains current after refresh.
+		{
+			name: "all current prompts remain runnable after same refresh",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(runnableCatalog())
+			},
+			want: RunnableReport{Runnable: true},
+		},
+		{
+			name: "all-omit current prompts remain runnable after same refresh",
+			build: func() QueryBuilder {
+				return insertChoiceAllOmit(buildInsert()).RefreshSchema(runnableCatalog())
+			},
+			want: RunnableReport{Runnable: true},
+		},
+		{
+			name: "prompts over a surviving subset remain runnable",
+			build: func() QueryBuilder {
+				// Build prompts against a catalog with only id and name, then
+				// refresh to the same catalog: every prompt stays current.
+				q := NewQuery().RefreshSchema(itemsCatalogDropsScoreOnly()).
+					SelectCommand(CommandInsert).SelectTable("items").BeginInsertPrompts()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceNull)
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceOmit)
+				return q.RefreshSchema(itemsCatalogDropsScoreOnly())
+			},
+			want: RunnableReport{Runnable: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertReport(t, tc.name, tc.build().RunnableReport(), tc.want)
+		})
+	}
+}
+
 // trickyNamesCatalog returns a catalog whose sole table declares visible
 // columns literally named `*` and `COUNT(*)` alongside id, so the synthetic
 // wildcard and sentinel identities can be distinguished from named

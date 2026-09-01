@@ -5,12 +5,14 @@
 // lists as the SQL keyword NULL with no parameter; Default/Omit columns are
 // absent from both lists. When every prompted column is omitted the exact
 // `INSERT INTO <quoted table> DEFAULT VALUES` form is emitted with no
-// parameters and no empty parentheses. Incomplete or zero-insertable-column
-// state renders nothing: the authoritative runnable report gates both
-// functions, so no partial SQL is ever produced. Identifier quoting reuses
-// Issue #14's atom-by-atom quoting and parameters reuse the universal Value
-// binding; no hidden-input synthesis, default inference, or AUTOINCREMENT
-// special-casing exists.
+// parameters and no empty parentheses. Incomplete, zero-insertable-column,
+// or stale-prompt state (Issue #67: a stored prompt whose column is dropped,
+// hidden, generated, or otherwise no longer insertable) renders nothing: the
+// authoritative runnable report gates both functions before any stored prompt
+// is traversed, so no partial SQL, stale identifier, or former bound value
+// ever escapes. Identifier quoting reuses Issue #14's atom-by-atom quoting
+// and parameters reuse the universal Value binding; no hidden-input
+// synthesis, default inference, or AUTOINCREMENT special-casing exists.
 
 package querybuilder
 

@@ -99,6 +99,11 @@ const (
 	// ReasonNoInsertableColumns reports an INSERT onto a table with zero
 	// insertable columns; the exact PRD wording.
 	ReasonNoInsertableColumns = "table has no insertable columns"
+	// ReasonStaleInsertColumn reports a stored INSERT prompt whose column is
+	// absent from the selected table's current InsertableColumns set —
+	// dropped, hidden, generated, or otherwise no longer insertable — while
+	// the table remains eligible.
+	ReasonStaleInsertColumn = "the insert column no longer exists"
 	// ReasonIncompleteChoiceFmt reports an UPDATE SET assignment or INSERT
 	// column whose {Value, NULL[, Default/Omit]} choice is still pending; %s
 	// is the declared column name.
@@ -235,12 +240,26 @@ func (q QueryBuilder) reportUpdate() RunnableReport {
 }
 
 // reportInsert evaluates an INSERT in visual order: the zero-insertable-column
-// block, then every per-column prompt. All-omit is valid; a missing prompt
-// state is an incomplete choice, so prompts must be begun for runnable data.
+// block, then every stored prompt validated against the current
+// InsertableColumns set, then every per-column completeness check. A stored
+// prompt whose column is dropped, hidden, generated, or otherwise no longer
+// insertable blocks with the specific stale-column reason before any
+// completeness check on current prompts, regardless of its former choice or
+// submitted value. All-omit is valid; a missing prompt state is an incomplete
+// choice, so prompts must be begun for runnable data.
 func (q QueryBuilder) reportInsert() RunnableReport {
 	insertable := q.InsertableColumns()
 	if len(insertable) == 0 {
 		return RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonNoInsertableColumns}
+	}
+	current := make(map[string]bool, len(insertable))
+	for _, col := range insertable {
+		current[col.Name] = true
+	}
+	for _, c := range q.inserts {
+		if !current[c.Column] {
+			return RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn}
+		}
 	}
 	for _, col := range insertable {
 		c, found := q.insertPrompt(col.Name)

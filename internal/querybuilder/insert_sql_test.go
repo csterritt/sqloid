@@ -204,6 +204,235 @@ func TestInsertSQLRejectsIncompleteState(t *testing.T) {
 	}
 }
 
+// assertInsertEmpty asserts the Issue #67 renderer contract for one stale
+// INSERT snapshot: RunnableReport is not runnable first, then InsertSQL
+// returns an empty string and InsertParams returns nil so no stale
+// identifier or former bound value escapes.
+func assertInsertEmpty(t *testing.T, name string, q QueryBuilder) {
+	t.Helper()
+	if report := q.RunnableReport(); report.Runnable {
+		t.Fatalf("%s: RunnableReport.Runnable = true, want false (stale prompt must block)", name)
+	}
+	if got := q.InsertSQL(); got != "" {
+		t.Errorf("%s: InsertSQL() = %q, want empty (no stale identifier quoted)", name, got)
+	}
+	if got := q.InsertParams(); got != nil {
+		t.Errorf("%s: InsertParams() = %#v, want nil (no former bound value)", name, got)
+	}
+}
+
+// TestInsertSQLRejectsStalePrompts covers Issue #67 Task 3: a stored INSERT
+// prompt whose column is dropped, hidden, generated, or otherwise no longer
+// insertable renders no SQL and no parameters — no stale identifier is
+// quoted and no former bound value escapes — asserted after the runnable
+// report rejects the state. The stale catalogs from Task 1 drive the items
+// fixture, and a quoting fixture proves an unusual quoted name vanishes too.
+func TestInsertSQLRejectsStalePrompts(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() QueryBuilder
+	}{
+		{
+			name: "dropped name column renders nothing",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsName())
+			},
+		},
+		{
+			name: "dropped score column renders nothing",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsScore())
+			},
+		},
+		{
+			name: "hidden name column renders nothing",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogHidesName())
+			},
+		},
+		{
+			name: "generated name column renders nothing",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogGeneratedName())
+			},
+		},
+		{
+			name: "non-insertable name column renders nothing",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogNameNotInsertable())
+			},
+		},
+		{
+			name: "multiple stale prompts render nothing",
+			build: func() QueryBuilder {
+				return insertCompleteMixed(buildInsert()).RefreshSchema(itemsCatalogDropsNameAndScore())
+			},
+		},
+		{
+			name: "stale quoted identifier renders nothing",
+			build: func() QueryBuilder {
+				q := NewQuery().RefreshSchema(insertSQLCatalog()).
+					SelectCommand(CommandInsert).SelectTable(`tr "icky`).BeginInsertPrompts()
+				q, _ = q.ChooseInsertColumn(`co "l`, InsertChoiceValue)
+				q, _ = q.SubmitInsertValue(`co "l`, "v")
+				q, _ = q.ChooseInsertColumn("plain", InsertChoiceOmit)
+				// Refresh so `co "l` is dropped: only plain remains insertable.
+				dropped := &schema.Catalog{
+					Version: 12,
+					Objects: []*schema.Object{
+						{
+							Name: `tr "icky`, Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+							Columns:         []schema.Column{{Name: "plain", Insertable: true}},
+							InsertableCount: 1,
+						},
+						{
+							Name: "items", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+							Columns: []schema.Column{
+								{Name: "id", DeclaredType: "INTEGER", Insertable: true, PrimaryKey: 1},
+								{Name: "name", DeclaredType: "TEXT", Insertable: true},
+								{Name: "score", DeclaredType: "REAL", Insertable: true},
+							},
+							InsertableCount: 3, PrimaryKeyCount: 1,
+						},
+						{
+							Name: "doc_fts", Kind: schema.KindVirtualTable, WriteEligible: true, Rowid: schema.RowidNotApplicable,
+							Columns:         []schema.Column{{Name: "body", Insertable: true}},
+							InsertableCount: 1,
+						},
+					},
+				}
+				return q.RefreshSchema(dropped)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertInsertEmpty(t, tc.name, tc.build())
+		})
+	}
+}
+
+// TestInsertSQLCurrentPromptsRenderUnchanged covers Issue #67 Task 3
+// current-state controls: when every stored prompt corresponds to a current
+// insertable column and is complete, ordered Value bindings, SQL NULL
+// without a parameter, Default/Omit exclusion, unusual quoted identifiers,
+// submitted empty TEXT, typed NULL, and all-omit DEFAULT VALUES render
+// exactly as before the stale-prompt gate.
+func TestInsertSQLCurrentPromptsRenderUnchanged(t *testing.T) {
+	cases := []struct {
+		name       string
+		build      func() QueryBuilder
+		wantSQL    string
+		wantParams []any
+	}{
+		{
+			name: "ordered Value bindings keep schema prompt order",
+			build: func() QueryBuilder {
+				q := buildInsert()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("id", "42")
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("name", "x")
+				q, _ = q.ChooseInsertColumn("score", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("score", "9.5")
+				return q
+			},
+			wantSQL:    `INSERT INTO "items" ("id", "name", "score") VALUES (?, ?, ?)`,
+			wantParams: []any{int64(42), "x", 9.5},
+		},
+		{
+			name: "SQL NULL stays included with no parameter",
+			build: func() QueryBuilder {
+				q := buildInsert()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceNull)
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceOmit)
+				q, _ = q.ChooseInsertColumn("score", InsertChoiceOmit)
+				return q
+			},
+			wantSQL:    `INSERT INTO "items" ("id") VALUES (NULL)`,
+			wantParams: nil,
+		},
+		{
+			name: "Default/Omit excludes from both lists",
+			build: func() QueryBuilder {
+				q := buildInsert()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("id", "1")
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceOmit)
+				q, _ = q.ChooseInsertColumn("score", InsertChoiceOmit)
+				return q
+			},
+			wantSQL:    `INSERT INTO "items" ("id") VALUES (?)`,
+			wantParams: []any{int64(1)},
+		},
+		{
+			name: "unusual quoted identifiers quote safely",
+			build: func() QueryBuilder {
+				q := NewQuery().RefreshSchema(insertSQLCatalog()).
+					SelectCommand(CommandInsert).SelectTable(`tr "icky`).BeginInsertPrompts()
+				q, _ = q.ChooseInsertColumn(`co "l`, InsertChoiceValue)
+				q, _ = q.SubmitInsertValue(`co "l`, "NULL")
+				q, _ = q.ChooseInsertColumn("plain", InsertChoiceOmit)
+				return q
+			},
+			wantSQL:    `INSERT INTO "tr ""icky" ("co ""l") VALUES (?)`,
+			wantParams: []any{"NULL"},
+		},
+		{
+			name: "submitted empty TEXT binds empty string",
+			build: func() QueryBuilder {
+				q := buildInsert()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceOmit)
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("name", "")
+				q, _ = q.ChooseInsertColumn("score", InsertChoiceOmit)
+				return q
+			},
+			wantSQL:    `INSERT INTO "items" ("name") VALUES (?)`,
+			wantParams: []any{""},
+		},
+		{
+			name: "typed NULL stays bound TEXT",
+			build: func() QueryBuilder {
+				q := buildInsert()
+				q, _ = q.ChooseInsertColumn("id", InsertChoiceOmit)
+				q, _ = q.ChooseInsertColumn("name", InsertChoiceValue)
+				q, _ = q.SubmitInsertValue("name", "NULL")
+				q, _ = q.ChooseInsertColumn("score", InsertChoiceOmit)
+				return q
+			},
+			wantSQL:    `INSERT INTO "items" ("name") VALUES (?)`,
+			wantParams: []any{"NULL"},
+		},
+		{
+			name: "all-omit emits DEFAULT VALUES with no parameters",
+			build: func() QueryBuilder {
+				return insertChoiceAllOmit(buildInsert())
+			},
+			wantSQL:    `INSERT INTO "items" DEFAULT VALUES`,
+			wantParams: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			q := tc.build()
+			if report := q.RunnableReport(); !report.Runnable {
+				t.Fatalf("%s: RunnableReport = %+v, want runnable", tc.name, report)
+			}
+			if got := q.InsertSQL(); got != tc.wantSQL {
+				t.Fatalf("%s: InsertSQL() = %q, want %q", tc.name, got, tc.wantSQL)
+			}
+			got := q.InsertParams()
+			if len(got) == 0 && len(tc.wantParams) == 0 {
+				return
+			}
+			if !reflect.DeepEqual(got, tc.wantParams) {
+				t.Fatalf("%s: InsertParams() = %#v, want %#v", tc.name, got, tc.wantParams)
+			}
+		})
+	}
+}
+
 // TestInsertOmissionHintDoesNotForceOmission proves the INTEGER PRIMARY KEY
 // prompt retains all three choices: omission, Value, and NULL are all
 // accepted with the hint present, so the hint never changes behavior.

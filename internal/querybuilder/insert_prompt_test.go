@@ -144,6 +144,174 @@ func TestInsertPromptHintExactScope(t *testing.T) {
 	}
 }
 
+// insertPlanCatalogDropsNote returns a refreshed insertPlanCatalog whose
+// `we "ird` table drops the note column, keeping `i ""d` and qty insertable,
+// so a stored prompt naming note goes stale while the table stays eligible.
+func insertPlanCatalogDropsNote() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 5,
+		Objects: []*schema.Object{
+			{
+				Name: `we "ird`, Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: `i ""d`, DeclaredType: "INTEGER", Insertable: true, PrimaryKey: 1},
+					{Name: "qty", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "gen", DeclaredType: "INTEGER", Hidden: true},
+					{Name: "secret", DeclaredType: "TEXT DEFAULT 'x'", Hidden: true},
+				},
+				InsertableCount: 2,
+			},
+			{
+				Name: "only_gen", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns:         []schema.Column{{Name: "g", DeclaredType: "INTEGER", Hidden: true}},
+				InsertableCount: 0,
+			},
+			{
+				Name: "doc_fts", Kind: schema.KindVirtualTable, WriteEligible: true, Rowid: schema.RowidNotApplicable,
+				Columns:         []schema.Column{{Name: "body", Hidden: true}},
+				InsertableCount: 0,
+			},
+		},
+	}
+}
+
+// insertPlanCatalogHidesNote returns a refreshed insertPlanCatalog whose
+// `we "ird` table marks note as a hidden module-style column (Hidden=true),
+// so it remains declared but is no longer insertable while `i ""d` and qty
+// stay insertable.
+func insertPlanCatalogHidesNote() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 5,
+		Objects: []*schema.Object{
+			{
+				Name: `we "ird`, Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: `i ""d`, DeclaredType: "INTEGER", Insertable: true, PrimaryKey: 1},
+					{Name: "note", DeclaredType: "TEXT", Hidden: true},
+					{Name: "qty", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "gen", DeclaredType: "INTEGER", Hidden: true},
+					{Name: "secret", DeclaredType: "TEXT DEFAULT 'x'", Hidden: true},
+				},
+				InsertableCount: 2,
+			},
+			{
+				Name: "only_gen", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns:         []schema.Column{{Name: "g", DeclaredType: "INTEGER", Hidden: true}},
+				InsertableCount: 0,
+			},
+			{
+				Name: "doc_fts", Kind: schema.KindVirtualTable, WriteEligible: true, Rowid: schema.RowidNotApplicable,
+				Columns:         []schema.Column{{Name: "body", Hidden: true}},
+				InsertableCount: 0,
+			},
+		},
+	}
+}
+
+// insertPlanCatalogGeneratedNote returns a refreshed insertPlanCatalog whose
+// `we "ird` table marks note as a generated column (Hidden=true with a
+// GENERATED declared type), so it remains declared but is no longer
+// insertable while `i ""d` and qty stay insertable.
+func insertPlanCatalogGeneratedNote() *schema.Catalog {
+	return &schema.Catalog{
+		Version: 5,
+		Objects: []*schema.Object{
+			{
+				Name: `we "ird`, Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns: []schema.Column{
+					{Name: `i ""d`, DeclaredType: "INTEGER", Insertable: true, PrimaryKey: 1},
+					{Name: "note", DeclaredType: "TEXT GENERATED ALWAYS AS (`i \"\"d` || 'x') STORED", Hidden: true},
+					{Name: "qty", DeclaredType: "INTEGER", Insertable: true},
+					{Name: "gen", DeclaredType: "INTEGER", Hidden: true},
+					{Name: "secret", DeclaredType: "TEXT DEFAULT 'x'", Hidden: true},
+				},
+				InsertableCount: 2,
+			},
+			{
+				Name: "only_gen", Kind: schema.KindOrdinaryTable, WriteEligible: true, Rowid: schema.RowidHas,
+				Columns:         []schema.Column{{Name: "g", DeclaredType: "INTEGER", Hidden: true}},
+				InsertableCount: 0,
+			},
+			{
+				Name: "doc_fts", Kind: schema.KindVirtualTable, WriteEligible: true, Rowid: schema.RowidNotApplicable,
+				Columns:         []schema.Column{{Name: "body", Hidden: true}},
+				InsertableCount: 0,
+			},
+		},
+	}
+}
+
+// insertPlanCompleteMixed completes every `we "ird` prompt with a mixed
+// choice set: `i ""d` as a submitted Value, note as NULL, and qty as
+// Default/Omit, driven only through the immutable INSERT transitions.
+func insertPlanCompleteMixed(q QueryBuilder) QueryBuilder {
+	next, ok := q.ChooseInsertColumn(`i ""d`, InsertChoiceValue)
+	if !ok {
+		panic("setup: ChooseInsertColumn failed")
+	}
+	next, _ = next.SubmitInsertValue(`i ""d`, "7")
+	next, ok = next.ChooseInsertColumn("note", InsertChoiceNull)
+	if !ok {
+		panic("setup: ChooseInsertColumn failed")
+	}
+	next, ok = next.ChooseInsertColumn("qty", InsertChoiceOmit)
+	if !ok {
+		panic("setup: ChooseInsertColumn failed")
+	}
+	return next
+}
+
+// TestInsertPromptStaleColumnBlocksReport covers Issue #67 Task 1: a stored
+// prompt whose column is dropped, hidden, generated, or otherwise no longer
+// insertable blocks at RunFieldInsertColumns with the specific stale-column
+// reason before completeness checks, regardless of the former choice. The
+// `we "ird` fixture exercises unusual quoted identifiers alongside the
+// stale conditions, and a control proves current prompts stay runnable.
+func TestInsertPromptStaleColumnBlocksReport(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() QueryBuilder
+		want  RunnableReport
+	}{
+		{
+			name: "dropped note column blocks stale NULL prompt",
+			build: func() QueryBuilder {
+				return insertPlanCompleteMixed(insertPlanBuilder()).RefreshSchema(insertPlanCatalogDropsNote())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "hidden note column blocks stale prompt",
+			build: func() QueryBuilder {
+				return insertPlanCompleteMixed(insertPlanBuilder()).RefreshSchema(insertPlanCatalogHidesNote())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "generated note column blocks stale prompt",
+			build: func() QueryBuilder {
+				return insertPlanCompleteMixed(insertPlanBuilder()).RefreshSchema(insertPlanCatalogGeneratedNote())
+			},
+			want: RunnableReport{Field: RunFieldInsertColumns, Reason: ReasonStaleInsertColumn},
+		},
+		{
+			name: "all current prompts remain runnable after same refresh",
+			build: func() QueryBuilder {
+				return insertPlanCompleteMixed(insertPlanBuilder()).RefreshSchema(insertPlanCatalog())
+			},
+			want: RunnableReport{Runnable: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.build().RunnableReport()
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("%s: report = %+v, want %+v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestZeroInsertableColumnsBlockExactly proves a zero-insertable-column
 // table yields the exact blocking reason "table has no insertable columns",
 // no prompt plan, and a non-runnable report.
