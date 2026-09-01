@@ -92,35 +92,190 @@ func assertLeaseReusable(t *testing.T, db *DB, statement string) {
 	}
 }
 
-// holdWriteBarrier installs the shared barrier seam for phase, returning the
-// channel announcing the phase's emission and the release function. The
-// write blocks inside the hook until release, so a test cancels at a
-// deterministic point; every wait is a channel receive, never a sleep.
-func holdWriteBarrier(t *testing.T, db *DB, phase WritePhase) (held <-chan WritePhase, release func()) {
+// writeConnIdentity records the exact *sql.Conn observed by each write phase
+// hook and the lease hook for one write execution, so barrier tests can prove
+// every phase of one write runs on the same dedicated leased connection. The
+// rollback hook is counted so tests can require exactly one rollback-hook
+// call. Fields are written by the work goroutine before settlement and read
+// by the test goroutine after Wait returns, synchronized by the settled
+// channel.
+type writeConnIdentity struct {
+	lease    *sql.Conn
+	begin    *sql.Conn
+	exec     *sql.Conn
+	commit   *sql.Conn
+	rollback *sql.Conn
+
+	rollbackCalls int
+}
+
+// assertSameConn requires every reached phase hook to have observed the same
+// non-nil *sql.Conn as the lease hook. reachedCommit controls whether the
+// commit hook is required to have fired. When rollback was reached, the
+// rollback hook must have been called exactly once with a non-nil connection
+// pointer-identical to the lease. The exec hook is required when either
+// reachedCommit or rollback was reached, since both imply the transaction
+// opened and the statement phase began.
+func (id *writeConnIdentity) assertSameConn(t *testing.T, reachedCommit bool) {
+	t.Helper()
+	if id.lease == nil {
+		t.Fatal("writeLeaseHook did not observe the leased connection")
+	}
+	if id.begin == nil {
+		t.Fatal("beforeWriteBegin did not observe a connection")
+	}
+	if id.begin != id.lease {
+		t.Fatalf("beforeWriteBegin conn %p != lease conn %p", id.begin, id.lease)
+	}
+	requireExec := reachedCommit || id.rollbackCalls > 0
+	if requireExec {
+		if id.exec == nil {
+			t.Fatal("beforeWriteExec did not observe a connection")
+		}
+		if id.exec != id.lease {
+			t.Fatalf("beforeWriteExec conn %p != lease conn %p", id.exec, id.lease)
+		}
+	}
+	if reachedCommit {
+		if id.commit == nil {
+			t.Fatal("beforeWriteCommit did not observe a connection")
+		}
+		if id.commit != id.lease {
+			t.Fatalf("beforeWriteCommit conn %p != lease conn %p", id.commit, id.lease)
+		}
+	}
+	if id.rollbackCalls > 0 {
+		if id.rollback == nil {
+			t.Fatal("beforeWriteRollback observed nil connection; want non-nil leased connection")
+		}
+		if id.rollback != id.lease {
+			t.Fatalf("beforeWriteRollback conn %p != lease conn %p", id.rollback, id.lease)
+		}
+		if id.rollbackCalls != 1 {
+			t.Fatalf("rollback hook calls = %d, want exactly 1", id.rollbackCalls)
+		}
+	}
+}
+
+// writeHookRegistry composes multiple test hooks per write phase into single
+// hook fields on DB, so a test can simultaneously hold a barrier at one
+// phase, record connection identities at every phase, count interrupts on
+// the lease, and run setup like PRAGMA foreign_keys on the begin hook. Each
+// phase hook field is set exactly once by the registry and dispatches to
+// every registered function in registration order.
+type writeHookRegistry struct {
+	db            *DB
+	leaseHooks    []func(*Lease)
+	beginHooks    []func(context.Context, *sql.Conn)
+	execHooks     []func(context.Context, *sql.Conn)
+	commitHooks   []func(context.Context, *sql.Conn)
+	rollbackHooks []func(context.Context, *sql.Conn)
+}
+
+// newWriteHookRegistry creates a registry that owns all write hook fields on
+// db for the duration of the test, dispatching to registered hooks in
+// registration order. The hooks are cleared on test cleanup.
+func newWriteHookRegistry(t *testing.T, db *DB) *writeHookRegistry {
+	t.Helper()
+	r := &writeHookRegistry{db: db}
+	db.writeLeaseHook = func(l *Lease) {
+		for _, h := range r.leaseHooks {
+			h(l)
+		}
+	}
+	db.beforeWriteBegin = func(ctx context.Context, conn *sql.Conn) {
+		for _, h := range r.beginHooks {
+			h(ctx, conn)
+		}
+	}
+	db.beforeWriteExec = func(ctx context.Context, conn *sql.Conn) {
+		for _, h := range r.execHooks {
+			h(ctx, conn)
+		}
+	}
+	db.beforeWriteCommit = func(ctx context.Context, conn *sql.Conn) {
+		for _, h := range r.commitHooks {
+			h(ctx, conn)
+		}
+	}
+	db.beforeWriteRollback = func(ctx context.Context, conn *sql.Conn) {
+		for _, h := range r.rollbackHooks {
+			h(ctx, conn)
+		}
+	}
+	t.Cleanup(func() {
+		db.clearWriteHooks()
+		db.writeLeaseHook = nil
+	})
+	return r
+}
+
+// recordIdentity installs hooks that record the *sql.Conn observed by each
+// phase hook and the lease hook into the returned identity recorder.
+func (r *writeHookRegistry) recordIdentity() *writeConnIdentity {
+	id := &writeConnIdentity{}
+	r.leaseHooks = append(r.leaseHooks, func(l *Lease) { id.lease = l.Conn() })
+	r.beginHooks = append(r.beginHooks, func(_ context.Context, conn *sql.Conn) { id.begin = conn })
+	r.execHooks = append(r.execHooks, func(_ context.Context, conn *sql.Conn) { id.exec = conn })
+	r.commitHooks = append(r.commitHooks, func(_ context.Context, conn *sql.Conn) { id.commit = conn })
+	r.rollbackHooks = append(r.rollbackHooks, func(_ context.Context, conn *sql.Conn) {
+		id.rollback = conn
+		id.rollbackCalls++
+	})
+	return id
+}
+
+// holdBarrier installs a barrier at the given phase that blocks the write
+// until release, returning the channel announcing the phase's emission and
+// the release function. The barrier is composed with other registered hooks
+// for the same phase and never overwrites them.
+func (r *writeHookRegistry) holdBarrier(t *testing.T, phase WritePhase) (held <-chan WritePhase, release func()) {
 	t.Helper()
 	seen := make(chan WritePhase, 1)
 	releaseCh := make(chan struct{})
-	hook := func(ctx context.Context, conn *sql.Conn) {
+	hook := func(_ context.Context, _ *sql.Conn) {
 		select {
 		case seen <- phase:
 		default:
 		}
 		<-releaseCh
 	}
-	t.Cleanup(func() { db.clearWriteHooks() })
 	switch phase {
 	case WritePhaseBeginning:
-		db.beforeWriteBegin = hook
+		r.beginHooks = append(r.beginHooks, hook)
 	case WritePhaseExecuting:
-		db.beforeWriteExec = hook
+		r.execHooks = append(r.execHooks, hook)
 	case WritePhaseCommitting:
-		db.beforeWriteCommit = hook
+		r.commitHooks = append(r.commitHooks, hook)
 	case WritePhaseRollbackCleanup:
-		db.beforeWriteRollback = hook
+		r.rollbackHooks = append(r.rollbackHooks, hook)
 	default:
-		t.Fatalf("holdWriteBarrier: unsupported phase %v", phase)
+		t.Fatalf("holdBarrier: unsupported phase %v", phase)
 	}
 	return seen, func() { close(releaseCh) }
+}
+
+// countInterrupts installs a lease hook that counts interrupt dispatches on
+// the write's leased connection, returning the counter getter.
+func (r *writeHookRegistry) countInterrupts() func() int {
+	var interrupts int
+	r.leaseHooks = append(r.leaseHooks, func(l *Lease) {
+		l.interruptFn = func() { interrupts++ }
+	})
+	return func() int { return interrupts }
+}
+
+// onBegin installs a hook that runs before BEGIN on the write's leased
+// connection, composed with other registered begin hooks.
+func (r *writeHookRegistry) onBegin(hook func(context.Context, *sql.Conn)) {
+	r.beginHooks = append(r.beginHooks, hook)
+}
+
+// clear removes all registry-installed hooks from db so later writes in the
+// same test run unimpeded.
+func (r *writeHookRegistry) clear() {
+	r.db.clearWriteHooks()
+	r.db.writeLeaseHook = nil
 }
 
 // clearWriteHooks removes every write barrier seam so later requests in the
@@ -189,6 +344,8 @@ func TestWriteCommitLifecycle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := openJournalFixture(t, "delete")
+			r := newWriteHookRegistry(t, db)
+			id := r.recordIdentity()
 			before := db.identityChecks.Load()
 
 			w := db.StartWrite(context.Background(), writeExecSeq.Add(1), tt.statement, tt.params)
@@ -210,6 +367,7 @@ func TestWriteCommitLifecycle(t *testing.T) {
 				t.Fatalf("write state = %v settled=%v, want settled", w.State(), w.Settled())
 			}
 			assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseCommitting)
+			id.assertSameConn(t, true)
 
 			if delta := db.identityChecks.Load() - before; delta != 1 {
 				t.Fatalf("identity checks during write = %d, want exactly 1 (one pre-BEGIN boundary check)", delta)
@@ -228,6 +386,8 @@ func TestWriteCommitLifecycle(t *testing.T) {
 // per-firing trigger proves the statement executed exactly once.
 func TestWriteTriggerSideEffectsCommit(t *testing.T) {
 	db := openJournalFixture(t, "delete")
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
 	editFixture(t, db.path, `CREATE TABLE audit (id INTEGER PRIMARY KEY, why TEXT);
 CREATE TRIGGER users_audit AFTER UPDATE ON users BEGIN INSERT INTO audit (why) VALUES ('updated'); END;
 CREATE TABLE fires (n INTEGER);
@@ -242,6 +402,7 @@ CREATE TRIGGER users_count AFTER UPDATE ON users BEGIN UPDATE fires SET n = n + 
 	if res.RowsAffected != 3 {
 		t.Fatalf("RowsAffected = %d, want the statement's own 3 rows (trigger effects excluded)", res.RowsAffected)
 	}
+	id.assertSameConn(t, true)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM audit"); got != 3 {
 		t.Fatalf("persisted trigger side effects = %d, want 3 committed with the same transaction", got)
 	}
@@ -256,6 +417,8 @@ CREATE TRIGGER users_count AFTER UPDATE ON users BEGIN UPDATE fires SET n = n + 
 // and leaves the database untouched.
 func TestWriteConstraintFailureRollsBack(t *testing.T) {
 	db := openJournalFixture(t, "delete")
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `INSERT INTO "users" ("id", "email") VALUES (?, ?)`, []any{int64(1), "dupe"})
 	res := w.Wait()
@@ -270,6 +433,7 @@ func TestWriteConstraintFailureRollsBack(t *testing.T) {
 		t.Fatal("constraint failure did not confirm rollback; no untouched guarantee may be made")
 	}
 	assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, false)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users"); got != 3 {
 		t.Fatalf("persisted rows after failed write = %d, want 3 (rollback confirmed)", got)
 	}
@@ -280,6 +444,8 @@ func TestWriteConstraintFailureRollsBack(t *testing.T) {
 // follows the same rollback-cleanup path with the native cause preserved.
 func TestWriteTriggerFailureRollsBack(t *testing.T) {
 	db := openJournalFixture(t, "delete")
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
 	editFixture(t, db.path, `CREATE TRIGGER users_guard BEFORE UPDATE ON users BEGIN SELECT RAISE(ABORT, 'guard rejected update'); END;`)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
@@ -295,6 +461,7 @@ func TestWriteTriggerFailureRollsBack(t *testing.T) {
 		t.Fatal("trigger failure did not confirm rollback")
 	}
 	assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, false)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users WHERE email = 'new'"); got != 0 {
 		t.Fatalf("persisted updated rows = %d, want 0", got)
 	}
@@ -318,7 +485,9 @@ func writeCancelledPhases(res WriteResult) []WritePhase {
 // claim (nothing was begun), all without sleeps.
 func TestWriteCancellationBeforeBegin(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	held, release := holdWriteBarrier(t, db, WritePhaseBeginning)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	held, release := r.holdBarrier(t, WritePhaseBeginning)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	<-held // deterministically at the beginning transition
@@ -334,6 +503,7 @@ func TestWriteCancellationBeforeBegin(t *testing.T) {
 	// accepted, but confirmed rollback must then be reflected in the phase
 	// stream, and no shape may persist any change.
 	assertPhaseSequence(t, collectPhases(t, w), writeCancelledPhases(res)...)
+	id.assertSameConn(t, false)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users WHERE email = 'new'"); got != 0 {
 		t.Fatalf("persisted updated rows = %d, want 0", got)
 	}
@@ -345,7 +515,9 @@ func TestWriteCancellationBeforeBegin(t *testing.T) {
 // rolls back with confirmation and settles cancelled.
 func TestWriteCancellationDuringStatement(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	held, release := holdWriteBarrier(t, db, WritePhaseExecuting)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	held, release := r.holdBarrier(t, WritePhaseExecuting)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	<-held
@@ -360,6 +532,7 @@ func TestWriteCancellationDuringStatement(t *testing.T) {
 		t.Fatal("cancelled write did not wait for and confirm rollback")
 	}
 	assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, false)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users WHERE email = 'new'"); got != 0 {
 		t.Fatalf("persisted updated rows = %d, want 0 (rollback confirmed)", got)
 	}
@@ -376,8 +549,10 @@ func TestWriteCancellationDuringStatement(t *testing.T) {
 // (Issue #43 redefined the boundary; Issue #42's result contract is kept).
 func TestWriteCancellationWinsAfterStatementSuccess(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	interrupts := writeLeaseInterrupts(t, db)
-	held, release := holdWriteBarrier(t, db, WritePhaseCommitting)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	interrupts := r.countInterrupts()
+	held, release := r.holdBarrier(t, WritePhaseCommitting)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	<-held // statement already succeeded; the atomic check has not run yet
@@ -395,6 +570,7 @@ func TestWriteCancellationWinsAfterStatementSuccess(t *testing.T) {
 		t.Fatal("pre-COMMIT cancellation did not confirm rollback")
 	}
 	assertPhaseSequence(t, collectPhases(t, w), WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, true)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users WHERE email = 'new'"); got != 0 {
 		t.Fatalf("persisted updated rows = %d, want 0 (rollback confirmed after pre-COMMIT cancellation)", got)
 	}

@@ -17,28 +17,16 @@ import (
 	"testing"
 )
 
-// writeLeaseInterrupts installs a counting interrupt hook on the write's
-// leased connection through the writeLeaseHook seam and returns the counter
-// getter. The hook is the only interrupt dispatch observed; production code
-// never reads it.
-func writeLeaseInterrupts(t *testing.T, db *DB) func() int {
-	t.Helper()
-	var interrupts int
-	db.writeLeaseHook = func(l *Lease) {
-		l.interruptFn = func() { interrupts++ }
-	}
-	t.Cleanup(func() { db.writeLeaseHook = nil })
-	return func() int { return interrupts }
-}
-
 // TestWriteInterruptScopedToLeaseBeforeBoundary holds the executing
 // transition, requests cancellation while the statement is pending, and
 // proves exactly one connection-scoped interrupt was dispatched against the
 // write's own leased connection — the cancellable scope's only interrupt.
 func TestWriteInterruptScopedToLeaseBeforeBoundary(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	interrupts := writeLeaseInterrupts(t, db)
-	held, release := holdWriteBarrier(t, db, WritePhaseExecuting)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	interrupts := r.countInterrupts()
+	held, release := r.holdBarrier(t, WritePhaseExecuting)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	<-held
@@ -53,6 +41,7 @@ func TestWriteInterruptScopedToLeaseBeforeBoundary(t *testing.T) {
 	if res.Outcome != WriteCancelled {
 		t.Fatalf("outcome = %v (err %v), want cancelled", res.Outcome, res.Err)
 	}
+	id.assertSameConn(t, false)
 	// The retained lease is never released early; only at settlement is it
 	// reusable, and the interrupt never touched any other connection.
 	assertLeaseReusable(t, db, `UPDATE "users" SET "email" = 'reused'`)
@@ -65,12 +54,14 @@ func TestWriteInterruptScopedToLeaseBeforeBoundary(t *testing.T) {
 // replacement work on the still-retained lease.
 func TestWriteNoInterruptDuringRollbackCleanup(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	interrupts := writeLeaseInterrupts(t, db)
-	held, release := holdWriteBarrier(t, db, WritePhaseExecuting)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	interrupts := r.countInterrupts()
+	held, release := r.holdBarrier(t, WritePhaseExecuting)
 	// The rollback-cleanup barrier is installed before the write starts so
 	// the hook field is never written concurrently with the write goroutine
 	// reading it (the hook fires only when rollback cleanup begins).
-	heldRollback, releaseRollback := holdWriteBarrier(t, db, WritePhaseRollbackCleanup)
+	heldRollback, releaseRollback := r.holdBarrier(t, WritePhaseRollbackCleanup)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	<-held
@@ -97,6 +88,7 @@ func TestWriteNoInterruptDuringRollbackCleanup(t *testing.T) {
 	if res.Outcome != WriteCancelled || !res.RollbackConfirmed {
 		t.Fatalf("outcome = %v confirmed=%v, want cancelled with confirmed rollback", res.Outcome, res.RollbackConfirmed)
 	}
+	id.assertSameConn(t, false)
 	assertLeaseReusable(t, db, `UPDATE "users" SET "email" = 'reused'`)
 }
 
@@ -106,13 +98,16 @@ func TestWriteNoInterruptDuringRollbackCleanup(t *testing.T) {
 // ownership that already resolved cannot be reopened.
 func TestWriteNoInterruptAfterBoundarySettlement(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	interrupts := writeLeaseInterrupts(t, db)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	interrupts := r.countInterrupts()
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1), `UPDATE "users" SET "email" = 'new'`, nil)
 	res := w.Wait()
 	if res.Outcome != WriteCommitted {
 		t.Fatalf("outcome = %v (err %v), want committed", res.Outcome, res.Err)
 	}
+	id.assertSameConn(t, true)
 	w.Cancel()
 	if got := interrupts(); got != 0 {
 		t.Fatalf("interrupts after settlement = %d, want 0 — the boundary permanently disabled interrupts", got)

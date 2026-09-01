@@ -282,7 +282,7 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 		rowsAffected, err = res.RowsAffected()
 	}
 	if err != nil {
-		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseExecuting})
+		return w.rollback(ctx, conn, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseExecuting})
 	}
 
 	// Statement completed successfully. The atomic pre-COMMIT boundary
@@ -302,7 +302,7 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 		err = context.Canceled
 	}
 	if err != nil {
-		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseExecuting})
+		return w.rollback(ctx, conn, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseExecuting})
 	}
 	w.emit(WritePhaseCommitting)
 	if err := tx.Commit(); err != nil {
@@ -313,7 +313,7 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 		// from the subsequent rollback attempt as confirmation that
 		// persistence did not occur — the transaction is no longer active
 		// but may or may not have been committed at the SQLite level.
-		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseCommitting})
+		return w.rollback(ctx, conn, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseCommitting})
 	}
 	return WriteResult{Outcome: WriteCommitted, RowsAffected: rowsAffected}
 }
@@ -324,7 +324,9 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 // enters rollback cleanup from executing without passing the pre-COMMIT
 // check), so no later Cancel can interrupt cleanup. The outcome is
 // provisional: Settle classifies a cancellation cause as WriteCancelled and
-// everything else as WriteFailed.
+// everything else as WriteFailed. conn is the write's dedicated leased
+// connection, passed to beforeWriteRollback so test barriers observe the same
+// identity as every other phase hook; it is nil in production.
 //
 // Issue #61: when res.Phase is WritePhaseCommitting the rollback is
 // best-effort cleanup after a failed COMMIT. sql.ErrTxDone from the
@@ -334,13 +336,13 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 // overwritten with a less informative cleanup result. For pre-COMMIT paths
 // (statement failure or cancellation), a nil or sql.ErrTxDone rollback
 // return confirms the open transaction was ended without persisting.
-func (w *StartedWriteRequest) rollback(ctx context.Context, tx *sql.Tx, res WriteResult) WriteResult {
+func (w *StartedWriteRequest) rollback(ctx context.Context, conn *sql.Conn, tx *sql.Tx, res WriteResult) WriteResult {
 	w.mu.Lock()
 	w.noncancellable = true
 	w.mu.Unlock()
 	w.emit(WritePhaseRollbackCleanup)
 	if w.owner.beforeWriteRollback != nil {
-		w.owner.beforeWriteRollback(ctx, nil)
+		w.owner.beforeWriteRollback(ctx, conn)
 	}
 	if res.Phase == WritePhaseCommitting {
 		// COMMIT failed: persistence is unprovable. Perform best-effort

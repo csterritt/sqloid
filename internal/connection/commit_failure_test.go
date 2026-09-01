@@ -17,18 +17,16 @@ import (
 	"testing"
 )
 
-// enableForeignKeysOnWriteLease installs a beforeWriteBegin hook that enables
-// PRAGMA foreign_keys on the write's dedicated leased connection before BEGIN
-// runs, so deferred FK constraints are checked at COMMIT time. The hook is
-// cleared on test cleanup.
-func enableForeignKeysOnWriteLease(t *testing.T, db *DB) {
+// enableForeignKeysOnWriteLease registers a beforeWriteBegin hook that
+// enables PRAGMA foreign_keys on the write's dedicated leased connection
+// before BEGIN runs, so deferred FK constraints are checked at COMMIT time.
+func enableForeignKeysOnWriteLease(t *testing.T, r *writeHookRegistry) {
 	t.Helper()
-	db.beforeWriteBegin = func(ctx context.Context, conn *sql.Conn) {
+	r.onBegin(func(ctx context.Context, conn *sql.Conn) {
 		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 			t.Fatalf("enable foreign_keys on write lease: %v", err)
 		}
-	}
-	t.Cleanup(func() { db.beforeWriteBegin = nil })
+	})
 }
 
 // TestWriteCommitFailurePreservesOutcomeUnknown induces an actual driver
@@ -41,12 +39,14 @@ func enableForeignKeysOnWriteLease(t *testing.T, db *DB) {
 // must remain reusable after settlement.
 func TestWriteCommitFailurePreservesOutcomeUnknown(t *testing.T) {
 	db := openJournalFixture(t, "delete")
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
 	editFixture(t, db.path, `CREATE TABLE parent (id INTEGER PRIMARY KEY);
 CREATE TABLE child (
     id INTEGER PRIMARY KEY,
     parent_id INTEGER NOT NULL REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED
 );`)
-	enableForeignKeysOnWriteLease(t, db)
+	enableForeignKeysOnWriteLease(t, r)
 
 	// Insert a child row referencing a non-existent parent. The INSERT
 	// statement succeeds (RowsAffected = 1), but COMMIT fails because the
@@ -76,10 +76,11 @@ CREATE TABLE child (
 	}
 	assertPhaseSequence(t, collectPhases(t, w),
 		WritePhaseBeginning, WritePhaseExecuting, WritePhaseCommitting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, true)
 
 	// The lease is still reusable after settlement: the physical connection
 	// was not force-closed and remains healthy for later work.
-	db.beforeWriteBegin = nil
+	r.clear()
 	assertLeaseReusable(t, db, `UPDATE "users" SET "email" = 'reused'`)
 }
 
@@ -90,6 +91,8 @@ CREATE TABLE child (
 // not WritePhaseCommitting.
 func TestWritePreCommitFailureConfirmsRollback(t *testing.T) {
 	db := openJournalFixture(t, "delete")
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1),
 		`INSERT INTO "users" ("id", "email") VALUES (?, ?)`,
@@ -110,6 +113,7 @@ func TestWritePreCommitFailureConfirmsRollback(t *testing.T) {
 	}
 	assertPhaseSequence(t, collectPhases(t, w),
 		WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, false)
 	if got := writeRows(t, db.path, "SELECT COUNT(*) FROM users"); got != 3 {
 		t.Fatalf("persisted rows after failed write = %d, want 3 (rollback confirmed)", got)
 	}
@@ -122,7 +126,9 @@ func TestWritePreCommitFailureConfirmsRollback(t *testing.T) {
 // preserved, not the committing phase.
 func TestWritePreCommitCancellationConfirmsRollback(t *testing.T) {
 	db := openJournalFixture(t, "delete")
-	held, release := holdWriteBarrier(t, db, WritePhaseExecuting)
+	r := newWriteHookRegistry(t, db)
+	id := r.recordIdentity()
+	held, release := r.holdBarrier(t, WritePhaseExecuting)
 
 	w := db.StartWrite(context.Background(), writeExecSeq.Add(1),
 		`UPDATE "users" SET "email" = 'new'`, nil)
@@ -142,5 +148,6 @@ func TestWritePreCommitCancellationConfirmsRollback(t *testing.T) {
 	}
 	assertPhaseSequence(t, collectPhases(t, w),
 		WritePhaseBeginning, WritePhaseExecuting, WritePhaseRollbackCleanup)
+	id.assertSameConn(t, false)
 	assertLeaseReusable(t, db, `UPDATE "users" SET "email" = 'reused'`)
 }
