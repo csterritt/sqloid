@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,6 +32,11 @@ func (f *saveFakeFile) Write(p []byte) (int, error) {
 		n := f.fs.failWriteAfter
 		f.fs.contents[f.name] = append([]byte(nil), p[:n]...)
 		return n, f.fs.errFor("write")
+	}
+	if f.fs.shortWriteNilAfter >= 0 && len(p) > f.fs.shortWriteNilAfter {
+		n := f.fs.shortWriteNilAfter
+		f.fs.contents[f.name] = append([]byte(nil), p[:n]...)
+		return n, nil
 	}
 	f.fs.contents[f.name] = append([]byte(nil), p...)
 	return len(p), nil
@@ -57,24 +63,26 @@ func (f *saveFakeFile) Close() error {
 // failures are injected deterministically, and existing destinations keep
 // byte-for-byte contents so preservation is provable.
 type saveFakeFS struct {
-	exists         map[string]bool
-	contents       map[string][]byte
-	calls          []string
-	tempSeq        int
-	failExists     error
-	failCreate     error
-	failWriteAfter int // -1 never; n fails a write of more than n bytes
-	failSync       bool
-	failClose      bool
-	failRename     error
-	failRemove     error
+	exists             map[string]bool
+	contents           map[string][]byte
+	calls              []string
+	tempSeq            int
+	failExists         error
+	failCreate         error
+	failWriteAfter     int // -1 never; n fails a write of more than n bytes
+	shortWriteNilAfter int // -1 never; n returns (n, nil) for a write of more than n bytes
+	failSync           bool
+	failClose          bool
+	failRename         error
+	failRemove         error
 }
 
 func newSaveFakeFS() *saveFakeFS {
 	return &saveFakeFS{
-		exists:         map[string]bool{},
-		contents:       map[string][]byte{},
-		failWriteAfter: -1,
+		exists:             map[string]bool{},
+		contents:           map[string][]byte{},
+		failWriteAfter:     -1,
+		shortWriteNilAfter: -1,
 	}
 }
 
@@ -315,4 +323,143 @@ func (f *saveFakeFS) createdTempName() string {
 		}
 	}
 	return ""
+}
+
+// hasCall reports whether any recorded boundary call starts with prefix.
+func (f *saveFakeFS) hasCall(prefix string) bool {
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestWriteAtomicShortWriteNilErrorIsErrShortWrite requires Issue #63's
+// nil-error short write to surface as a typed write-stage error whose cause
+// is io.ErrShortWrite with an actionable message rather than <nil>. Sync,
+// the final close-as-success, and rename never run; the partially written
+// destination-local temporary file is closed and removed; an existing
+// destination remains byte-for-byte unchanged; a previously missing
+// destination remains absent. Complete-write and non-nil-error rows are
+// retained as controls to prove the short-write boundary is distinct.
+func TestWriteAtomicShortWriteNilErrorIsErrShortWrite(t *testing.T) {
+	data := []byte("payload")
+	cases := []struct {
+		name            string
+		setup           func(f *saveFakeFS)
+		existing        bool
+		wantSuccess     bool
+		wantErrIs       error
+		wantErrNotIs    error
+		wantErrContains string
+	}{
+		{
+			name:            "short-write-nil-error-existing-destination",
+			setup:           func(f *saveFakeFS) { f.shortWriteNilAfter = 3 },
+			existing:        true,
+			wantErrIs:       io.ErrShortWrite,
+			wantErrContains: "short write",
+		},
+		{
+			name:            "short-write-nil-error-missing-destination",
+			setup:           func(f *saveFakeFS) { f.shortWriteNilAfter = 3 },
+			existing:        false,
+			wantErrIs:       io.ErrShortWrite,
+			wantErrContains: "short write",
+		},
+		{
+			name:        "complete-write-control",
+			setup:       func(f *saveFakeFS) {},
+			existing:    true,
+			wantSuccess: true,
+		},
+		{
+			name:         "non-nil-write-error-control",
+			setup:        func(f *saveFakeFS) { f.failWriteAfter = 3 },
+			existing:     true,
+			wantErrNotIs: io.ErrShortWrite,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSaveFakeFS()
+			if tc.existing {
+				f.exists["/work/out.csv"] = true
+				f.contents["/work/out.csv"] = []byte("original bytes")
+			}
+			tc.setup(f)
+			err := WriteAtomic(f, "/work/out.csv", data)
+			if tc.wantSuccess {
+				if err != nil {
+					t.Fatalf("complete write failed: %v", err)
+				}
+				if got := f.contents["/work/out.csv"]; !bytes.Equal(got, data) {
+					t.Fatalf("destination bytes = %q, want %q", got, data)
+				}
+				return
+			}
+			var stageErr *StageError
+			if !errors.As(err, &stageErr) || stageErr.Stage != StageWrite {
+				t.Fatalf("err = %v, want StageError(StageWrite)", err)
+			}
+			if tc.wantErrIs != nil && !errors.Is(err, tc.wantErrIs) {
+				t.Fatalf("errors.Is(err, %v) = false, want true; err = %v", tc.wantErrIs, err)
+			}
+			if tc.wantErrNotIs != nil && errors.Is(err, tc.wantErrNotIs) {
+				t.Fatalf("errors.Is(err, %v) = true, want false; err = %v", tc.wantErrNotIs, err)
+			}
+			if tc.wantErrContains != "" {
+				if msg := err.Error(); !strings.Contains(msg, tc.wantErrContains) {
+					t.Fatalf("err text = %q, want it to contain %q", msg, tc.wantErrContains)
+				}
+				if msg := err.Error(); strings.Contains(msg, "<nil>") {
+					t.Fatalf("err text contains <nil> rather than an actionable cause: %q", msg)
+				}
+			}
+			// Sync, the final close-as-success, and rename never run for a
+			// write-stage failure.
+			if f.hasCall("sync:") {
+				t.Fatalf("sync ran after a write-stage failure: %q", f.calls)
+			}
+			if f.hasCall("rename:") {
+				t.Fatalf("rename ran after a write-stage failure: %q", f.calls)
+			}
+			// The partially written destination-local temporary file is
+			// closed and removed.
+			tempName := f.createdTempName()
+			if tempName == "" {
+				t.Fatal("no temporary artifact was created")
+			}
+			if _, ok := f.contents[tempName]; ok {
+				t.Fatalf("temporary artifact %q was not removed", tempName)
+			}
+			removes := 0
+			for _, c := range f.calls {
+				if strings.HasPrefix(c, "remove:") {
+					removes++
+				}
+			}
+			if removes != 1 {
+				t.Fatalf("remove calls = %d, want 1 (temp cleanup)", removes)
+			}
+			// An existing destination remains byte-for-byte unchanged; a
+			// previously missing destination remains absent.
+			if tc.existing {
+				if got := f.contents["/work/out.csv"]; !bytes.Equal(got, []byte("original bytes")) {
+					t.Fatalf("existing destination changed: %q", got)
+				}
+				if !f.exists["/work/out.csv"] {
+					t.Fatal("existing destination disappeared")
+				}
+			} else {
+				if f.exists["/work/out.csv"] {
+					t.Fatal("previously missing destination appeared")
+				}
+				if _, ok := f.contents["/work/out.csv"]; ok {
+					t.Fatal("previously missing destination has contents")
+				}
+			}
+		})
+	}
 }

@@ -18,6 +18,7 @@ package export
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -194,8 +195,17 @@ func WriteAtomic(fs SaveFS, path string, data []byte) error {
 		return fs.Remove(tmpName)
 	}
 	if n, err := f.Write(data); err != nil || n != len(data) {
+		// Issue #63: a nil error with a short byte count is a failed write,
+		// not a silent partial save. Convert it to io.ErrShortWrite so the
+		// cause is actionable through errors.Is and the stage-qualified text
+		// names the short write rather than <nil>. A non-nil writer error
+		// stays the cause unchanged.
+		cause := err
+		if cause == nil {
+			cause = io.ErrShortWrite
+		}
 		_ = cleanup()
-		return &StageError{Stage: StageWrite, Err: err}
+		return &StageError{Stage: StageWrite, Err: cause}
 	}
 	if err := f.Sync(); err != nil {
 		_ = cleanup()

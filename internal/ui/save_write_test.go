@@ -28,22 +28,24 @@ import (
 // every call is recorded, staged failures inject deterministically, and
 // existing destinations keep byte-for-byte contents.
 type saveFlowFakeFS struct {
-	existing       map[string]bool
-	contents       map[string][]byte
-	calls          []string
-	tempSeq        int
-	failCreate     error
-	failWriteAfter int // -1 never; n fails any write larger than n bytes
-	failSync       bool
-	failClose      bool
-	failRename     error
+	existing           map[string]bool
+	contents           map[string][]byte
+	calls              []string
+	tempSeq            int
+	failCreate         error
+	failWriteAfter     int // -1 never; n fails any write larger than n bytes
+	shortWriteNilAfter int // -1 never; n returns (n, nil) for a write larger than n bytes
+	failSync           bool
+	failClose          bool
+	failRename         error
 }
 
 func newSaveFlowFakeFS() *saveFlowFakeFS {
 	return &saveFlowFakeFS{
-		existing:       map[string]bool{},
-		contents:       map[string][]byte{},
-		failWriteAfter: -1,
+		existing:           map[string]bool{},
+		contents:           map[string][]byte{},
+		failWriteAfter:     -1,
+		shortWriteNilAfter: -1,
 	}
 }
 
@@ -93,6 +95,10 @@ func (fl *saveFlowFakeFile) Write(p []byte) (int, error) {
 	if fl.fs.failWriteAfter >= 0 && len(p) > fl.fs.failWriteAfter {
 		fl.fs.contents[fl.name] = append([]byte(nil), p[:fl.fs.failWriteAfter]...)
 		return fl.fs.failWriteAfter, errors.New("injected write failure")
+	}
+	if fl.fs.shortWriteNilAfter >= 0 && len(p) > fl.fs.shortWriteNilAfter {
+		fl.fs.contents[fl.name] = append([]byte(nil), p[:fl.fs.shortWriteNilAfter]...)
+		return fl.fs.shortWriteNilAfter, nil
 	}
 	fl.fs.contents[fl.name] = append([]byte(nil), p...)
 	return len(p), nil
@@ -480,6 +486,70 @@ func TestSaveStageFailuresPreserveCleanupAndRetryInline(t *testing.T) {
 				t.Errorf("retry completion fingerprint drifted:\n%s\nvs\n%s", fp, baseline)
 			}
 		})
+	}
+}
+
+// TestSaveShortWriteNilErrorShowsInlineFailureWithErrShortWrite requires
+// Issue #63's nil-error short write to surface through the UI as exactly one
+// inline failure carrying the captured destination and payload with intact
+// retry/cancel behavior — never a success message. The displayed failure
+// text names the actionable short-write cause rather than <nil>.
+func TestSaveShortWriteNilErrorShowsInlineFailureWithErrShortWrite(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{}
+	s := newSaveFlowFakeFS()
+	s.existing["/work/r.sql"] = true
+	s.contents["/work/r.sql"] = []byte("SELECT 1;")
+	s.shortWriteNilAfter = 3
+	_, p := savePickerFlowModel(t, f, s)
+	baseline := openerFingerprint(p)
+	reached := submitDestination(t, p, "r")
+	failed := confirmSave(t, reached)
+	if failed.overwriteOpen {
+		t.Fatal("failure left the confirmation open")
+	}
+	if failed.saveFailure == "" {
+		t.Fatal("short write did not show an inline failure")
+	}
+	if !strings.Contains(failed.saveFailure, "short write") {
+		t.Fatalf("inline failure text = %q, want it to name the short-write cause", failed.saveFailure)
+	}
+	if strings.Contains(failed.saveFailure, "<nil>") {
+		t.Fatalf("inline failure text contains <nil> rather than an actionable cause: %q", failed.saveFailure)
+	}
+	if failed.saveCompletedPath != "" {
+		t.Fatal("short-write failure claimed a completed destination")
+	}
+	// The captured destination and payload are retained for retry.
+	if failed.saveCapture == nil || failed.saveCapture.path != "/work/r.sql" {
+		t.Fatal("captured destination was discarded after short-write failure")
+	}
+	want := "SELECT * FROM \"items\";"
+	if string(failed.saveCapture.payload) != want {
+		t.Fatalf("captured payload = %q, want %q", failed.saveCapture.payload, want)
+	}
+	// The existing destination is byte-for-byte preserved.
+	if got := s.contents["/work/r.sql"]; string(got) != "SELECT 1;" {
+		t.Fatalf("existing destination changed: %q", got)
+	}
+	// No leaked temporary artifact.
+	if name := s.createdTempName(); name != "" {
+		if _, ok := s.contents[name]; ok {
+			t.Fatalf("temporary artifact %q not cleaned up", name)
+		}
+	}
+	// Retry clears the injected boundary and writes the same captured copy.
+	s.shortWriteNilAfter = -1
+	retried, cmd := pressKey(failed, tea.KeyMsg{Type: tea.KeyEnter})
+	final, _ := runSaveCmds(t, retried, cmd)
+	if got := s.contents["/work/r.sql"]; string(got) != want {
+		t.Fatalf("retry bytes = %q, want the same captured copy %q", got, want)
+	}
+	if final.saveCompletedPath != "/work/r.sql" {
+		t.Fatal("successful retry did not complete")
+	}
+	if fp := openerFingerprint(final); fp != baseline {
+		t.Errorf("retry completion fingerprint drifted:\n%s\nvs\n%s", fp, baseline)
 	}
 }
 
