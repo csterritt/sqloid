@@ -29,7 +29,10 @@ type limitCase struct {
 
 func runLimitCase(t *testing.T, tc limitCase) {
 	t.Helper()
-	q := limitFixture().SetLimitInput(tc.input)
+	q := limitFixture()
+	q = commitProjection(t, q, "id", AggregateValue)
+	q = commitProjection(t, q, "email", AggregateValue)
+	q = q.SetLimitInput(tc.input)
 	if got := q.LimitInput(); got != tc.input {
 		t.Fatalf("%s: LimitInput()=%q, want the entered representation verbatim %q",
 			tc.name, got, tc.input)

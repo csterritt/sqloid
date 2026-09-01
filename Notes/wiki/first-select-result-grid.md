@@ -4,7 +4,7 @@ Issue #22 replaces the disposable Issue #10 tracer with the first production que
 
 ## Production flow
 
-1. **Builder → SQL** — `QueryBuilder.SelectSQL()`/`SelectParams()` are the sole source of safely quoted SQL and ordered bound parameters (see [sql-atoms-and-literals.md](sql-atoms-and-literals.md), [group-order-limit.md](group-order-limit.md)).
+1. **Builder → SQL** — `QueryBuilder.SelectSQL()`/`SelectParams()` are the sole source of safely quoted SQL and ordered bound parameters (see [sql-atoms-and-literals.md](sql-atoms-and-literals.md), [group-order-limit.md](group-order-limit.md)). Issue #66 gates both on the authoritative `RunnableReport` (see [select-renderer-gating.md](select-renderer-gating.md)): a non-runnable SELECT yields empty SQL and nil parameters, never a partially valid statement.
 2. **Validation handoff** — runnable Enter completes Issue #21 schema validation first; only the successful settled handoff emits `ExecutionStartedMsg`. Failed validation creates no execution and no history.
 3. **Actual-execution boundary** — `ExecutionStartedMsg` appends query history (Issue #20 rules, including consecutive-identical suppression) and then issues exactly one first-page request via `startSelectPage()`, capturing the builder's exact SQL/parameters.
 4. **Connection first page** — `connection.DB.RunFirstPage` runs the one bound SELECT as a complete `RunRequest` on a dedicated lease (Issue #6 lifecycle, Issue #7 health classification). Rows are scanned eagerly with copied values and converted once via `result.FromDriver`.

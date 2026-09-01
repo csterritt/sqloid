@@ -16,9 +16,10 @@ import (
 // SelectSQL renders the current snapshot's SELECT statement exactly: quoted
 // projection over the quoted table, then WHERE, GROUP BY (commit order),
 // ORDER BY (single committed expression with direction), and LIMIT in grammar
-// order. An empty result means the snapshot cannot yet be rendered at all —
-// command, table, or any required piece missing — never a partially valid
-// query; validity stays the job of FirstInvalidIssue.
+// order. An empty result means the snapshot is not a runnable SELECT — the
+// authoritative RunnableReport (Issue #19, extended by Issue #65's
+// stale-projection gate and Issue #66's renderer gate) refuses every
+// non-runnable class — never a partially valid query.
 func (q QueryBuilder) SelectSQL() string {
 	parts, ok := renderSelectCore(q, false)
 	if !ok {
@@ -35,10 +36,12 @@ func (q QueryBuilder) SelectSQL() string {
 // It appends the implicit `ORDER BY rowid` fallback only when allowRowid
 // holds and rowidFallbackEligible confirms the single eligible case — an
 // ordinary rowid table with no declared rowid shadow, no aggregate or GROUP
-// shape, and no user ORDER BY. A false second return means the snapshot
-// cannot be rendered at all, never a partially valid query.
+// shape, and no user ORDER BY. A false second return means the snapshot is
+// not a runnable SELECT — the single authoritative RunnableReport gates the
+// whole SELECT renderer family (Issue #66), so no partially rendered clauses
+// or values escape a non-runnable state.
 func renderSelectCore(q QueryBuilder, allowRowid bool) ([]string, bool) {
-	if q.command != CommandSelect || !q.tableSet {
+	if q.command != CommandSelect || !q.RunnableReport().Runnable {
 		return nil, false
 	}
 	projection := q.renderProjection()
@@ -94,8 +97,10 @@ func rowidFallbackEligible(q QueryBuilder) bool {
 // order — currently only the completed WHERE predicate's single value when it
 // takes one. Projection, grouping, ordering, and LIMIT contribute no
 // parameters: identifiers are quoted atoms and the limit is a literal integer.
+// It returns nil unless the authoritative RunnableReport accepts the SELECT
+// state (Issue #66), so no parameters escape a non-runnable snapshot.
 func (q QueryBuilder) SelectParams() []any {
-	if q.command != CommandSelect || !q.tableSet {
+	if q.command != CommandSelect || !q.RunnableReport().Runnable {
 		return nil
 	}
 	return q.WherePredicate().Params()

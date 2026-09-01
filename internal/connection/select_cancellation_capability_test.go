@@ -163,7 +163,8 @@ func probeQB(table, column string, whereOnProbe bool) querybuilder.QueryBuilder 
 	}
 	q := querybuilder.NewQuery().RefreshSchema(catalog).
 		SelectCommand(querybuilder.CommandSelect).SelectTable(table).
-		AcceptProjection(querybuilder.ProjectionCandidate{Kind: querybuilder.ProjectionColumn, Column: column}).Builder
+		AcceptProjection(querybuilder.ProjectionCandidate{Kind: querybuilder.ProjectionColumn, Column: column}).Builder.
+		CompleteProjectionAggregate(column, querybuilder.AggregateValue).Builder
 	if !whereOnProbe {
 		return q
 	}

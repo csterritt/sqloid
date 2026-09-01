@@ -8,8 +8,10 @@ package querybuilder
 
 // CountSQL renders the exact count statement for the complete SELECT result:
 // `SELECT COUNT(*) FROM (<SelectSQL()>)`. An empty result means the snapshot
-// cannot be rendered or is not a SELECT — never a partially valid statement;
-// validity and renderability stay exactly those of SelectSQL itself.
+// is not a runnable SELECT — the authoritative RunnableReport gates the whole
+// SELECT renderer family through SelectSQL (Issue #66) — never a partially
+// valid statement; validity and renderability stay exactly those of SelectSQL
+// itself.
 func (q QueryBuilder) CountSQL() string {
 	base := q.SelectSQL()
 	if base == "" {
@@ -21,7 +23,8 @@ func (q QueryBuilder) CountSQL() string {
 // CountParams returns the count statement's bound parameters, which are
 // exactly the complete SELECT's ordered parameters unchanged: only the WHERE
 // predicate contributes values, and parameter order must stay identical so
-// one execution seam can serve both requests.
+// one execution seam can serve both requests. It returns nil unless the
+// authoritative RunnableReport accepts the SELECT state (Issue #66).
 func (q QueryBuilder) CountParams() []any {
 	return q.SelectParams()
 }

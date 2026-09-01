@@ -274,12 +274,15 @@ func TestFirstInvalidIssueAbsentWhenClean(t *testing.T) {
 
 func TestGroupBySQLRendering(t *testing.T) {
 	q := groupFixture()
+	q = commitProjection(t, q, "id", AggregateValue)
+	q = commitProjection(t, q, "email", AggregateValue)
 	got := q.SelectSQL()
 	want := `SELECT "id", "email" FROM "users"`
 	if got != want {
 		t.Fatalf("SelectSQL()=%q, want %q (no GROUP BY clause)", got, want)
 	}
 
+	q = groupFixture()
 	q = commitProjection(t, q, "id", AggCount)
 	q = commitProjection(t, q, "email", AggregateValue)
 	q, _ = q.AcceptGroupColumn("email")
@@ -297,8 +300,13 @@ func TestGroupBySQLEscapesEmbeddedQuotes(t *testing.T) {
 		Columns: []schema.Column{{Name: `col"x`}, {Name: "b"}}}
 	q := selectBuilderFor(obj).RefreshSchema(&schema.Catalog{Version: 1, Objects: []*schema.Object{obj}}).
 		SelectCommand(CommandSelect).SelectTable(`we"ird`)
+	q = q.AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: `col"x`}).Builder
+	q = q.CompleteProjectionAggregate(`col"x`, AggregateValue).Builder
+	q = q.AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "b"}).Builder
+	q = q.CompleteProjectionAggregate("b", AggregateValue).Builder
 	q, _ = q.AcceptGroupColumn(`col"x`)
-	want := `SELECT "col""x", "b" FROM "we""ird" GROUP BY "col""x"`
+	q, _ = q.AcceptGroupColumn("b")
+	want := `SELECT "col""x", "b" FROM "we""ird" GROUP BY "col""x", "b"`
 	if got := q.SelectSQL(); got != want {
 		t.Fatalf("SelectSQL()=%q, want %q", got, want)
 	}
@@ -312,12 +320,11 @@ func TestGroupByKeepsProjectionOrderAndParams(t *testing.T) {
 	q := groupFixture()
 	q = commitProjection(t, q, "id", AggCount)
 	q = commitProjection(t, q, "email", AggregateValue)
-	preSQL := q.SelectSQL()
-	wantPre := `SELECT COUNT("id"), "email" FROM "users"`
-	if preSQL != wantPre {
-		t.Fatalf("pre-group SQL=%q, want %q", preSQL, wantPre)
-	}
 	before := q.ProjectionEntries()
+	// The pre-group state is a mixed aggregate/nonaggregate projection
+	// without GROUP BY, so the authoritative runnable gate (Issue #66)
+	// refuses to render it; projection order is observed through entries,
+	// and the post-group state renders the exact ordered SQL.
 	if params := q.SelectParams(); len(params) != 0 {
 		t.Fatalf("ungrouped query carried params %v", params)
 	}

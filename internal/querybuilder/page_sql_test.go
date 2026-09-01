@@ -262,12 +262,14 @@ func TestPageSQLAggregateGroupedNoFallback(t *testing.T) {
 		t.Errorf("aggregate-only PageSQL(5, 5) = %q, want %q", got, want)
 	}
 
-	grouped := pageSelect("items")
+	// A grouped named-column SELECT (wildcard beside GROUP BY is invalid and
+	// refused by the runnable gate) stays unordered.
+	grouped := pageColumnSelect("name")
 	grouped, ok := grouped.AcceptGroupColumn("name")
 	if !ok {
 		t.Fatal("AcceptGroupColumn(\"name\") refused")
 	}
-	want = `SELECT * FROM "items" GROUP BY "name" LIMIT 5 OFFSET 0`
+	want = `SELECT "name" FROM "items" GROUP BY "name" LIMIT 5 OFFSET 0`
 	if got := grouped.PageSQL(5, 0); got != want {
 		t.Errorf("grouped PageSQL(5, 0) = %q, want %q", got, want)
 	}

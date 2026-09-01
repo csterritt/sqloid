@@ -19,9 +19,11 @@ import (
 // rendered LIMIT is the page limit clamped to the remaining user Limit, so
 // offsets at or beyond the user's Limit yield an empty string instead of a
 // statement that reads past it. An empty result also covers every
-// unrenderable snapshot and invalid ranges (pageLimit < 1 or offset < 0) —
-// it never means a partially valid query. The user's entered Limit text is
-// never interpolated: only accepted integers render, canonically.
+// non-runnable SELECT — the authoritative RunnableReport gates the shared
+// renderSelectCore seam (Issue #66) — and invalid ranges (pageLimit < 1 or
+// offset < 0); it never means a partially valid query. Range validation stays
+// independent of builder validity. The user's entered Limit text is never
+// interpolated: only accepted integers render, canonically.
 func (q QueryBuilder) PageSQL(pageLimit, offset int64) string {
 	if pageLimit < 1 || offset < 0 {
 		return ""

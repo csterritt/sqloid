@@ -200,13 +200,14 @@ func TestOrderDirectionToggleAndClear(t *testing.T) {
 
 func TestOrderBySQLRendering(t *testing.T) {
 	q := orderFixture()
+	q = commitProjection(t, q, "email", AggregateValue)
 	q, _ = q.AcceptGroupColumn("email")
 	q, _ = q.AcceptOrderBy("order-column:email")
-	if got, want := q.SelectSQL(), `SELECT "id", "email" FROM "users" GROUP BY "email" ORDER BY "email" ASC`; got != want {
+	if got, want := q.SelectSQL(), `SELECT "email" FROM "users" GROUP BY "email" ORDER BY "email" ASC`; got != want {
 		t.Fatalf("SelectSQL()=%q, want %q", got, want)
 	}
 	q = q.ToggleOrderDirection()
-	if got, want := q.SelectSQL(), `SELECT "id", "email" FROM "users" GROUP BY "email" ORDER BY "email" DESC`; got != want {
+	if got, want := q.SelectSQL(), `SELECT "email" FROM "users" GROUP BY "email" ORDER BY "email" DESC`; got != want {
 		t.Fatalf("SelectSQL()=%q, want %q", got, want)
 	}
 
@@ -226,6 +227,10 @@ func TestOrderBySQLQuotesEmbeddedQuotes(t *testing.T) {
 		WriteEligible: true, Rowid: schema.RowidHas,
 		Columns: []schema.Column{{Name: `col"x`}, {Name: "b"}}}
 	q := selectBuilderFor(obj)
+	q = q.AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: `col"x`}).Builder
+	q = q.CompleteProjectionAggregate(`col"x`, AggregateValue).Builder
+	q = q.AcceptProjection(ProjectionCandidate{Kind: ProjectionColumn, Column: "b"}).Builder
+	q = q.CompleteProjectionAggregate("b", AggregateValue).Builder
 	q, _ = q.AcceptOrderBy(`order-column:col"x`)
 	want := `SELECT "col""x", "b" FROM "we""ird" ORDER BY "col""x" ASC`
 	if got := q.SelectSQL(); got != want {

@@ -7,7 +7,7 @@ Issue #24 makes one actual SELECT launch two concurrent requests — the first p
 `QueryBuilder` remains the sole source of safely rendered SQL (see [group-order-limit.md](group-order-limit.md)):
 
 - **First page** — `SelectSQL()`/`SelectParams()` unchanged: quoted projection, WHERE, GROUP BY, ORDER BY, LIMIT in grammar order, with the WHERE predicate's ordered bound parameters.
-- **Count** — `CountSQL()` renders exactly `SELECT COUNT(*) FROM (<SelectSQL()>)`: the complete SELECT is counted as a subquery, **with the user's LIMIT inside the subquery**, so rows beyond the Limit are irrelevant to completeness. The wording never implies a table count or a pre-Limit count. `CountParams()` returns exactly `SelectParams()` — identical values in identical order — so one execution seam serves both requests. A snapshot that cannot render a SELECT (non-SELECT command, missing pieces) yields an empty count string, never a partially valid statement.
+- **Count** — `CountSQL()` renders exactly `SELECT COUNT(*) FROM (<SelectSQL()>)`: the complete SELECT is counted as a subquery, **with the user's LIMIT inside the subquery**, so rows beyond the Limit are irrelevant to completeness. The wording never implies a table count or a pre-Limit count. `CountParams()` returns exactly `SelectParams()` — identical values in identical order — so one execution seam serves both requests. A snapshot that is not a runnable SELECT yields an empty count string, never a partially valid statement; Issue #66 gates both methods on the authoritative `RunnableReport` (see [select-renderer-gating.md](select-renderer-gating.md)).
 
 ## Execution identities
 
