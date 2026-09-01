@@ -130,6 +130,14 @@ type WriteResult struct {
 	// transaction was confirmed successful. Until it is true no result may
 	// claim the database was untouched.
 	RollbackConfirmed bool
+
+	// Phase preserves the write phase at the failure boundary so callers
+	// can distinguish a failed COMMIT (WritePhaseCommitting) from a
+	// statement or cancellation rollback path (WritePhaseExecuting). It is
+	// zero when the write committed or never crossed into a noncancellable
+	// phase. The UI uses this to select the outcome-unknown entry's
+	// commit-versus-rollback phase.
+	Phase WritePhase
 }
 
 // StartedWriteRequest is one running transactional write on its dedicated
@@ -274,7 +282,7 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 		rowsAffected, err = res.RowsAffected()
 	}
 	if err != nil {
-		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected})
+		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseExecuting})
 	}
 
 	// Statement completed successfully. The atomic pre-COMMIT boundary
@@ -294,14 +302,18 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 		err = context.Canceled
 	}
 	if err != nil {
-		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected})
+		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseExecuting})
 	}
 	w.emit(WritePhaseCommitting)
 	if err := tx.Commit(); err != nil {
 		// Persistence after a failed commit is unprovable; Issue #45 owns
-		// the outcome-unknown terminal workflow. Issue #42 resolves it as a
-		// failed write whose open transaction is rolled back if possible.
-		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected})
+		// the outcome-unknown terminal workflow. Issue #61: preserve the
+		// committing phase and commit error, perform best-effort
+		// noncancellable rollback cleanup, but never treat sql.ErrTxDone
+		// from the subsequent rollback attempt as confirmation that
+		// persistence did not occur — the transaction is no longer active
+		// but may or may not have been committed at the SQLite level.
+		return w.rollback(ctx, tx, WriteResult{Err: err, RowsAffected: rowsAffected, Phase: WritePhaseCommitting})
 	}
 	return WriteResult{Outcome: WriteCommitted, RowsAffected: rowsAffected}
 }
@@ -313,6 +325,15 @@ func (w *StartedWriteRequest) run(conn *sql.Conn, statement string, params []any
 // check), so no later Cancel can interrupt cleanup. The outcome is
 // provisional: Settle classifies a cancellation cause as WriteCancelled and
 // everything else as WriteFailed.
+//
+// Issue #61: when res.Phase is WritePhaseCommitting the rollback is
+// best-effort cleanup after a failed COMMIT. sql.ErrTxDone from the
+// post-commit rollback attempt just means the transaction is no longer
+// active — it does not prove whether the commit persisted — so
+// RollbackConfirmed stays false and the original commit error is never
+// overwritten with a less informative cleanup result. For pre-COMMIT paths
+// (statement failure or cancellation), a nil or sql.ErrTxDone rollback
+// return confirms the open transaction was ended without persisting.
 func (w *StartedWriteRequest) rollback(ctx context.Context, tx *sql.Tx, res WriteResult) WriteResult {
 	w.mu.Lock()
 	w.noncancellable = true
@@ -320,6 +341,14 @@ func (w *StartedWriteRequest) rollback(ctx context.Context, tx *sql.Tx, res Writ
 	w.emit(WritePhaseRollbackCleanup)
 	if w.owner.beforeWriteRollback != nil {
 		w.owner.beforeWriteRollback(ctx, nil)
+	}
+	if res.Phase == WritePhaseCommitting {
+		// COMMIT failed: persistence is unprovable. Perform best-effort
+		// cleanup but never confirm rollback and never overwrite the commit
+		// error, so the UI routes through the outcome-unknown terminal
+		// workflow.
+		_ = tx.Rollback()
+		return res
 	}
 	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 		res.Err = err

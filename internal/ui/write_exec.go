@@ -308,7 +308,15 @@ func (m *Model) finalizeOutcomeUnknown(msg WriteSettledMsg) {
 	m.writePhases = nil
 
 	phase := history.UnknownPhaseRollback
-	if m.writePhase == connection.WritePhaseCommitting {
+	// Issue #61: prefer the result's preserved failure-boundary phase when
+	// set — a failed COMMIT carries WritePhaseCommitting even though the
+	// last emitted phase was rollback-cleanup. Fall back to the model's
+	// tracked phase for results that predate the Phase field.
+	resultPhase := msg.Result.Phase
+	if resultPhase == 0 {
+		resultPhase = m.writePhase
+	}
+	if resultPhase == connection.WritePhaseCommitting {
 		phase = history.UnknownPhaseCommit
 	}
 	cause := ""
