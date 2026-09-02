@@ -140,6 +140,11 @@ func (m Model) pageRange(up bool) (size, offset int64, ok bool) {
 // mutate only when the response's execution ID and viewport generation are
 // also still current and the boundary has not classified it cancelled; any
 // other settled outcome is inert except for releasing the pending slot.
+// Issue #72: byte truncation is the monotonic OR of prior ResultView, incoming
+// FirstPageResult, and post-merge cache TruncatedByByteCap so once true it
+// never becomes false. A newly reported non-nil LimitFailure replaces the
+// prior one; a nil incoming failure preserves it. Metadata is applied before
+// any ordinary-error return so it cannot be discarded.
 func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 	if !m.pagePending || m.pageRequestID != msg.RequestID {
 		return m // stale, duplicated, or wrong-request response: discarded
@@ -150,33 +155,45 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 	m.pageRequestExecution = 0
 	m.pageRequestGeneration = 0
 	m.pageRequestCancel = nil // Issue #28: the handle retires with the request
-	// Issue #71: a typed limit failure from the new page carries its exact
-	// absolute row-N message into the view even when the ordinary error
-	// boundary (Err) is also set, as the real adapter does. The previous
-	// page's rows stay displayed; only the failure message updates.
-	if msg.Result.Err != nil && msg.Result.LimitFailure == nil {
-		return m // ordinary failure keeps the previous page displayed
-	}
+	// Cancelled or stale identity: fully inert — no rows, range, cache, or
+	// metadata mutation. This check precedes metadata computation so a
+	// cancelled or stale response can never alter retained facts.
 	if msg.Result.Cancelled ||
 		msg.ExecutionID != m.selectTracker.ExecutionID() ||
 		msg.Generation != m.viewportGen {
-		return m // cancelled or stale identity: rows, range, and cache unchanged
+		return m
 	}
-	// Issue #31: byte-cap disclosure persists through subsequent traversal —
-	// later pages inherit it so the header keeps showing the shared warning
-	// even after navigation falls below the cap. A settled typed over-limit
-	// failure travels with the view the same way.
+	// Issue #72: compute retained metadata before any ordinary-error return
+	// can discard it. Byte truncation is the monotonic OR of prior and
+	// incoming; cache-derived truncation is ORed after the accepted merge.
 	byteTruncated := m.Result != nil && m.Result.ByteTruncated
+	byteTruncated = byteTruncated || msg.Result.ByteTruncated
 	prevFailure := (*result.LimitFailure)(nil)
 	if m.Result != nil {
 		prevFailure = m.Result.LimitFailure
 	}
 	// Issue #71: the new page's typed limit failure takes precedence over
 	// the previous page's, so the view shows the exact absolute row-N
-	// message from the page that produced it.
+	// message from the page that produced it. A nil incoming failure
+	// preserves the prior one (Issue #72).
 	limitFailure := prevFailure
 	if msg.Result.LimitFailure != nil {
 		limitFailure = msg.Result.LimitFailure
+	}
+	// Issue #71: an ordinary later-page error (no typed limit failure)
+	// keeps the previous page displayed. Issue #72: retained metadata is
+	// updated even here so a true byte-truncation fact is never lost.
+	if msg.Result.Err != nil && msg.Result.LimitFailure == nil {
+		if m.Result != nil {
+			m.Result = &ResultView{
+				Page:          m.Result.Page,
+				Err:           m.Result.Err,
+				Offset:        m.Result.Offset,
+				ByteTruncated: byteTruncated,
+				LimitFailure:  limitFailure,
+			}
+		}
+		return m
 	}
 	// Issue #32: the accepted response merges into the authoritative
 	// contiguous dual-cap cache by absolute logical position before it

@@ -8,7 +8,7 @@ Issue #22 replaces the disposable Issue #10 tracer with the first production que
 2. **Validation handoff** — runnable Enter completes Issue #21 schema validation first; only the successful settled handoff emits `ExecutionStartedMsg`. Failed validation creates no execution and no history.
 3. **Actual-execution boundary** — `ExecutionStartedMsg` appends query history (Issue #20 rules, including consecutive-identical suppression) and then issues exactly one first-page request via `startSelectPage()`, capturing the builder's exact SQL/parameters.
 4. **Connection first page** — `connection.DB.RunFirstPage` runs the one bound SELECT as a complete `RunRequest` on a dedicated lease (Issue #6 lifecycle, Issue #7 health classification). Rows are scanned eagerly with copied values and converted once via `result.FromDriver`.
-5. **Settlement** — `SelectSettledMsg` stores the typed `result.Page` (success) or ordinary error (failure, cause preserved) in `Model.Result *ResultView`. No database or driver type enters Bubble Tea state.
+5. **Settlement** — `SelectSettledMsg` stores the typed `result.Page` (success) or ordinary error (failure, cause preserved) in `Model.Result *ResultView`. Issue #72 extends settlement to copy `ByteTruncated` and `LimitFailure` from `FirstPageResult` into `ResultView` and OR byte truncation with `viewportCache.TruncatedByByteCap()` after merging the first page (see [byte-cap-oversized-values.md](byte-cap-oversized-values.md)). No database or driver type enters Bubble Tea state.
 6. **Grid** — the results region renders the settled page through `internal/result` only.
 
 ## Shared result representation (`internal/result`)

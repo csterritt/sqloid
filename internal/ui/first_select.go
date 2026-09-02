@@ -159,17 +159,30 @@ func (m *Model) startSelectPage() tea.Cmd {
 // result-error boundary exactly like successes; no history entry is undone
 // and no builder state changes. Responses classified cancelled by the
 // Connection boundary never reach this seam: the Update guard rejects them
-// so rows, cache, and pending feedback stay untouched.
+// so rows, cache, and pending feedback stay untouched. Issue #72: the
+// incoming ByteTruncated and LimitFailure metadata are copied into the
+// fresh ResultView, and byte truncation is ORed with the viewport cache's
+// post-merge TruncatedByByteCap so cache-derived disclosure cannot be lost.
 func (m Model) applySelectSettled(res FirstPageResult) Model {
 	if res.Err == nil && res.Cancelled {
 		return m // defensive: cancellation classification is fully inert here
 	}
-	m.Result = &ResultView{Page: res.Page, Err: res.Err}
 	// Issue #32: the first page of the fresh execution seeds the active
 	// contiguous dual-cap cache at absolute positions 1..len before it
-	// becomes display state.
+	// becomes display state. Issue #72: merge before reading
+	// TruncatedByByteCap so page-envelope admission trimming is visible.
 	if res.Page != nil {
 		m.mergePageIntoCache(res.Page, 0, true)
+	}
+	byteTruncated := res.ByteTruncated
+	if res.Page != nil && m.viewportCache.TruncatedByByteCap() {
+		byteTruncated = true
+	}
+	m.Result = &ResultView{
+		Page:          res.Page,
+		Err:           res.Err,
+		ByteTruncated: byteTruncated,
+		LimitFailure:  res.LimitFailure,
 	}
 	return m
 }

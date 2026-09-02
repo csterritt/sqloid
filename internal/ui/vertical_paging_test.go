@@ -22,6 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chris/sqloid/internal/result"
+	"github.com/chris/sqloid/internal/resultcache"
 )
 
 // fakePageExecutor records every paged-page request and returns a queued
@@ -39,6 +40,10 @@ type fakePageExecutor struct {
 	rowsShown  int64 // rows in each returned page
 	honorLimit bool  // parse the statement's LIMIT and return exactly that many rows
 	err        error
+	// byteTruncated is returned as FirstPageResult.ByteTruncated (Issue #72)
+	// so paging tests can inject persistent truncation through the real
+	// settlement path.
+	byteTruncated bool
 	// limitFailure, when non-nil, is returned as the typed FirstPageResult
 	// LimitFailure at the given page-relative index (Issue #71) — but only
 	// when the request's offset matches limitFailureOffset. The fake
@@ -67,7 +72,7 @@ func (f *fakePageExecutor) page(ctx context.Context, sql string, params []any, o
 		for i := range out {
 			out[i] = []result.Value{result.NewInteger(int64(i+1) + offset)}
 		}
-		return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: out}, LimitFailure: lf}
+		return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: out}, LimitFailure: lf, ByteTruncated: f.byteTruncated}
 	}
 	rows := f.rowsShown
 	if f.honorLimit {
@@ -82,7 +87,7 @@ func (f *fakePageExecutor) page(ctx context.Context, sql string, params []any, o
 	for i := range out {
 		out[i] = []result.Value{result.NewInteger(int64(i + 1))}
 	}
-	return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: out}}
+	return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: out}, ByteTruncated: f.byteTruncated}
 }
 
 // pagingModel wires a runnable SELECT model with a first-page executor, a
@@ -644,5 +649,398 @@ func TestPageExecutorPageLimitFailureShowsAbsoluteRow(t *testing.T) {
 	wantMsg := "result page exceeds the 64 MiB v1 limit at row 17"
 	if got := collapseWhitespace(failSettled.View()); !strings.Contains(got, wantMsg) {
 		t.Fatalf("view missing exact absolute page-limit message %q:\n%s", wantMsg, failSettled.View())
+	}
+}
+
+// settlePageWithResult invokes a page request command, replaces the settled
+// message's Result with the given FirstPageResult, and applies it through
+// the real Update path. This lets paging tests inject ByteTruncated and
+// LimitFailure metadata with valid request identities.
+func settlePageWithResult(t *testing.T, m Model, cmd tea.Cmd, res FirstPageResult) Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("page key produced no command")
+	}
+	msg, ok := cmd().(PageSettledMsg)
+	if !ok {
+		t.Fatalf("page command produced %T, want PageSettledMsg", cmd())
+	}
+	msg.Result = res
+	next, _ := m.Update(msg)
+	return next.(Model)
+}
+
+// pageDownWithResult presses Page Down and settles the resulting request
+// with the given FirstPageResult, returning the updated model.
+func pageDownWithResult(t *testing.T, m Model, res FirstPageResult) Model {
+	t.Helper()
+	next, cmd := pageDown(m)
+	return settlePageWithResult(t, next, cmd, res)
+}
+
+// smallPageResult returns a successful FirstPageResult with one row and no
+// metadata, suitable for settling a page request without changing the
+// exhausted boundary.
+func smallPageResult() FirstPageResult {
+	return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: [][]result.Value{{result.NewInteger(1)}}}}
+}
+
+// fullPageResult returns a successful FirstPageResult with enough rows to
+// fill one page (11 rows at the default 80x24 layout) so pageExhausted is
+// not set and further navigation is possible.
+func fullPageResult() FirstPageResult {
+	rows := make([][]result.Value, 11)
+	for i := range rows {
+		rows[i] = []result.Value{result.NewInteger(int64(i + 1))}
+	}
+	return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: rows}}
+}
+
+// TestPageSettlementByteTruncationORMatrix requires that accepted later-page
+// settlement ORs prior ResultView.ByteTruncated, incoming
+// FirstPageResult.ByteTruncated, and post-merge cache TruncatedByByteCap so
+// once true the fact never becomes false (Issue #72 AC3).
+func TestPageSettlementByteTruncationORMatrix(t *testing.T) {
+	cases := []struct {
+		name       string
+		priorByte  bool
+		incoming   bool
+		cacheTrunc bool
+		want       bool
+	}{
+		{"all false stays false", false, false, false, false},
+		{"prior true stays true", true, false, false, true},
+		{"incoming true becomes true", false, true, false, true},
+		{"cache true becomes true", false, false, true, true},
+		{"prior and incoming OR true", true, true, false, true},
+		{"all true stays true", true, true, true, true},
+		{"incoming true with prior false", false, true, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &fakeSelectExecutor{page: threeRowPage()}
+			pageExec := &fakePageExecutor{rowsShown: 11}
+			m := settledFirstPage(t, exec, pageExec)
+			if tc.priorByte {
+				m.Result.ByteTruncated = true
+			}
+			if tc.cacheTrunc {
+				// Pre-seed the cache with content that already has
+				// TruncatedByByteCap true so the post-merge OR picks it up.
+				third := int(resultcache.MaxPayloadBytes/3) + 1
+				c := resultcache.New()
+				for i := int64(1); i <= 3; i++ {
+					p := resultcache.Page{
+						Start: resultcache.Position(i),
+						Rows: []resultcache.Row{{
+							Position: resultcache.Position(i),
+							Values:   []result.Value{result.NewBlob(make([]byte, third))},
+						}},
+					}
+					if accepted, _ := c.Merge(p, resultcache.Forward); !accepted {
+						t.Fatalf("pre-seed merge %d not accepted", i)
+					}
+				}
+				m.viewportCache = c
+			}
+
+			res := smallPageResult()
+			res.ByteTruncated = tc.incoming
+			final := pageDownWithResult(t, m, res)
+			if final.Result == nil {
+				t.Fatal("settlement produced no ResultView")
+			}
+			if final.Result.ByteTruncated != tc.want {
+				t.Errorf("ByteTruncated = %v, want %v (prior=%v incoming=%v cache=%v)",
+					final.Result.ByteTruncated, tc.want, tc.priorByte, tc.incoming, tc.cacheTrunc)
+			}
+		})
+	}
+}
+
+// TestPageSettlementLimitFailureReplacement requires that a newly reported
+// non-nil LimitFailure replaces the prior one, covering both kind
+// transitions and exact row positions (Issue #72 AC4).
+func TestPageSettlementLimitFailureReplacement(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Seed a value-limit failure at row 3 via the first later page.
+	res1 := fullPageResult()
+	res1.LimitFailure = &result.LimitFailure{Kind: result.KindValue, Position: 3}
+	m = pageDownWithResult(t, m, res1)
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Kind != result.KindValue || m.Result.LimitFailure.Position != 3 {
+		t.Fatalf("after first settlement: LimitFailure = %+v, want KindValue@3", m.Result.LimitFailure)
+	}
+
+	// A later page reports a page-limit failure at row 14: it replaces the
+	// prior value failure.
+	res2 := fullPageResult()
+	res2.LimitFailure = &result.LimitFailure{Kind: result.KindPage, Position: 14}
+	m = pageDownWithResult(t, m, res2)
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Kind != result.KindPage || m.Result.LimitFailure.Position != 14 {
+		t.Fatalf("after second settlement: LimitFailure = %+v, want KindPage@14", m.Result.LimitFailure)
+	}
+	wantMsg := "result page exceeds the 64 MiB v1 limit at row 14"
+	if got := collapseWhitespace(m.View()); !strings.Contains(got, wantMsg) {
+		t.Fatalf("view missing exact page-limit message %q:\n%s", wantMsg, m.View())
+	}
+}
+
+// TestPageSettlementLimitFailurePreservedWhenNil requires that a later page
+// reporting nil LimitFailure preserves the earlier failure (Issue #72 AC4).
+func TestPageSettlementLimitFailurePreservedWhenNil(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Seed a page-limit failure at row 5 via the first later page.
+	res1 := fullPageResult()
+	res1.LimitFailure = &result.LimitFailure{Kind: result.KindPage, Position: 5}
+	m = pageDownWithResult(t, m, res1)
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Position != 5 {
+		t.Fatalf("after first settlement: LimitFailure = %+v, want KindPage@5", m.Result.LimitFailure)
+	}
+
+	// A later page reports no failure: the prior failure is preserved.
+	m = pageDownWithResult(t, m, fullPageResult())
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Kind != result.KindPage || m.Result.LimitFailure.Position != 5 {
+		t.Fatalf("after nil-failure settlement: LimitFailure = %+v, want preserved KindPage@5", m.Result.LimitFailure)
+	}
+	wantMsg := "result page exceeds the 64 MiB v1 limit at row 5"
+	if got := collapseWhitespace(m.View()); !strings.Contains(got, wantMsg) {
+		t.Fatalf("view missing preserved page-limit message %q:\n%s", wantMsg, m.View())
+	}
+}
+
+// TestPageSettlementMetadataPersistsThroughNavigationAndResize requires that
+// byte truncation and LimitFailure remain visible after forward/backward
+// navigation and a resize event (Issue #72 AC3–AC4).
+func TestPageSettlementMetadataPersistsThroughNavigationAndResize(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11, honorLimit: true}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// First later page carries byte truncation and a value-limit failure.
+	res := fullPageResult()
+	res.ByteTruncated = true
+	res.LimitFailure = &result.LimitFailure{Kind: result.KindValue, Position: 7}
+	m = pageDownWithResult(t, m, res)
+	if !m.Result.ByteTruncated || m.Result.LimitFailure == nil {
+		t.Fatal("first later page did not retain metadata")
+	}
+
+	// Page forward again: a healthy page with no metadata must preserve
+	// the prior facts.
+	m = pageDownWithResult(t, m, fullPageResult())
+	if !m.Result.ByteTruncated {
+		t.Error("byte truncation lost after forward navigation")
+	}
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Position != 7 {
+		t.Errorf("LimitFailure lost after forward navigation: %+v", m.Result.LimitFailure)
+	}
+
+	// Page backward: metadata persists.
+	backCmd := m.handlePageKey(true)
+	if backCmd == nil {
+		t.Fatal("Page Up issued no command")
+	}
+	m = settlePageWithResult(t, m, backCmd, fullPageResult())
+	if !m.Result.ByteTruncated {
+		t.Error("byte truncation lost after backward navigation")
+	}
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Position != 7 {
+		t.Errorf("LimitFailure lost after backward navigation: %+v", m.Result.LimitFailure)
+	}
+
+	// Resize: metadata persists through the resize event.
+	resized, _ := pressKey(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m = resized
+	if !m.Result.ByteTruncated {
+		t.Error("byte truncation lost after resize")
+	}
+	if m.Result.LimitFailure == nil || m.Result.LimitFailure.Position != 7 {
+		t.Errorf("LimitFailure lost after resize: %+v", m.Result.LimitFailure)
+	}
+	view := collapseWhitespace(m.View())
+	if !strings.Contains(view, result.ByteCapWarning) {
+		t.Errorf("view missing byte-cap warning after navigation and resize:\n%s", m.View())
+	}
+	wantRow := "result value exceeds the 64 MiB v1 limit at row 7"
+	if !strings.Contains(view, wantRow) {
+		t.Errorf("view missing value-limit message after navigation and resize:\n%s", m.View())
+	}
+}
+
+// TestPageSettlementStaleMessageInert requires that a stale-identity
+// PageSettledMsg carrying different metadata does not mutate the retained
+// ByteTruncated or LimitFailure (Issue #72).
+func TestPageSettlementStaleMessageInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Settle a later page with metadata.
+	res := fullPageResult()
+	res.ByteTruncated = true
+	res.LimitFailure = &result.LimitFailure{Kind: result.KindValue, Position: 4}
+	m = pageDownWithResult(t, m, res)
+	wantByte := m.Result.ByteTruncated
+	wantLF := m.Result.LimitFailure
+
+	// A stale page message (wrong request ID) with different metadata must
+	// not mutate the view.
+	_, staleCmd := pageDown(m)
+	if staleCmd == nil {
+		t.Fatal("Page Down issued no command for stale message")
+	}
+	staleMsg := staleCmd().(PageSettledMsg)
+	staleMsg.Result = FirstPageResult{
+		Page:          fullPageResult().Page,
+		ByteTruncated: false,
+		LimitFailure:  &result.LimitFailure{Kind: result.KindPage, Position: 99},
+	}
+	// Deliberately use a wrong request ID so the message is stale.
+	staleMsg.RequestID = staleMsg.RequestID + 99999
+	final := asModel(m.Update(staleMsg))
+	if final.Result.ByteTruncated != wantByte {
+		t.Errorf("stale message changed ByteTruncated: got %v, want %v", final.Result.ByteTruncated, wantByte)
+	}
+	if final.Result.LimitFailure != wantLF {
+		t.Errorf("stale message changed LimitFailure: got %+v, want %+v", final.Result.LimitFailure, wantLF)
+	}
+}
+
+// TestPageSettlementCancelledMessageInert requires that a cancelled
+// PageSettledMsg carrying metadata does not mutate the retained
+// ByteTruncated or LimitFailure (Issue #72).
+func TestPageSettlementCancelledMessageInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Settle a later page with metadata.
+	res := fullPageResult()
+	res.ByteTruncated = true
+	res.LimitFailure = &result.LimitFailure{Kind: result.KindPage, Position: 6}
+	m = pageDownWithResult(t, m, res)
+	wantByte := m.Result.ByteTruncated
+	wantLF := m.Result.LimitFailure
+
+	// A cancelled page message with different metadata must not mutate.
+	_, cancelCmd := pageDown(m)
+	if cancelCmd == nil {
+		t.Fatal("Page Down issued no command for cancelled message")
+	}
+	cancelMsg := cancelCmd().(PageSettledMsg)
+	cancelMsg.Result = FirstPageResult{
+		Cancelled:     true,
+		ByteTruncated: false,
+		LimitFailure:  &result.LimitFailure{Kind: result.KindValue, Position: 99},
+	}
+	final := asModel(m.Update(cancelMsg))
+	if final.Result.ByteTruncated != wantByte {
+		t.Errorf("cancelled message changed ByteTruncated: got %v, want %v", final.Result.ByteTruncated, wantByte)
+	}
+	if final.Result.LimitFailure != wantLF {
+		t.Errorf("cancelled message changed LimitFailure: got %+v, want %+v", final.Result.LimitFailure, wantLF)
+	}
+}
+
+// TestPageSettlementDuplicateMessageInert requires that a duplicate
+// PageSettledMsg (same request ID applied twice) does not mutate the
+// retained metadata on the second application (Issue #72).
+func TestPageSettlementDuplicateMessageInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Settle a later page with metadata.
+	_, cmd := pageDown(m)
+	msg := cmd().(PageSettledMsg)
+	msg.Result = fullPageResult()
+	msg.Result.ByteTruncated = true
+	msg.Result.LimitFailure = &result.LimitFailure{Kind: result.KindValue, Position: 8}
+	settled, _ := m.Update(msg)
+	m = settled.(Model)
+	wantByte := m.Result.ByteTruncated
+	wantLF := m.Result.LimitFailure
+
+	// Apply the same message again: the pending slot is already cleared, so
+	// the duplicate must be inert.
+	dupFinal := asModel(m.Update(msg))
+	if dupFinal.Result.ByteTruncated != wantByte {
+		t.Errorf("duplicate message changed ByteTruncated: got %v, want %v", dupFinal.Result.ByteTruncated, wantByte)
+	}
+	if dupFinal.Result.LimitFailure != wantLF {
+		t.Errorf("duplicate message changed LimitFailure: got %+v, want %+v", dupFinal.Result.LimitFailure, wantLF)
+	}
+}
+
+// TestPageSettlementWrongGenerationInert requires that a wrong-generation
+// PageSettledMsg carrying metadata does not mutate the retained
+// ByteTruncated or LimitFailure (Issue #72).
+func TestPageSettlementWrongGenerationInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Settle a later page with metadata.
+	res := fullPageResult()
+	res.ByteTruncated = true
+	res.LimitFailure = &result.LimitFailure{Kind: result.KindPage, Position: 11}
+	m = pageDownWithResult(t, m, res)
+	wantByte := m.Result.ByteTruncated
+	wantLF := m.Result.LimitFailure
+
+	// A page message with a wrong viewport generation must not mutate.
+	_, genCmd := pageDown(m)
+	if genCmd == nil {
+		t.Fatal("Page Down issued no command for wrong-generation test")
+	}
+	genMsg := genCmd().(PageSettledMsg)
+	genMsg.Result = FirstPageResult{
+		Page:          fullPageResult().Page,
+		ByteTruncated: false,
+		LimitFailure:  &result.LimitFailure{Kind: result.KindValue, Position: 99},
+	}
+	genMsg.Generation = genMsg.Generation + 99999
+	final := asModel(m.Update(genMsg))
+	if final.Result.ByteTruncated != wantByte {
+		t.Errorf("wrong-generation message changed ByteTruncated: got %v, want %v", final.Result.ByteTruncated, wantByte)
+	}
+	if final.Result.LimitFailure != wantLF {
+		t.Errorf("wrong-generation message changed LimitFailure: got %+v, want %+v", final.Result.LimitFailure, wantLF)
+	}
+}
+
+// TestPageSettlementOrdinaryErrorPreservesMetadata requires that an ordinary
+// later-page error (Err set, no LimitFailure) preserves the prior page's
+// display while updating retained metadata — byte truncation is ORed with
+// the incoming fact so a true value is never lost (Issue #72 AC3).
+func TestPageSettlementOrdinaryErrorPreservesMetadata(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Settle a later page with byte truncation.
+	res := fullPageResult()
+	res.ByteTruncated = true
+	m = pageDownWithResult(t, m, res)
+	if !m.Result.ByteTruncated {
+		t.Fatal("first later page did not retain byte truncation")
+	}
+	wantPage := m.Result.Page
+
+	// A later page fails with an ordinary error: the previous page stays
+	// displayed and byte truncation persists.
+	errRes := FirstPageResult{Err: contextErr()}
+	m = pageDownWithResult(t, m, errRes)
+	if m.Result.Page != wantPage {
+		t.Error("ordinary error replaced the displayed page")
+	}
+	if !m.Result.ByteTruncated {
+		t.Error("ordinary error lost byte truncation")
 	}
 }

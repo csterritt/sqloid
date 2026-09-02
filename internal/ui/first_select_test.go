@@ -13,6 +13,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ import (
 
 	"github.com/chris/sqloid/internal/history"
 	"github.com/chris/sqloid/internal/result"
+	"github.com/chris/sqloid/internal/resultcache"
 	"github.com/chris/sqloid/internal/schema"
 )
 
@@ -31,6 +33,11 @@ type fakeSelectExecutor struct {
 	calls  int
 	page   *result.Page
 	err    error
+	// byteTruncated and limitFailure carry Issue #31/#72 settlement
+	// metadata through the real FirstPageResult path so tests never
+	// assign ResultView fields directly.
+	byteTruncated bool
+	limitFailure  *result.LimitFailure
 }
 
 func (f *fakeSelectExecutor) selectPage(ctx context.Context, sql string, params []any) FirstPageResult {
@@ -40,7 +47,11 @@ func (f *fakeSelectExecutor) selectPage(ctx context.Context, sql string, params 
 	if f.err != nil {
 		return FirstPageResult{Err: f.err}
 	}
-	return FirstPageResult{Page: f.page}
+	return FirstPageResult{
+		Page:          f.page,
+		ByteTruncated: f.byteTruncated,
+		LimitFailure:  f.limitFailure,
+	}
 }
 
 // firstSelectModel wires a runnable SELECT model with the validation fakes
@@ -211,5 +222,288 @@ func TestFailedValidationRunsNoExecutionOrHistory(t *testing.T) {
 	}
 	if exec.calls != 0 {
 		t.Errorf("failed validation ran the executor %d times", exec.calls)
+	}
+}
+
+// settleFirstPageResult drives a first-page executor through validation and
+// execution start, then applies the settled SelectSettledMsg, returning the
+// final model. It follows the real identity/update path — no direct
+// ResultView mutation.
+func settleFirstPageResult(t *testing.T, exec *fakeSelectExecutor) Model {
+	t.Helper()
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+	settled := execCmd()
+	return asModel(execModel.Update(settled))
+}
+
+// TestFirstSelectRetainsByteTruncatedFromResult requires accepted first-page
+// settlement to copy FirstPageResult.ByteTruncated into ResultView and render
+// the exact shared 64 MiB warning (Issue #72 AC1).
+func TestFirstSelectRetainsByteTruncatedFromResult(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page:          threeRowPage(),
+		byteTruncated: true,
+	}
+	m := settleFirstPageResult(t, exec)
+	if m.Result == nil || !m.Result.ByteTruncated {
+		t.Fatal("settled first page did not retain ByteTruncated from FirstPageResult")
+	}
+	if got := m.View(); !strings.Contains(got, result.ByteCapWarning) {
+		t.Fatalf("view missing the shared byte-cap warning:\n%s", got)
+	}
+}
+
+// TestFirstSelectRetainsValueLimitFailure requires accepted first-page
+// settlement to copy a typed KindValue LimitFailure at a known one-based
+// position into ResultView and render the exact shared row-N message
+// (Issue #72 AC2).
+func TestFirstSelectRetainsValueLimitFailure(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page: threeRowPage(),
+		limitFailure: &result.LimitFailure{
+			Kind:     result.KindValue,
+			Position: 7,
+		},
+	}
+	m := settleFirstPageResult(t, exec)
+	if m.Result == nil || m.Result.LimitFailure == nil {
+		t.Fatal("settled first page did not retain the LimitFailure")
+	}
+	if m.Result.LimitFailure.Kind != result.KindValue {
+		t.Errorf("retained kind = %v, want KindValue", m.Result.LimitFailure.Kind)
+	}
+	if m.Result.LimitFailure.Position != 7 {
+		t.Errorf("retained position = %d, want 7", m.Result.LimitFailure.Position)
+	}
+	want := "result value exceeds the 64 MiB v1 limit at row 7"
+	if got := collapseWhitespace(m.View()); !strings.Contains(got, want) {
+		t.Fatalf("view missing exact value-limit message %q:\n%s", want, m.View())
+	}
+}
+
+// TestFirstSelectRetainsPageLimitFailure requires accepted first-page
+// settlement to copy a typed KindPage LimitFailure at a known one-based
+// position into ResultView and render the exact shared row-N message
+// (Issue #72 AC2).
+func TestFirstSelectRetainsPageLimitFailure(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page: threeRowPage(),
+		limitFailure: &result.LimitFailure{
+			Kind:     result.KindPage,
+			Position: 12,
+		},
+	}
+	m := settleFirstPageResult(t, exec)
+	if m.Result == nil || m.Result.LimitFailure == nil {
+		t.Fatal("settled first page did not retain the LimitFailure")
+	}
+	if m.Result.LimitFailure.Kind != result.KindPage {
+		t.Errorf("retained kind = %v, want KindPage", m.Result.LimitFailure.Kind)
+	}
+	if m.Result.LimitFailure.Position != 12 {
+		t.Errorf("retained position = %d, want 12", m.Result.LimitFailure.Position)
+	}
+	want := "result page exceeds the 64 MiB v1 limit at row 12"
+	if got := collapseWhitespace(m.View()); !strings.Contains(got, want) {
+		t.Fatalf("view missing exact page-limit message %q:\n%s", want, m.View())
+	}
+}
+
+// TestFirstSelectCacheDerivedByteTruncation requires that when the viewport
+// cache already records byte-cap truncation, accepted first-page settlement
+// ORs the cache-derived fact into ResultView.ByteTruncated even when the
+// incoming FirstPageResult.ByteTruncated flag is false (Issue #72 AC1 —
+// cache-derived truncation cannot be lost).
+func TestFirstSelectCacheDerivedByteTruncation(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page:          threeRowPage(),
+		byteTruncated: false,
+	}
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+
+	// Pre-seed the fresh viewport cache with content that triggers byte-cap
+	// eviction, simulating a cache state where TruncatedByByteCap is already
+	// true when the first page settles. Three 22 MiB rows exceed the 64 MiB
+	// envelope, so evict drops the low end and sets the persistent disclosure.
+	third := int(resultcache.MaxPayloadBytes/3) + 1
+	c := resultcache.New()
+	for i := int64(1); i <= 3; i++ {
+		page := resultcache.Page{
+			Start: resultcache.Position(i),
+			Rows: []resultcache.Row{{
+				Position: resultcache.Position(i),
+				Values:   []result.Value{result.NewBlob(make([]byte, third))},
+			}},
+		}
+		if accepted, _ := c.Merge(page, resultcache.Forward); !accepted {
+			t.Fatalf("pre-seed merge %d not accepted", i)
+		}
+	}
+	if !c.TruncatedByByteCap() {
+		t.Fatal("pre-seeded cache did not record byte-cap truncation")
+	}
+	execModel.viewportCache = c
+
+	settled := execCmd()
+	final := asModel(execModel.Update(settled))
+	if !final.viewportCache.TruncatedByByteCap() {
+		t.Fatal("viewport cache lost byte-cap truncation after first-page settlement")
+	}
+	if final.Result == nil || !final.Result.ByteTruncated {
+		t.Fatal("settled first page did not OR cache-derived byte truncation into ResultView")
+	}
+	if got := final.View(); !strings.Contains(got, result.ByteCapWarning) {
+		t.Fatalf("view missing the shared byte-cap warning after cache-derived truncation:\n%s", got)
+	}
+}
+
+// TestFirstSelectCancelledSettlementInert requires that a cancelled
+// first-page settlement carrying ByteTruncated and LimitFailure never
+// mutates ResultView — cancellation is fully inert at the response boundary
+// (Issue #72).
+func TestFirstSelectCancelledSettlementInert(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page:          threeRowPage(),
+		byteTruncated: true,
+		limitFailure:  &result.LimitFailure{Kind: result.KindValue, Position: 3},
+	}
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+
+	// Replace the settled message's result with a cancelled outcome that
+	// still carries metadata, proving the metadata cannot leak through.
+	settled := execCmd()
+	msg, ok := settled.(SelectSettledMsg)
+	if !ok {
+		t.Fatalf("executor command produced %T, want SelectSettledMsg", settled)
+	}
+	msg.Result = FirstPageResult{
+		Cancelled:     true,
+		ByteTruncated: true,
+		LimitFailure:  &result.LimitFailure{Kind: result.KindValue, Position: 3},
+	}
+	final := asModel(execModel.Update(msg))
+	if final.Result != nil {
+		t.Fatalf("cancelled settlement mutated ResultView: %+v", final.Result)
+	}
+}
+
+// TestFirstSelectStaleIdentitySettlementInert requires that a stale-identity
+// first-page settlement carrying ByteTruncated and LimitFailure never
+// mutates ResultView (Issue #72).
+func TestFirstSelectStaleIdentitySettlementInert(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page:          threeRowPage(),
+		byteTruncated: true,
+		limitFailure:  &result.LimitFailure{Kind: result.KindPage, Position: 5},
+	}
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+
+	// Drive a real settlement first to establish a ResultView.
+	realSettled := execCmd()
+	realMsg, ok := realSettled.(SelectSettledMsg)
+	if !ok {
+		t.Fatalf("executor command produced %T, want SelectSettledMsg", realSettled)
+	}
+	settled := asModel(execModel.Update(realMsg))
+	if settled.Result == nil {
+		t.Fatal("real settlement produced no ResultView")
+	}
+	wantByte := settled.Result.ByteTruncated
+	wantLF := settled.Result.LimitFailure
+
+	// A second settlement with the same request identity is stale: the
+	// tracker already consumed that role. It must not mutate ResultView,
+	// even if it carries different metadata.
+	staleMsg := realMsg
+	staleMsg.Result = FirstPageResult{
+		Page:          threeRowPage(),
+		ByteTruncated: false,
+		LimitFailure:  &result.LimitFailure{Kind: result.KindValue, Position: 99},
+	}
+	final := asModel(settled.Update(staleMsg))
+	if final.Result == nil {
+		t.Fatal("stale settlement cleared ResultView")
+	}
+	if final.Result.ByteTruncated != wantByte {
+		t.Errorf("stale settlement changed ByteTruncated: got %v, want %v", final.Result.ByteTruncated, wantByte)
+	}
+	if final.Result.LimitFailure != wantLF {
+		t.Errorf("stale settlement changed LimitFailure: got %+v, want %+v", final.Result.LimitFailure, wantLF)
+	}
+}
+
+// TestFirstSelectFreshExecutionReplacesMetadata requires that starting a
+// fresh execution after a metadata-carrying first page replaces the old
+// ResultView outright, including its ByteTruncated and LimitFailure
+// (Issue #72).
+func TestFirstSelectFreshExecutionReplacesMetadata(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page:          threeRowPage(),
+		byteTruncated: true,
+		limitFailure:  &result.LimitFailure{Kind: result.KindValue, Position: 4},
+	}
+	m := settleFirstPageResult(t, exec)
+	if m.Result == nil || !m.Result.ByteTruncated || m.Result.LimitFailure == nil {
+		t.Fatal("initial settlement did not retain metadata")
+	}
+
+	// Start a fresh execution with no metadata and settle it.
+	exec.byteTruncated = false
+	exec.limitFailure = nil
+	exec.calls = 0
+	startCmd := m.executionRoute()
+	if startCmd == nil {
+		t.Fatal("fresh execution route refused to start")
+	}
+	startMsg, ok := startCmd().(ExecutionStartedMsg)
+	if !ok {
+		t.Fatalf("fresh route produced %T, want ExecutionStartedMsg", startCmd())
+	}
+	afterStart, execCmd := m.Update(startMsg)
+	started := afterStart.(Model)
+	if execCmd == nil {
+		t.Fatal("fresh execution start produced no executor command")
+	}
+	settled := execCmd()
+	final := asModel(started.Update(settled))
+	if final.Result == nil {
+		t.Fatal("fresh execution produced no ResultView")
+	}
+	if final.Result.ByteTruncated {
+		t.Error("fresh execution retained stale ByteTruncated from the previous execution")
+	}
+	if final.Result.LimitFailure != nil {
+		t.Errorf("fresh execution retained stale LimitFailure: %+v", final.Result.LimitFailure)
+	}
+}
+
+// TestFirstSelectRetainsByteTruncatedAndLimitFailureTogether requires that
+// accepted first-page settlement retains both ByteTruncated and
+// LimitFailure simultaneously and renders both the 64 MiB warning and the
+// exact row-N diagnostic (Issue #72 AC1–AC2).
+func TestFirstSelectRetainsByteTruncatedAndLimitFailureTogether(t *testing.T) {
+	exec := &fakeSelectExecutor{
+		page: threeRowPage(),
+		limitFailure: &result.LimitFailure{
+			Kind:     result.KindPage,
+			Position: 9,
+		},
+		byteTruncated: true,
+	}
+	m := settleFirstPageResult(t, exec)
+	if m.Result == nil || !m.Result.ByteTruncated || m.Result.LimitFailure == nil {
+		t.Fatalf("settled first page lost metadata: %+v", m.Result)
+	}
+	view := collapseWhitespace(m.View())
+	if !strings.Contains(view, result.ByteCapWarning) {
+		t.Fatalf("view missing the shared byte-cap warning:\n%s", m.View())
+	}
+	wantRow := "result page exceeds the 64 MiB v1 limit at row " + strconv.FormatInt(9, 10)
+	if !strings.Contains(view, wantRow) {
+		t.Fatalf("view missing exact page-limit message %q:\n%s", wantRow, m.View())
 	}
 }
