@@ -212,7 +212,7 @@ func TestLaterPageErrorFinalizesFailedSnapshot(t *testing.T) {
 	}
 	entry := m.ResultHistory.Entries()[0]
 	if entry.Kind != history.KindTabular || entry.Metadata.Outcome != history.OutcomeFailed ||
-		entry.Metadata.Reason != "disk I/O error" || len(entry.Rows) != 3 {
+		entry.Metadata.Reason != "disk I/O error" || len(entry.Rows) != defaultPageRows {
 		t.Fatalf("later-page failure snapshot wrong: kind=%v outcome=%v rows=%d",
 			entry.Kind, entry.Metadata.Outcome, len(entry.Rows))
 	}

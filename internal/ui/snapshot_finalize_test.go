@@ -6,6 +6,7 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/chris/sqloid/internal/history"
@@ -148,5 +149,57 @@ func TestFinalizationMetadataIndependentOfLaterNavigation(t *testing.T) {
 	}
 	if got := history.Classify(meta, history.TraversalFacts{CountWorkFinished: true, PageWorkFinished: true}); got != (history.Completeness{Complete: true}) {
 		t.Errorf("finalized classification changed: %v", got)
+	}
+}
+
+// TestFinalizationEmptyFirstPageCompleteWithCountUnavailable proves that
+// an empty observed first page with count unavailable classifies complete
+// in the finalized path: both endpoints are established at position 0 and
+// ObservedShortFinalPage feeds the high endpoint (Issue #73 AC3).
+func TestFinalizationEmptyFirstPageCompleteWithCountUnavailable(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(0)}
+	count := &fakeCountExecutor{err: errors.New("count failed")}
+	m := firstSelectModel(exec)
+	m.Count = count.count
+	m.ResultHistory = history.NewResultStore()
+	execModel, execCmd := driveToExecutionStart(t, m)
+	m = settleFirstPage(t, execModel, execCmd)
+	if !m.pageExhausted {
+		t.Fatal("empty first page did not set pageExhausted")
+	}
+	// Finalize through the real seam (entering result history).
+	m.enterResultHistory()
+	entries := m.ResultHistory.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("finalization produced %d entries, want 1", len(entries))
+	}
+	if !entries[0].Completeness.Complete {
+		t.Errorf("empty first page finalized completeness = %v, want Complete", entries[0].Completeness)
+	}
+}
+
+// TestFinalizationShortFirstPageCompleteWithCountUnavailable proves that
+// a short nonempty observed first page with count unavailable classifies
+// complete in the finalized path: the retained range establishes both
+// endpoints and ObservedShortFinalPage feeds the high endpoint
+// (Issue #73 AC3).
+func TestFinalizationShortFirstPageCompleteWithCountUnavailable(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(3)}
+	count := &fakeCountExecutor{err: errors.New("count failed")}
+	m := firstSelectModel(exec)
+	m.Count = count.count
+	m.ResultHistory = history.NewResultStore()
+	execModel, execCmd := driveToExecutionStart(t, m)
+	m = settleFirstPage(t, execModel, execCmd)
+	if !m.pageExhausted {
+		t.Fatal("short first page did not set pageExhausted")
+	}
+	m.enterResultHistory()
+	entries := m.ResultHistory.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("finalization produced %d entries, want 1", len(entries))
+	}
+	if !entries[0].Completeness.Complete {
+		t.Errorf("short first page finalized completeness = %v, want Complete", entries[0].Completeness)
 	}
 }

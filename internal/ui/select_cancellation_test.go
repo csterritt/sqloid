@@ -257,7 +257,7 @@ func TestCtrlWCancelsFirstPageAndCountUntilAllSettle(t *testing.T) {
 	if healthy.calls != 1 {
 		t.Fatalf("replacement executor calls = %d, want 1", healthy.calls)
 	}
-	if final.Result == nil || len(final.Result.Page.Rows) != 3 {
+	if final.Result == nil || len(final.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("healthy replacement execution did not apply: %+v", final.Result)
 	}
 }
@@ -303,7 +303,7 @@ func TestCtrlWCancelsCountOnlyScope(t *testing.T) {
 	if got := countStateHeader(m2); got != "Counting rows…" {
 		t.Errorf("cancelled count header = %q, want the pending wording", got)
 	}
-	if m2.Result == nil || len(m2.Result.Page.Rows) != 3 {
+	if m2.Result == nil || len(m2.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("count-only cancellation disturbed rows: %+v", m2.Result)
 	}
 }

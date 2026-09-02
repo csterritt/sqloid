@@ -244,6 +244,7 @@ func (m *Model) resetPagingState() {
 	m.pageRequestGeneration = 0
 	m.pageRequestCancel = nil // Issue #28: no page request owns a handle yet
 	m.pageExhausted = false
+	m.firstPageRequestedSize = 0 // Issue #73: cleared for the fresh execution
 	// Issue #29: a fresh execution displays its first page from its first
 	// whole column again.
 	m.firstColumn = 0

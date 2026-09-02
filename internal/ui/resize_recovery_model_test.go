@@ -20,6 +20,8 @@ package ui
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -103,8 +105,8 @@ func TestResizeIdlePreservesPriorFirstRowWithoutRequest(t *testing.T) {
 	if next.pageOffset != 0 {
 		t.Fatalf("pageOffset = %d, want the exact prior first row preserved at offset 0", next.pageOffset)
 	}
-	if !strings.Contains(next.View(), "rows 1-3") {
-		t.Errorf("preserved view missing exact prior range rows 1-3: %q", next.View())
+	if !strings.Contains(next.View(), "rows 1-11") {
+		t.Errorf("preserved view missing exact prior range rows 1-11: %q", next.View())
 	}
 	if next.viewportGen == genBefore {
 		t.Error("resize did not advance the viewport generation")
@@ -142,20 +144,21 @@ func TestResizeIdleClampsToLowRetainedEndpointAfterEviction(t *testing.T) {
 
 func TestResizeIdleClampsToKnownHighEndpointWithoutRequest(t *testing.T) {
 	tests := []struct {
-		name    string
-		short   bool
-		countOK bool
-		count   int64
+		name     string
+		short    bool
+		countOK  bool
+		count    int64
+		clampRow int
 	}{
-		{name: "established short final page", short: true},
-		{name: "known count within retained end", countOK: true, count: 3},
+		{name: "established short final page", short: true, clampRow: defaultPageRows},
+		{name: "known count within retained end", countOK: true, count: 3, clampRow: defaultPageRows},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			exec := &fakeSelectExecutor{page: threeRowPage()}
 			pageExec := &fakePageExecutor{rowsShown: 11}
 			m := settledFirstPage(t, exec, pageExec)
-			// Fixture: the prior row (51) sits above the retained end (3)
+			// Fixture: the prior row (51) sits above the retained end
 			// while the high boundary is established.
 			m = fixtureMidResult(m, 51)
 			m.pageExhausted = tt.short
@@ -167,8 +170,9 @@ func TestResizeIdleClampsToKnownHighEndpointWithoutRequest(t *testing.T) {
 			if cmd != nil {
 				t.Fatalf("%s: clamp-high recovery issued a request", tt.name)
 			}
-			if !strings.Contains(next.View(), "rows 3-3") {
-				t.Errorf("%s: clamp-high view missing the retained end row 3: %q", tt.name, next.View())
+			wantRange := fmt.Sprintf("rows %d-%d", tt.clampRow, tt.clampRow)
+			if !strings.Contains(next.View(), wantRange) {
+				t.Errorf("%s: clamp-high view missing the retained end row %d: %q", tt.name, tt.clampRow, next.View())
 			}
 			if !next.pageExhausted {
 				t.Errorf("%s: clamp-high recovery did not mark the exhausted boundary", tt.name)
@@ -465,7 +469,7 @@ func TestTooSmallResizeSuspendsWithoutRecoveryAndRestoresRecovery(t *testing.T) 
 		t.Fatal("Page Down after restoration issued no command")
 	}
 	pageCmd()
-	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 15 OFFSET 3`
+	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 15 OFFSET 11`
 	if got := pageExec.sqls[len(pageExec.sqls)-1]; got != want {
 		t.Errorf("page SQL = %q, want the restored 15-row page size %q", got, want)
 	}
@@ -486,11 +490,16 @@ func TestResizeRecomputesExactPageSizeForAdjacentRequests(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			exec := &fakeSelectExecutor{page: threeRowPage()}
+			// Use a large enough first page to fill any initial layout so
+			// pageExhausted is not set and Page Down remains available.
+			exec := &fakeSelectExecutor{page: firstPageRows(50)}
 			pageExec := &fakePageExecutor{rowsShown: 11}
 			m0 := sized(pagingModel(exec, pageExec), tt.firstW, tt.firstH).(Model)
 			execModel, execCmd := driveToExecutionStart(t, m0)
 			m := settleFirstPage(t, execModel, execCmd)
+			// The next Page Down offset matches the new layout's page size
+			// after resize, regardless of the initial page size.
+			newPageRows := CalculateLayout(tt.secondH, m.Fields).PageRows
 
 			// The recovery decision itself issues nothing locally.
 			next, resizeCmd := pressKey(m, tea.WindowSizeMsg{Width: tt.secondW, Height: tt.secondH})
@@ -503,7 +512,7 @@ func TestResizeRecomputesExactPageSizeForAdjacentRequests(t *testing.T) {
 			}
 			pageCmd()
 			want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT ` +
-				tt.wantLimit + ` OFFSET 3`
+				tt.wantLimit + ` OFFSET ` + strconv.Itoa(newPageRows)
 			if pageExec.sqls[len(pageExec.sqls)-1] != want {
 				t.Errorf("%s: page SQL = %q, want %q", tt.name, pageExec.sqls[len(pageExec.sqls)-1], want)
 			}
@@ -516,8 +525,8 @@ func TestNewExecutionReplacesCacheSoFirstPageMergesFresh(t *testing.T) {
 	exec := &fakeSelectExecutor{page: threeRowPage()}
 	pageExec := &fakePageExecutor{rowsShown: 11}
 	m := settledFirstPage(t, exec, pageExec)
-	if got := m.viewportCache.Len(); got != 3 {
-		t.Fatalf("first cache length = %d, want 3", got)
+	if got := m.viewportCache.Len(); got != defaultPageRows {
+		t.Fatalf("first cache length = %d, want %d", got, defaultPageRows)
 	}
 
 	// A second execution's smaller first page must not merge into the stale

@@ -98,7 +98,7 @@ func pendingPhases() []pendingPhase {
 		}, SelectRunningIndicator},
 		{"later page pending", func(t *testing.T) Model {
 			return pendingLaterPage(t,
-				&fakeSelectExecutor{page: threeRowPage()},
+				&fakeSelectExecutor{page: firstPageRows(defaultPageRows)},
 				&fakePageExecutor{rowsShown: 11})
 		}, PageLoadingIndicator},
 		{"count pending", func(t *testing.T) Model {
@@ -174,7 +174,7 @@ func TestInFlightGateBlocksActionsForEveryPendingPhase(t *testing.T) {
 func TestInFlightGateEnterNeverStacksRequests(t *testing.T) {
 	// First-page pending: the executor runs only when its command is
 	// invoked, so zero recorded calls proves no stacked dispatch.
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	m := pendingFirstPage(t, exec)
 	if exec.calls != 0 {
 		t.Fatalf("executor ran before its command was invoked: %d calls", exec.calls)

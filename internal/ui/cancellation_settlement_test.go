@@ -29,7 +29,7 @@ func cancelledPageClassifies(msg PageSettledMsg) PageSettledMsg {
 // page request start.
 func TestCancelledLaterPageWinsOverLateSuccess(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	inFlightModel, pendingCmd := pageDown(m)
 	inFlight := pendingCmd().(PageSettledMsg)
@@ -44,7 +44,7 @@ func TestCancelledLaterPageWinsOverLateSuccess(t *testing.T) {
 	if settled.pagePending {
 		t.Error("cancelled predecessor did not settle its pending guard")
 	}
-	if settled.Result == nil || len(settled.Result.Page.Rows) != 3 || settled.Result.Offset != 0 {
+	if settled.Result == nil || len(settled.Result.Page.Rows) != defaultPageRows || settled.Result.Offset != 0 {
 		t.Fatalf("cancelled later page mutated rows/range: %+v", settled.Result)
 	}
 	if settled.pageOffset != m.pageOffset || settled.pageExhausted != m.pageExhausted {
@@ -100,7 +100,7 @@ func TestCancelledCountStaysInert(t *testing.T) {
 	if got := countStateHeader(after); got != "Counting rows…" {
 		t.Errorf("cancelled count header = %q, want the pending wording", got)
 	}
-	if after.Result == nil || len(after.Result.Page.Rows) != 3 {
+	if after.Result == nil || len(after.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("cancelled count disturbed rows: %+v", after.Result)
 	}
 }
@@ -123,14 +123,14 @@ func TestLateCancelledResponseAfterNewerExecutionStaysInert(t *testing.T) {
 	before := newer
 
 	afterPage := apply(newer, oldPage)
-	if afterPage.Result == nil || len(afterPage.Result.Page.Rows) != 3 {
+	if afterPage.Result == nil || len(afterPage.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("old cancelled page disturbed the newer result: %+v", afterPage.Result)
 	}
 	afterCount := apply(afterPage, oldCount)
 	if got := countStateHeader(afterCount); got != "Counting rows…" {
 		t.Errorf("old cancelled count header = %q, want the newer execution's pending wording", got)
 	}
-	if afterCount.Result == nil || len(afterCount.Result.Page.Rows) != 3 {
+	if afterCount.Result == nil || len(afterCount.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("old cancelled count disturbed the newer result: %+v", afterCount.Result)
 	}
 	if afterCount.pagePending != before.pagePending || afterCount.pageOffset != before.pageOffset {
@@ -154,7 +154,7 @@ func TestLateErrorAfterNewerExecutionStaysInert(t *testing.T) {
 	newer = apply(newer, newerPage)
 
 	after := apply(apply(newer, oldPage), oldCount)
-	if after.Result == nil || after.Result.Err != nil || len(after.Result.Page.Rows) != 3 {
+	if after.Result == nil || after.Result.Err != nil || len(after.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("old errors disturbed the newer result: %+v", after.Result)
 	}
 	if got := countStateHeader(after); got != "Counting rows…" {
@@ -167,7 +167,7 @@ func TestLateErrorAfterNewerExecutionStaysInert(t *testing.T) {
 // request is pending, without releasing the page's pending guard, and a
 // pending page still blocks replacement until it settles.
 func TestCountSettlesIndependentlyWhilePagePending(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowFirstPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	count := &fakeCountExecutor{total: 3}
 	m := concurrentCountModel(exec, count)
 	m.Page = (&fakePageExecutor{rowsShown: 3}).page
@@ -211,7 +211,7 @@ func TestCountSettlesIndependentlyWhilePagePending(t *testing.T) {
 // settlement (lease ownership itself is proven in internal/connection).
 func TestReplacementWaitsForCancelledPredecessorOnNewerExecution(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	_, pendingCmd := pageDown(m)
 	oldPage := pendingCmd().(PageSettledMsg)
@@ -241,7 +241,7 @@ func TestReplacementWaitsForCancelledPredecessorOnNewerExecution(t *testing.T) {
 		t.Errorf("newer count header = %q, want exactly %q (the fixture count's settled total)", got, "Result count: 0")
 	}
 	afterPage := apply(afterCount, newerPage)
-	if afterPage.Result == nil || len(afterPage.Result.Page.Rows) != 3 {
+	if afterPage.Result == nil || len(afterPage.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("newer first page missing after count-first settlement: %+v", afterPage.Result)
 	}
 }

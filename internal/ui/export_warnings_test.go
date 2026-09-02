@@ -13,6 +13,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -147,7 +148,7 @@ func TestExportWarningFlowBeforeDestinationSelection(t *testing.T) {
 			name:    "active opener with partial truncation",
 			warning: "Result is partial",
 			open: func(t *testing.T) Model {
-				m := resultModel(t, threeRowPage(), nil)
+				m := resultModel(t, firstPageRows(defaultPageRows), nil)
 				m.Result.ByteTruncated = true
 				return m
 			},
@@ -315,4 +316,50 @@ func boolStr(b bool) string {
 		return "t"
 	}
 	return "f"
+}
+
+// TestActiveExportShortFirstPageCompleteWithCountUnavailable proves that
+// active export of a short nonempty first page with count unavailable
+// classifies complete: pageExhausted feeds ObservedShortFinalPage and both
+// endpoints are established (Issue #73 AC3).
+func TestActiveExportShortFirstPageCompleteWithCountUnavailable(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(3)}
+	count := &fakeCountExecutor{err: errors.New("count failed")}
+	m := firstSelectModel(exec)
+	m.Count = count.count
+	execModel, execCmd := driveToExecutionStart(t, m)
+	m = settleFirstPage(t, execModel, execCmd)
+	if !m.pageExhausted {
+		t.Fatal("short first page did not set pageExhausted")
+	}
+	sel := m.exportSelection()
+	if !sel.tabular {
+		t.Fatal("active export selection not tabular")
+	}
+	if !sel.comp.Complete {
+		t.Errorf("active export completeness = %v, want Complete (short first page, count unavailable)", sel.comp)
+	}
+}
+
+// TestActiveExportEmptyFirstPageCompleteWithCountUnavailable proves that
+// active export of an empty first page with count unavailable classifies
+// complete: pageExhausted feeds ObservedShortFinalPage and both endpoints
+// are established at position 0 (Issue #73 AC3).
+func TestActiveExportEmptyFirstPageCompleteWithCountUnavailable(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(0)}
+	count := &fakeCountExecutor{err: errors.New("count failed")}
+	m := firstSelectModel(exec)
+	m.Count = count.count
+	execModel, execCmd := driveToExecutionStart(t, m)
+	m = settleFirstPage(t, execModel, execCmd)
+	if !m.pageExhausted {
+		t.Fatal("empty first page did not set pageExhausted")
+	}
+	sel := m.exportSelection()
+	if !sel.tabular {
+		t.Fatal("active export selection not tabular")
+	}
+	if !sel.comp.Complete {
+		t.Errorf("active export completeness = %v, want Complete (empty first page, count unavailable)", sel.comp)
+	}
 }

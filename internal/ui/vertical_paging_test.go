@@ -101,11 +101,11 @@ func pagingModel(exec *fakeSelectExecutor, pageExec *fakePageExecutor) Model {
 	return m
 }
 
-// threeRowPage returns a first-page fixture displaying three rows.
+// threeRowPage returns a first-page fixture displaying enough rows to fill
+// the default 80x24 layout so the first page does not establish the high
+// endpoint (Issue #73). The rows carry sequential integer ids.
 func threeRowPage() *result.Page {
-	return &result.Page{Columns: []string{"id"}, Rows: [][]result.Value{
-		{result.NewInteger(1)}, {result.NewInteger(2)}, {result.NewInteger(3)},
-	}}
+	return firstPageRows(defaultPageRows)
 }
 
 // settleFirstPage applies the page and count completions of one execution
@@ -162,7 +162,7 @@ func pageDown(m Model) (Model, tea.Cmd) { return pressKey(m, tea.KeyMsg{Type: te
 func pageUp(m Model) (Model, tea.Cmd)   { return pressKey(m, tea.KeyMsg{Type: tea.KeyPgUp}) }
 
 func TestPageDownRequestsAdjacentRange(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 11}
 	m := settledFirstPage(t, exec, pageExec)
 
@@ -177,7 +177,7 @@ func TestPageDownRequestsAdjacentRange(t *testing.T) {
 	if pageExec.issued != 1 {
 		t.Fatalf("page executor ran %d times, want exactly one request", pageExec.issued)
 	}
-	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 11 OFFSET 3`
+	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 11 OFFSET 11`
 	if pageExec.sqls[0] != want {
 		t.Errorf("page SQL = %q, want %q", pageExec.sqls[0], want)
 	}
@@ -190,13 +190,13 @@ func TestPageDownRequestsAdjacentRange(t *testing.T) {
 	}
 
 	settled := settlePage(t, next, cmd)
-	if !strings.Contains(settled.View(), "rows 4-14") {
-		t.Errorf("settled Page Down view missing absolute range rows 4-14: %q", settled.View())
+	if !strings.Contains(settled.View(), "rows 12-22") {
+		t.Errorf("settled Page Down view missing absolute range rows 12-22: %q", settled.View())
 	}
 }
 
 func TestPageUpSuppressedAtLowBoundary(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 11}
 	m := settledFirstPage(t, exec, pageExec)
 
@@ -210,11 +210,11 @@ func TestPageUpSuppressedAtLowBoundary(t *testing.T) {
 }
 
 func TestPageUpRequestsAdjacentBackwardRange(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 11, honorLimit: true}
 	m := settledFirstPage(t, exec, pageExec)
 
-	// Page forward to offset 3, then back: the request is the exact
+	// Page forward to offset 11, then back: the request is the exact
 	// backwards range of 11 rows ending at the displayed start.
 	m, fwdCmd := pageDown(m)
 	settled := settlePage(t, m, fwdCmd)
@@ -224,18 +224,18 @@ func TestPageUpRequestsAdjacentBackwardRange(t *testing.T) {
 		t.Fatal("Page Up below the low boundary issued no command")
 	}
 	cmd()
-	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 3 OFFSET 0`
+	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 11 OFFSET 0`
 	if pageExec.sqls[1] != want {
 		t.Errorf("page up SQL = %q, want %q", pageExec.sqls[1], want)
 	}
 	settled = settlePage(t, next, cmd)
-	if !strings.Contains(settled.View(), "rows 1-3") {
-		t.Errorf("settled Page Up view missing absolute range rows 1-3: %q", settled.View())
+	if !strings.Contains(settled.View(), "rows 1-11") {
+		t.Errorf("settled Page Up view missing absolute range rows 1-11: %q", settled.View())
 	}
 }
 
 func TestPageDownStopsAtHighBoundary(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 2} // shorter than any page size
 	m := settledFirstPage(t, exec, pageExec)
 
@@ -276,7 +276,7 @@ func TestPageDownRespectsUserLimitBoundary(t *testing.T) {
 }
 
 func TestRepeatedAndOppositeKeysSuppressedWhilePending(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 11}
 	m := settledFirstPage(t, exec, pageExec)
 
@@ -306,7 +306,7 @@ func TestRepeatedAndOppositeKeysSuppressedWhilePending(t *testing.T) {
 
 	// The request keeps its exact range: the executor saw only the original
 	// offset.
-	if want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 11 OFFSET 3`; pageExec.sqls[0] != want {
+	if want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 11 OFFSET 11`; pageExec.sqls[0] != want {
 		t.Errorf("page SQL = %q, want preserved %q", pageExec.sqls[0], want)
 	}
 
@@ -317,7 +317,7 @@ func TestRepeatedAndOppositeKeysSuppressedWhilePending(t *testing.T) {
 }
 
 func TestHorizontalMovementStaysLocalWhilePending(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 11}
 	m := settledFirstPage(t, exec, pageExec)
 
@@ -338,7 +338,7 @@ func TestHorizontalMovementStaysLocalWhilePending(t *testing.T) {
 }
 
 func TestCountCoexistsWithPendingPage(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	pageExec := &fakePageExecutor{rowsShown: 11}
 	count := &fakeCountExecutor{total: 42}
 	m := pagingModel(exec, pageExec)
@@ -399,7 +399,7 @@ func TestPageSizeEqualsCompleteVisibleRows(t *testing.T) {
 			}
 			cmd()
 			want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT ` +
-				strconv.Itoa(tt.pageRows) + ` OFFSET 3`
+				strconv.Itoa(tt.pageRows) + ` OFFSET 11`
 			if pageExec.sqls[len(pageExec.sqls)-1] != want {
 				t.Errorf("page SQL = %q, want LIMIT exactly %d complete visible rows",
 					pageExec.sqls[len(pageExec.sqls)-1], tt.pageRows)
@@ -419,7 +419,7 @@ func TestPageSizeAfterResizeUsesNewValue(t *testing.T) {
 		t.Fatal("Page Down after resize issued no command")
 	}
 	cmd()
-	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 15 OFFSET 3`
+	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 15 OFFSET 11`
 	if pageExec.sqls[len(pageExec.sqls)-1] != want {
 		t.Errorf("page SQL = %q, want the resized 15 complete visible rows", pageExec.sqls[len(pageExec.sqls)-1])
 	}
@@ -470,8 +470,8 @@ func TestPageExecutorReceivesOffsetMatchingPageSQL(t *testing.T) {
 		if pageExec.offsets[0] != sqlOffset {
 			t.Fatalf("executor offset = %d, want PageSQL OFFSET %d", pageExec.offsets[0], sqlOffset)
 		}
-		if pageExec.offsets[0] != 3 {
-			t.Fatalf("forward offset = %d, want 3 (after 3 displayed rows)", pageExec.offsets[0])
+		if pageExec.offsets[0] != 11 {
+			t.Fatalf("forward offset = %d, want 11 (after 11 displayed rows)", pageExec.offsets[0])
 		}
 	})
 
@@ -480,7 +480,7 @@ func TestPageExecutorReceivesOffsetMatchingPageSQL(t *testing.T) {
 		pageExec := &fakePageExecutor{rowsShown: 11, honorLimit: true}
 		m := settledFirstPage(t, exec, pageExec)
 
-		// Page forward to offset 3, then back.
+		// Page forward to offset 11, then back.
 		m, fwdCmd := pageDown(m)
 		settled := settlePage(t, m, fwdCmd)
 
@@ -503,7 +503,7 @@ func TestPageExecutorReceivesOffsetMatchingPageSQL(t *testing.T) {
 		pageExec := &fakePageExecutor{rowsShown: 11, honorLimit: true}
 		m := settledFirstPage(t, exec, pageExec)
 
-		// Page forward twice: first to offset 3, then to offset 14.
+		// Page forward twice: first to offset 11, then to offset 22.
 		m, fwdCmd := pageDown(m)
 		settled := settlePage(t, m, fwdCmd)
 
@@ -517,8 +517,8 @@ func TestPageExecutorReceivesOffsetMatchingPageSQL(t *testing.T) {
 			t.Fatalf("second forward executor offset = %d, want PageSQL OFFSET %d",
 				pageExec.offsets[len(pageExec.offsets)-1], sqlOffset)
 		}
-		if pageExec.offsets[len(pageExec.offsets)-1] != 14 {
-			t.Fatalf("second forward offset = %d, want 14 (3 + 11 displayed)", pageExec.offsets[len(pageExec.offsets)-1])
+		if pageExec.offsets[len(pageExec.offsets)-1] != 22 {
+			t.Fatalf("second forward offset = %d, want 22 (11 + 11 displayed)", pageExec.offsets[len(pageExec.offsets)-1])
 		}
 	})
 
@@ -527,7 +527,7 @@ func TestPageExecutorReceivesOffsetMatchingPageSQL(t *testing.T) {
 		pageExec := &fakePageExecutor{rowsShown: 11}
 		m := settledFirstPage(t, exec, pageExec)
 
-		// Page forward to offset 3, then resize triggers a refetch.
+		// Page forward to offset 11, then resize triggers a refetch.
 		m, fwdCmd := pageDown(m)
 		settled := settlePage(t, m, fwdCmd)
 
@@ -557,9 +557,9 @@ func TestPageExecutorValueLimitFailureShowsAbsoluteRow(t *testing.T) {
 		offset      int64
 		relativeIdx int64
 	}{
-		{"first relative row at offset 3", 3, 0},
-		{"second relative row at offset 3", 3, 1},
-		{"third relative row at offset 14", 14, 2},
+		{"first relative row at offset 11", 11, 0},
+		{"second relative row at offset 11", 11, 1},
+		{"third relative row at offset 22", 22, 2},
 	}
 
 	for _, tc := range cases {
@@ -574,15 +574,15 @@ func TestPageExecutorValueLimitFailureShowsAbsoluteRow(t *testing.T) {
 			}
 			m := settledFirstPage(t, exec, pageExec)
 
-			// Page forward to the target offset. The first page shows 3 rows
-			// (offset 0); one page down reaches offset 3, and a second
-			// reaches offset 14. The fake returns the limit failure when the
+			// Page forward to the target offset. The first page shows 11 rows
+			// (offset 0); one page down reaches offset 11, and a second
+			// reaches offset 22. The fake returns the limit failure when the
 			// offset matches limitFailureOffset, so the final page down
 			// produces the failure.
 			cur := m
-			pageDowns := 1 // always at least one to reach offset 3
-			if tc.offset > 3 {
-				pageDowns = 2 // second page down reaches offset 14
+			pageDowns := 1 // always at least one to reach offset 11
+			if tc.offset > 11 {
+				pageDowns = 2 // second page down reaches offset 22
 			}
 			for i := 0; i < pageDowns; i++ {
 				next, cmd := pageDown(cur)
@@ -622,31 +622,31 @@ func TestPageExecutorPageLimitFailureShowsAbsoluteRow(t *testing.T) {
 		honorLimit:         true,
 		limitFailure:       &result.LimitFailure{Kind: result.KindPage},
 		limitFailureAt:     2,  // third page-relative row
-		limitFailureOffset: 14, // after paging forward twice from offset 3
+		limitFailureOffset: 22, // after paging forward twice from offset 11
 	}
 	m := settledFirstPage(t, exec, pageExec)
 
-	// Page forward to offset 3 (first page shows 3 rows).
+	// Page forward to offset 11 (first page shows 11 rows).
 	next, cmd := pageDown(m)
 	settled := settlePage(t, next, cmd)
 
-	// Page forward to offset 14 — the fake returns the page-envelope failure.
+	// Page forward to offset 22 — the fake returns the page-envelope failure.
 	next, cmd = pageDown(settled)
 	if cmd == nil {
 		t.Fatal("page key issued no command")
 	}
 	failSettled := settlePage(t, next, cmd)
 
-	// The executor recorded offset 14 (3 + 11 displayed rows).
+	// The executor recorded offset 22 (11 + 11 displayed rows).
 	last := len(pageExec.offsets) - 1
-	if pageExec.offsets[last] != 14 {
-		t.Fatalf("executor offset = %d, want 14", pageExec.offsets[last])
+	if pageExec.offsets[last] != 22 {
+		t.Fatalf("executor offset = %d, want 22", pageExec.offsets[last])
 	}
 
-	// The view shows the exact absolute row-N message: 14 + 2 + 1 = 17.
+	// The view shows the exact absolute row-N message: 22 + 2 + 1 = 25.
 	// The terminal renderer may wrap the message across lines, so collapse
 	// whitespace before checking.
-	wantMsg := "result page exceeds the 64 MiB v1 limit at row 17"
+	wantMsg := "result page exceeds the 64 MiB v1 limit at row 25"
 	if got := collapseWhitespace(failSettled.View()); !strings.Contains(got, wantMsg) {
 		t.Fatalf("view missing exact absolute page-limit message %q:\n%s", wantMsg, failSettled.View())
 	}
@@ -729,7 +729,7 @@ func TestPageSettlementByteTruncationORMatrix(t *testing.T) {
 				// TruncatedByByteCap true so the post-merge OR picks it up.
 				third := int(resultcache.MaxPayloadBytes/3) + 1
 				c := resultcache.New()
-				for i := int64(1); i <= 3; i++ {
+				for i := int64(1); i <= defaultPageRows; i++ {
 					p := resultcache.Page{
 						Start: resultcache.Position(i),
 						Rows: []resultcache.Row{{
@@ -1042,5 +1042,60 @@ func TestPageSettlementOrdinaryErrorPreservesMetadata(t *testing.T) {
 	}
 	if !m.Result.ByteTruncated {
 		t.Error("ordinary error lost byte truncation")
+	}
+}
+
+// TestPageDownSuppressedAfterEmptyFirstPage proves an accepted empty first
+// page makes forward Page Down a no-op: it issues no request at the same
+// or any later offset (Issue #73 AC2).
+func TestPageDownSuppressedAfterEmptyFirstPage(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(0)}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+	if !m.pageExhausted {
+		t.Fatal("empty first page did not set pageExhausted")
+	}
+	_, cmd := pageDown(m)
+	if cmd != nil {
+		t.Fatal("Page Down after an empty first page issued a request, want no-op")
+	}
+	if pageExec.issued != 0 {
+		t.Fatalf("page executor ran %d times, want 0", pageExec.issued)
+	}
+}
+
+// TestPageDownSuppressedAfterShortFirstPage proves an accepted short
+// (nonempty) first page makes forward Page Down a no-op instead of
+// requesting the same or any later offset (Issue #73 AC2).
+func TestPageDownSuppressedAfterShortFirstPage(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(3)}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+	if !m.pageExhausted {
+		t.Fatal("short first page did not set pageExhausted")
+	}
+	_, cmd := pageDown(m)
+	if cmd != nil {
+		t.Fatal("Page Down after a short first page issued a request, want no-op")
+	}
+	if pageExec.issued != 0 {
+		t.Fatalf("page executor ran %d times, want 0", pageExec.issued)
+	}
+}
+
+// TestPageDownProceedsAfterFullFirstPage proves an accepted exactly-full
+// first page leaves the high endpoint unknown so forward Page Down issues
+// a request (Issue #73 AC4 — full pages do not falsely establish the
+// endpoint).
+func TestPageDownProceedsAfterFullFirstPage(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
+	pageExec := &fakePageExecutor{rowsShown: 11}
+	m := settledFirstPage(t, exec, pageExec)
+	if m.pageExhausted {
+		t.Fatal("exactly-full first page set pageExhausted, want false")
+	}
+	_, cmd := pageDown(m)
+	if cmd == nil {
+		t.Fatal("Page Down after a full first page issued no command, want a forward request")
 	}
 }

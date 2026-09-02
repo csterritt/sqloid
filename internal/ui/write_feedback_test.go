@@ -279,7 +279,7 @@ func TestEstimateLabelsStayExact(t *testing.T) {
 // first-page `Running…`, page loading, count, count-unavailable, and read
 // cancellation labels render exactly as before.
 func TestReadPhaseLabelsUnchanged(t *testing.T) {
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	m := pendingFirstPage(t, exec)
 	if view := m.View(); !strings.Contains(view, SelectRunningIndicator) {
 		t.Errorf("first-page view missing exact %q:\n%s", SelectRunningIndicator, view)

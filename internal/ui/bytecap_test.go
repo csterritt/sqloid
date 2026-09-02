@@ -49,7 +49,7 @@ func TestNoByteCapWarningWithoutByteEviction(t *testing.T) {
 
 func TestByteCapDisclosurePersistsThroughTraversal(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 2}
-	exec := &fakeSelectExecutor{page: threeRowPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	m := pagingModel(exec, pageExec)
 	execModel, execCmd := driveToExecutionStart(t, m)
 	m = settleFirstPage(t, execModel, execCmd)

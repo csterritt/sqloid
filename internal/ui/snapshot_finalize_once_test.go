@@ -59,8 +59,8 @@ func TestSnapshotFinalizedOncePerOutcome(t *testing.T) {
 		m = apply(m, count)
 		m.enterResultHistory()
 		entry := requireEntryAt(t, m, history.KindTabular, "count failure with rows")
-		if len(entry.Rows) != 3 {
-			t.Fatalf("rows = %d, want the 3 captured rows", len(entry.Rows))
+		if len(entry.Rows) != defaultPageRows {
+			t.Fatalf("rows = %d, want the captured rows", len(entry.Rows))
 		}
 		if entry.Metadata.Outcome != history.OutcomeSuccess {
 			t.Fatalf("count failure with rows must stay a successful outcome, got %v", entry.Metadata.Outcome)
@@ -77,7 +77,7 @@ func TestSnapshotFinalizedOncePerOutcome(t *testing.T) {
 		m = apply(m, page)
 		m.enterResultHistory()
 		entry := requireEntryAt(t, m, history.KindTabular, "partial page failure")
-		if len(entry.Rows) != 3 || entry.Metadata.Outcome != history.OutcomeFailed {
+		if len(entry.Rows) != defaultPageRows || entry.Metadata.Outcome != history.OutcomeFailed {
 			t.Fatalf("snapshot must preserve rows with a failed outcome: rows=%d outcome=%v",
 				len(entry.Rows), entry.Metadata.Outcome)
 		}
@@ -117,8 +117,8 @@ func TestSnapshotFinalizedOncePerOutcome(t *testing.T) {
 		m = apply(m, page)
 		m.enterResultHistory()
 		entry := requireEntryAt(t, m, history.KindTabular, "cancelled after rows")
-		if len(entry.Rows) != 3 {
-			t.Fatalf("rows = %d, want the 3 captured rows preserved", len(entry.Rows))
+		if len(entry.Rows) != defaultPageRows {
+			t.Fatalf("rows = %d, want the captured rows preserved", len(entry.Rows))
 		}
 		if entry.Metadata.Outcome != history.OutcomeCancelled {
 			t.Fatalf("outcome = %v, want cancelled", entry.Metadata.Outcome)
@@ -132,7 +132,7 @@ func TestSnapshotFinalizedOncePerOutcome(t *testing.T) {
 		m = apply(m, page)
 		m.acceptedQuitCleanup()
 		entry := requireEntryAt(t, m, history.KindTabular, "failure after rows")
-		if len(entry.Rows) != 3 || entry.Metadata.Outcome != history.OutcomeFailed {
+		if len(entry.Rows) != defaultPageRows || entry.Metadata.Outcome != history.OutcomeFailed {
 			t.Fatalf("snapshot must preserve rows with failed outcome: rows=%d outcome=%v",
 				len(entry.Rows), entry.Metadata.Outcome)
 		}
@@ -232,7 +232,7 @@ func TestDuplicateFinalizationIsHarmless(t *testing.T) {
 		m, page, _, count := fixtureFor(t, activeState{name: "count pending", countPending: true})
 		m.acceptedQuitCleanup()
 		entry := requireEntryAt(t, m, history.KindTabular, "quit with pending work")
-		if len(entry.Rows) != 3 {
+		if len(entry.Rows) != defaultPageRows {
 			t.Fatalf("rows = %d, want the captured rows", len(entry.Rows))
 		}
 		// The withheld page/count messages settle after quit: no new entry.

@@ -116,7 +116,7 @@ func TestExportGatedDuringEveryPendingState(t *testing.T) {
 			name: "select later page pending",
 			build: func(t *testing.T) (Model, *fakeSelectExecutor, *fakeCountExecutor, *fakePageExecutor, *fakeRefresher) {
 				t.Helper()
-				exec := &fakeSelectExecutor{page: threeRowPage()}
+				exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 				pageExec := &fakePageExecutor{rowsShown: 11}
 				m := pendingLaterPage(t, exec, pageExec)
 				return m, exec, nil, pageExec, &fakeRefresher{}

@@ -507,3 +507,212 @@ func TestFirstSelectRetainsByteTruncatedAndLimitFailureTogether(t *testing.T) {
 		t.Fatalf("view missing exact page-limit message %q:\n%s", wantRow, m.View())
 	}
 }
+
+// firstPageRows returns a successful FirstPageResult carrying a page with the
+// given number of integer rows, suitable for first-page endpoint tests.
+func firstPageRows(n int) *result.Page {
+	rows := make([][]result.Value, n)
+	for i := range rows {
+		rows[i] = []result.Value{result.NewInteger(int64(i + 1))}
+	}
+	return &result.Page{Columns: []string{"id"}, Rows: rows}
+}
+
+// defaultPageRows is the exact count of complete visible data rows at the
+// default 80x24 test layout (Issue #25 layout arithmetic).
+const defaultPageRows = 11
+
+// settleFirstPageWithCount drives a first-page execution with a count
+// executor wired, settles both the page and count completions, and returns
+// the idle model. The count executor's err controls whether the count
+// settles as unavailable.
+func settleFirstPageWithCount(t *testing.T, page *result.Page, countErr error) Model {
+	t.Helper()
+	exec := &fakeSelectExecutor{page: page}
+	count := &fakeCountExecutor{err: countErr}
+	m := firstSelectModel(exec)
+	m.Count = count.count
+	execModel, execCmd := driveToExecutionStart(t, m)
+	return settleFirstPage(t, execModel, execCmd)
+}
+
+// TestFirstSelectRetainsRequestedFirstPageSize proves the layout-derived
+// requested first-page size is retained at dispatch and bound to the
+// request identity: an accepted page with exactly that many rows does not
+// set pageExhausted, while a shorter page does (Issue #73 AC1, AC4).
+func TestFirstSelectRetainsRequestedFirstPageSize(t *testing.T) {
+	cases := []struct {
+		name        string
+		rows        int
+		wantExhaust bool
+	}{
+		{"exactly full does not exhaust", defaultPageRows, false},
+		{"short exhausts", defaultPageRows - 1, true},
+		{"one row exhausts", 1, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := settleFirstPageResult(t, &fakeSelectExecutor{page: firstPageRows(tc.rows)})
+			if m.pageExhausted != tc.wantExhaust {
+				t.Errorf("pageExhausted = %v, want %v (rows=%d, requestedSize=%d)",
+					m.pageExhausted, tc.wantExhaust, tc.rows, defaultPageRows)
+			}
+		})
+	}
+}
+
+// TestFirstSelectEmptyPageSetsPageExhausted proves an accepted zero-row
+// first page sets pageExhausted so the high endpoint is established
+// (Issue #73 AC1, AC2).
+func TestFirstSelectEmptyPageSetsPageExhausted(t *testing.T) {
+	m := settleFirstPageResult(t, &fakeSelectExecutor{page: firstPageRows(0)})
+	if !m.pageExhausted {
+		t.Fatal("empty first page did not set pageExhausted")
+	}
+	if m.Result == nil || m.Result.Page == nil {
+		t.Fatal("empty first page produced no ResultView")
+	}
+	if len(m.Result.Page.Rows) != 0 {
+		t.Errorf("empty first page stored %d rows, want 0", len(m.Result.Page.Rows))
+	}
+}
+
+// TestFirstSelectFullPageDoesNotSetPageExhausted proves an accepted first
+// page with exactly the requested size leaves pageExhausted false — the
+// remainder is unknown (Issue #73 AC4).
+func TestFirstSelectFullPageDoesNotSetPageExhausted(t *testing.T) {
+	m := settleFirstPageResult(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)})
+	if m.pageExhausted {
+		t.Fatal("exactly-full first page set pageExhausted, want false (remainder unknown)")
+	}
+}
+
+// TestFirstSelectShortPageFeedsObservedShortFinalPage proves a short
+// first page sets pageExhausted which feeds ObservedShortFinalPage into
+// the finalization facts (Issue #73 AC3).
+func TestFirstSelectShortPageFeedsObservedShortFinalPage(t *testing.T) {
+	m := settleFirstPageResult(t, &fakeSelectExecutor{page: firstPageRows(3)})
+	if !m.pageExhausted {
+		t.Fatal("short first page did not set pageExhausted")
+	}
+	final := Finalization{
+		Outcome:                history.OutcomeSuccess,
+		ReachedLow:             true,
+		ReachedHigh:            true,
+		CountWorkFinished:      true,
+		PageWorkFinished:       true,
+		ObservedShortFinalPage: m.pageExhausted,
+	}
+	_, traversal, err := m.SnapshotFacts(final)
+	if err != nil {
+		t.Fatalf("SnapshotFacts: %v", err)
+	}
+	if !traversal.ObservedShortFinalPage {
+		t.Error("ObservedShortFinalPage = false, want true (pageExhausted should feed it)")
+	}
+}
+
+// TestFirstSelectStaleExecutionShortSettlementInert proves a stale
+// execution ID settlement carrying a short page does not set pageExhausted
+// or mutate cache/result state (Issue #73 AC4).
+func TestFirstSelectStaleExecutionShortSettlementInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+
+	// Capture the pre-settlement state.
+	wantExhaust := execModel.pageExhausted
+	wantCacheLen := 0
+	if execModel.viewportCache != nil {
+		wantCacheLen = execModel.viewportCache.Len()
+	}
+
+	// A settlement with a wrong execution ID and short data must be inert.
+	realMsg, ok := execCmd().(SelectSettledMsg)
+	if !ok {
+		t.Fatalf("executor command produced %T, want SelectSettledMsg", execCmd())
+	}
+	realMsg.ExecutionID = realMsg.ExecutionID + 999
+	realMsg.Result = FirstPageResult{Page: firstPageRows(1)}
+	final := asModel(execModel.Update(realMsg))
+	if final.pageExhausted != wantExhaust {
+		t.Errorf("stale execution settlement changed pageExhausted: got %v, want %v",
+			final.pageExhausted, wantExhaust)
+	}
+	if final.Result != nil {
+		t.Errorf("stale execution settlement stored a ResultView: %+v", final.Result)
+	}
+	if final.viewportCache != nil && final.viewportCache.Len() != wantCacheLen {
+		t.Errorf("stale execution settlement changed cache len: got %d, want %d",
+			final.viewportCache.Len(), wantCacheLen)
+	}
+}
+
+// TestFirstSelectStaleRequestShortSettlementInert proves a stale request
+// ID settlement (already-consumed role) carrying a short page does not set
+// pageExhausted or mutate cache/result state (Issue #73 AC4).
+func TestFirstSelectStaleRequestShortSettlementInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+
+	// Drive a real settlement first to establish state.
+	realSettled := execCmd()
+	realMsg, ok := realSettled.(SelectSettledMsg)
+	if !ok {
+		t.Fatalf("executor command produced %T, want SelectSettledMsg", realSettled)
+	}
+	settled := asModel(execModel.Update(realMsg))
+	if settled.Result == nil {
+		t.Fatal("real settlement produced no ResultView")
+	}
+	wantExhaust := settled.pageExhausted
+	wantCacheLen := 0
+	if settled.viewportCache != nil {
+		wantCacheLen = settled.viewportCache.Len()
+	}
+
+	// A second settlement with the same (already-consumed) request identity
+	// carrying short data must be inert.
+	staleMsg := realMsg
+	staleMsg.Result = FirstPageResult{Page: firstPageRows(1)}
+	final := asModel(settled.Update(staleMsg))
+	if final.pageExhausted != wantExhaust {
+		t.Errorf("stale request settlement changed pageExhausted: got %v, want %v",
+			final.pageExhausted, wantExhaust)
+	}
+	if final.viewportCache != nil && final.viewportCache.Len() != wantCacheLen {
+		t.Errorf("stale request settlement changed cache len: got %d, want %d",
+			final.viewportCache.Len(), wantCacheLen)
+	}
+}
+
+// TestFirstSelectStaleGenerationShortSettlementInert proves a stale
+// viewport-generation settlement carrying a short page does not set
+// pageExhausted or mutate cache/result state (Issue #73 AC4).
+func TestFirstSelectStaleGenerationShortSettlementInert(t *testing.T) {
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
+	m := firstSelectModel(exec)
+	execModel, execCmd := driveToExecutionStart(t, m)
+
+	// Capture the generation at dispatch.
+	settled := execCmd()
+	realMsg, ok := settled.(SelectSettledMsg)
+	if !ok {
+		t.Fatalf("executor command produced %T, want SelectSettledMsg", settled)
+	}
+
+	// Bump the viewport generation to make the dispatched settlement stale.
+	execModel.viewportGen = realMsg.Generation + 999
+
+	final := asModel(execModel.Update(realMsg))
+	// The generation mismatch prevents applySelectSettled from running,
+	// so pageExhausted stays false (from resetPagingState) and no result
+	// is stored.
+	if final.pageExhausted {
+		t.Error("stale generation settlement set pageExhausted, want false")
+	}
+	if final.Result != nil {
+		t.Errorf("stale generation settlement stored a ResultView: %+v", final.Result)
+	}
+}

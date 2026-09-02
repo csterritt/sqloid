@@ -116,6 +116,12 @@ func (m *Model) startSelectPage() tea.Cmd {
 	m.ActiveCancellable = true
 	m.CancelCommand = func() tea.Msg { return SelectCancelRequestedMsg{} }
 
+	// Issue #73: retain the layout-derived requested first-page size at
+	// dispatch, bound to the same execution/request/generation identity as
+	// the response, so an accepted short or empty first page can establish
+	// the high endpoint by comparing returned rows to this exact size.
+	m.firstPageRequestedSize = int64(CalculateLayout(m.Height, m.Fields).PageRows)
+
 	pageCtx, pageCancel := context.WithCancel(context.Background())
 	countCtx, countCancel := context.WithCancel(context.Background())
 	m.firstPageCancel = pageCancel
@@ -163,6 +169,12 @@ func (m *Model) startSelectPage() tea.Cmd {
 // incoming ByteTruncated and LimitFailure metadata are copied into the
 // fresh ResultView, and byte truncation is ORed with the viewport cache's
 // post-merge TruncatedByByteCap so cache-derived disclosure cannot be lost.
+// Issue #73: an accepted successful first page returning fewer rows than
+// the retained requested size — including zero — sets pageExhausted so the
+// high endpoint is established; an exactly-full page leaves it false so the
+// remainder stays unknown. This seam runs only after all current-response
+// guards accept the settlement, so stale or cancelled responses never
+// reach this comparison.
 func (m Model) applySelectSettled(res FirstPageResult) Model {
 	if res.Err == nil && res.Cancelled {
 		return m // defensive: cancellation classification is fully inert here
@@ -183,6 +195,15 @@ func (m Model) applySelectSettled(res FirstPageResult) Model {
 		Err:           res.Err,
 		ByteTruncated: byteTruncated,
 		LimitFailure:  res.LimitFailure,
+	}
+	// Issue #73: compare the accepted first page's row count to the
+	// retained requested size only on success (no error, no cancellation).
+	// Fewer rows than requested — including zero — establishes the high
+	// endpoint; an exactly-full page leaves it unknown. Stale or cancelled
+	// settlements never reach this seam.
+	if res.Err == nil && res.Page != nil &&
+		int64(len(res.Page.Rows)) < m.firstPageRequestedSize {
+		m.pageExhausted = true
 	}
 	return m
 }

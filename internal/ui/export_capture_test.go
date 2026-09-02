@@ -52,8 +52,8 @@ func TestIdleActiveExportCapture(t *testing.T) {
 	if !reflectNames(cap.Payload.Names, []string{"id"}) {
 		t.Errorf("capture names = %q, want [id]", cap.Payload.Names)
 	}
-	if len(cap.Payload.Rows) != 3 {
-		t.Fatalf("capture rows = %d, want the three cached rows", len(cap.Payload.Rows))
+	if len(cap.Payload.Rows) != defaultPageRows {
+		t.Fatalf("capture rows = %d, want the cached first-page rows", len(cap.Payload.Rows))
 	}
 	for i, p := range cap.Payload.Positions {
 		if p != int64(1+i) {
@@ -227,7 +227,11 @@ func TestHistorySelectionExportCapture(t *testing.T) {
 	if nm.exportPrepared == nil {
 		t.Fatal("selection change destroyed the captured payload")
 	}
-	if !reflectPositions((*nm.exportPrepared).Payload.Positions, []int64{1, 2, 3}) {
+	wantPositions := make([]int64, defaultPageRows)
+	for i := range wantPositions {
+		wantPositions[i] = int64(i + 1)
+	}
+	if !reflectPositions((*nm.exportPrepared).Payload.Positions, wantPositions) {
 		t.Errorf("capture followed the selection change: %v", (*nm.exportPrepared).Payload.Positions)
 	}
 	if [2]int{exec.calls, pageExec.issued} != beforeCalls {

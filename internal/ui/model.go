@@ -121,15 +121,21 @@ type Model struct {
 	// page's first row; pageRequested/pageRequestedSize record the exact
 	// range of the in-flight request for boundary arithmetic at settlement;
 	// pageExhausted marks the known high boundary once a page returned fewer
-	// rows than requested. Only the paging seam in this package mutates them.
-	pageOffset            int64
-	pageRequested         int64
-	pageRequestedSize     int64
-	pagePending           bool
-	pageRequestID         uint64
-	pageExhausted         bool
-	pageRequestExecution  uint64 // execution ID captured at page dispatch (Issue #26)
-	pageRequestGeneration uint64 // viewport generation captured at page dispatch (Issue #26)
+	// rows than requested. Issue #73: firstPageRequestedSize retains the
+	// layout-derived requested size of the first page at dispatch, bound to
+	// the same execution/request/generation identity as the response, so an
+	// accepted short or empty first page can establish the high endpoint.
+	// Only the paging and first-page settlement seams in this package
+	// mutate them.
+	pageOffset             int64
+	pageRequested          int64
+	pageRequestedSize      int64
+	pagePending            bool
+	pageRequestID          uint64
+	pageExhausted          bool
+	pageRequestExecution   uint64 // execution ID captured at page dispatch (Issue #26)
+	pageRequestGeneration  uint64 // viewport generation captured at page dispatch (Issue #26)
+	firstPageRequestedSize int64  // Issue #73: retained first-page size for endpoint comparison
 
 	// viewportCache is the active SELECT's authoritative contiguous dual-cap
 	// result cache (Issues #30/#31): every accepted page response merges here

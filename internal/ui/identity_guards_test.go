@@ -57,11 +57,11 @@ func withReplacedResult(res FirstPageResult, page SelectSettledMsg) SelectSettle
 	return page
 }
 
-// threeRowFirstPage is a first-page fixture with three identifiable rows.
+// threeRowFirstPage is a first-page fixture with enough identifiable rows to
+// fill the default 80x24 layout so the first page does not establish the high
+// endpoint (Issue #73). The rows carry sequential integer ids.
 func threeRowFirstPage() *result.Page {
-	return &result.Page{Columns: []string{"id"}, Rows: [][]result.Value{
-		{result.NewInteger(1)}, {result.NewInteger(2)}, {result.NewInteger(3)},
-	}}
+	return firstPageRows(defaultPageRows)
 }
 
 // executedResultModel drives a real SELECT execution (validation, execution
@@ -88,10 +88,10 @@ func TestCurrentFirstPageControlApplies(t *testing.T) {
 		t.Fatal("first page applied before its command was invoked")
 	}
 	after := apply(apply(execModel, page), countMsg)
-	if after.Result == nil || len(after.Result.Page.Rows) != 3 {
+	if after.Result == nil || len(after.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("current first page response did not apply: %+v", after.Result)
 	}
-	if !strings.Contains(after.View(), "rows 1-3") {
+	if !strings.Contains(after.View(), "rows 1-11") {
 		t.Errorf("rows not rendered after the current response:\n%s", after.View())
 	}
 }
@@ -129,7 +129,7 @@ func TestFirstPageRejectedAfterResizeGenerationAdvance(t *testing.T) {
 	// Control: a fresh execution launched after the resize applies normally.
 	newer, newerPage, _ := newerExecutionOver(t, afterCount)
 	newer = apply(newer, newerPage)
-	if newer.Result == nil || len(newer.Result.Page.Rows) != 3 {
+	if newer.Result == nil || len(newer.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("post-resize execution's current first page did not apply: %+v", newer.Result)
 	}
 }
@@ -162,7 +162,7 @@ func TestFirstPageRejectedAfterDeactivationFinalization(t *testing.T) {
 // generation, which then applies.
 func TestStaleLaterPageRejectedAfterResizeGenerationAdvance(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	pending, pendingCmd := pageDown(m)
 	pendingMsg, ok := pendingCmd().(PageSettledMsg)
@@ -180,7 +180,7 @@ func TestStaleLaterPageRejectedAfterResizeGenerationAdvance(t *testing.T) {
 	if after.pageExhausted {
 		t.Error("stale-generation page response marked the exhausted high boundary")
 	}
-	if after.Result == nil || len(after.Result.Page.Rows) != 3 || after.Result.Offset != 0 {
+	if after.Result == nil || len(after.Result.Page.Rows) != defaultPageRows || after.Result.Offset != 0 {
 		t.Fatalf("stale-generation page response mutated rows/range: %+v", after.Result)
 	}
 
@@ -208,7 +208,7 @@ func TestStaleLaterPageRejectedAfterResizeGenerationAdvance(t *testing.T) {
 // the newer execution's result or pending count feedback.
 func TestStaleLaterPageRejectedAfterExecutionSuperseded(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	pending, pendingCmd := pageDown(m)
 	stalePage, ok := pendingCmd().(PageSettledMsg)
@@ -220,7 +220,7 @@ func TestStaleLaterPageRejectedAfterExecutionSuperseded(t *testing.T) {
 	before := apply(newer, newerPage)
 
 	after := apply(before, stalePage)
-	if after.Result == nil || len(after.Result.Page.Rows) != 3 || after.Result.Offset != 0 {
+	if after.Result == nil || len(after.Result.Page.Rows) != defaultPageRows || after.Result.Offset != 0 {
 		t.Fatalf("superseded execution's later page mutated the newer result: %+v", after.Result)
 	}
 	if after.countState.Status != result.CountPending {
@@ -245,7 +245,7 @@ func TestStaleLaterPageRejectedAfterExecutionSuperseded(t *testing.T) {
 // generation applies.
 func TestStaleLaterPageRejectedAfterDeactivation(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	pending, pendingCmd := pageDown(m)
 	stalePage := pendingCmd().(PageSettledMsg)
@@ -276,7 +276,7 @@ func TestStaleLaterPageRejectedAfterDeactivation(t *testing.T) {
 // and alters no cache metadata.
 func TestStaleResponseCannotClearNewerRequestFeedback(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	_, firstCmd := pageDown(m)
 	stalePage := firstCmd().(PageSettledMsg)
@@ -305,7 +305,7 @@ func TestStaleResponseCannotClearNewerRequestFeedback(t *testing.T) {
 	if !after.pagePending {
 		t.Error("stale page response cleared the newer request's pending guard")
 	}
-	if after.Result == nil || after.Result.Offset != 0 || len(after.Result.Page.Rows) != 3 {
+	if after.Result == nil || after.Result.Offset != 0 || len(after.Result.Page.Rows) != defaultPageRows {
 		t.Fatalf("stale page response mutated rows/range while pending: %+v", after.Result)
 	}
 	// The newer request's own response settles afterwards and applies.
@@ -320,7 +320,7 @@ func TestStaleResponseCannotClearNewerRequestFeedback(t *testing.T) {
 // is equally inert.
 func TestStalePageFailureCannotClearNewerRequestFeedback(t *testing.T) {
 	pageExec := &fakePageExecutor{rowsShown: 3}
-	m := settledFirstPage(t, &fakeSelectExecutor{page: threeRowFirstPage()}, pageExec)
+	m := settledFirstPage(t, &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}, pageExec)
 
 	_, firstCmd := pageDown(m)
 	stalePage := firstCmd().(PageSettledMsg)

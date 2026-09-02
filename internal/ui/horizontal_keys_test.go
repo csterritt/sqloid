@@ -28,8 +28,13 @@ import (
 // whole column at any index.
 func fiveColumnPage() *result.Page {
 	cols := []string{"c1", "c2", "c3", "c4", "c5"}
-	rows := [][]result.Value{
-		{result.NewInteger(1), result.NewInteger(2), result.NewInteger(3), result.NewInteger(4), result.NewInteger(5)},
+	rows := make([][]result.Value, defaultPageRows)
+	for i := range rows {
+		rows[i] = []result.Value{
+			result.NewInteger(int64(i + 1)), result.NewInteger(int64(i + 2)),
+			result.NewInteger(int64(i + 3)), result.NewInteger(int64(i + 4)),
+			result.NewInteger(int64(i + 5)),
+		}
 	}
 	return &result.Page{Columns: cols, Rows: rows}
 }

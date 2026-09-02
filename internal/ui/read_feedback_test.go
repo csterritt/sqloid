@@ -44,7 +44,7 @@ func TestCountingFeedbackWhileCountPending(t *testing.T) {
 	if strings.Contains(view, "Running…") {
 		t.Fatalf("settled first page still rendered `Running…`:\n%s", view)
 	}
-	if !strings.Contains(view, "rows 1-3") {
+	if !strings.Contains(view, "rows 1-11") {
 		t.Fatalf("settled rows were lost behind count feedback:\n%s", view)
 	}
 }
@@ -54,7 +54,7 @@ func TestCountingFeedbackWhileCountPending(t *testing.T) {
 // count status (if any) stays independently present.
 func TestPageLoadingFeedbackIsDistinctFromCounting(t *testing.T) {
 	m := pendingLaterPage(t,
-		&fakeSelectExecutor{page: threeRowPage()},
+		&fakeSelectExecutor{page: firstPageRows(defaultPageRows)},
 		&fakePageExecutor{rowsShown: 11})
 	view := m.View()
 	if !strings.Contains(view, PageLoadingIndicator) {
@@ -215,7 +215,7 @@ func TestNoWritePhaseLabelsIntroduced(t *testing.T) {
 			&fakeSelectExecutor{page: threeRowPage()},
 			&fakeCountExecutor{total: 7}),
 		pendingLaterPage(t,
-			&fakeSelectExecutor{page: threeRowPage()},
+			&fakeSelectExecutor{page: firstPageRows(defaultPageRows)},
 			&fakePageExecutor{rowsShown: 11}),
 	}
 	for i, m := range models {

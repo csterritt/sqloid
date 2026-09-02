@@ -51,7 +51,7 @@ func activeSelectStates() []activeState {
 // requests settle. It asserts the execution became the active SELECT.
 func startActiveSelect(t *testing.T) (Model, SelectSettledMsg, CountSettledMsg) {
 	t.Helper()
-	exec := &fakeSelectExecutor{page: threeRowFirstPage()}
+	exec := &fakeSelectExecutor{page: firstPageRows(defaultPageRows)}
 	countExec := &fakeCountExecutor{total: 3}
 	m := twoVersionSelectModel()
 	m.Select = exec.selectPage

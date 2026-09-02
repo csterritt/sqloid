@@ -138,7 +138,11 @@ func (m *Model) appendFinalizedResultEntry() {
 	// Endpoint observations: the low end is reached when position 1 was
 	// retained or the low end was evicted by cap traversal; the high end is
 	// reached through a short/empty observed final page or a settled count
-	// not exceeding the retained end.
+	// not exceeding the retained end. Issue #73: an observed short or empty
+	// first page (pageExhausted) establishes the high endpoint even when the
+	// cache retained no rows; an empty observed page also establishes the
+	// low endpoint because the result is empty and both endpoints sit at
+	// position 0.
 	reachedLow, reachedHigh := false, false
 	if m.viewportCache != nil {
 		if start, ok := m.viewportCache.Start(); ok {
@@ -147,6 +151,12 @@ func (m *Model) appendFinalizedResultEntry() {
 		if end, ok := m.viewportCache.End(); ok {
 			reachedHigh = m.pageExhausted ||
 				(m.countState.Status == result.CountSuccess && m.countState.Total <= int64(end))
+		}
+	}
+	if m.pageExhausted {
+		reachedHigh = true
+		if !hasRows {
+			reachedLow = true
 		}
 	}
 	final := Finalization{
