@@ -177,6 +177,217 @@ func TestVisibleGridLayout(t *testing.T) {
 	}
 }
 
+// TestVisibleGridLayoutCumulativeSeparators enforces the cumulative
+// rendered-width invariant for layouts with three or more narrow columns:
+// the sum of returned cell widths plus one gridSeparatorWidth per adjacent
+// pair never exceeds the available width. The existing two-column cases in
+// TestVisibleGridLayout cannot expose a missing cumulative separator, so
+// these table-driven cases cover exact-fit, one-display-cell-below, and
+// one-display-cell-above boundaries for three, four, and Unicode-width
+// columns, plus empty/one-column controls, invalid/clamped first indices,
+// an oversized first column, and shifted starts. A fitting final column
+// remains and an overflowing one is excluded.
+func TestVisibleGridLayoutCumulativeSeparators(t *testing.T) {
+	tests := []struct {
+		name       string
+		names      []string
+		cells      [][]string
+		availWidth int
+		first      int
+		wantFirst  int
+		wantWidths []int
+	}{
+		// Three width-2 columns: exact fit is 2+sep+2+sep+2 = 12.
+		{
+			name:       "three columns exact fit keeps the final column",
+			names:      []string{"ab", "cd", "ef"},
+			cells:      [][]string{{"x", "y", "z"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2, 2, 2},
+		},
+		{
+			name:       "three columns one cell below exact fit excludes the final column",
+			names:      []string{"ab", "cd", "ef"},
+			cells:      [][]string{{"x", "y", "z"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 - 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2, 2},
+		},
+		{
+			name:       "three columns one cell above exact fit keeps the final column",
+			names:      []string{"ab", "cd", "ef"},
+			cells:      [][]string{{"x", "y", "z"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2, 2, 2},
+		},
+		// Four width-2 columns: exact fit is 2+sep+2+sep+2+sep+2 = 17.
+		{
+			name:       "four columns exact fit keeps the final column",
+			names:      []string{"ab", "cd", "ef", "gh"},
+			cells:      [][]string{{"x", "y", "z", "w"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2, 2, 2, 2},
+		},
+		{
+			name:       "four columns one cell below exact fit excludes the final column",
+			names:      []string{"ab", "cd", "ef", "gh"},
+			cells:      [][]string{{"x", "y", "z", "w"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 - 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2, 2, 2},
+		},
+		{
+			name:       "four columns one cell above exact fit keeps the final column",
+			names:      []string{"ab", "cd", "ef", "gh"},
+			cells:      [][]string{{"x", "y", "z", "w"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2, 2, 2, 2},
+		},
+		// Three Unicode-width columns (4,4,1): exact fit is 4+sep+4+sep+1 = 15.
+		{
+			name:       "unicode columns exact fit keeps the final column",
+			names:      []string{"広告", "広告", "x"},
+			cells:      [][]string{{"a", "b", "c"}},
+			availWidth: 4 + gridSeparatorWidth + 4 + gridSeparatorWidth + 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{4, 4, 1},
+		},
+		{
+			name:       "unicode columns one cell below exact fit excludes the final column",
+			names:      []string{"広告", "広告", "x"},
+			cells:      [][]string{{"a", "b", "c"}},
+			availWidth: 4 + gridSeparatorWidth + 4 + gridSeparatorWidth + 1 - 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{4, 4},
+		},
+		{
+			name:       "unicode columns one cell above exact fit keeps the final column",
+			names:      []string{"広告", "広告", "x"},
+			cells:      [][]string{{"a", "b", "c"}},
+			availWidth: 4 + gridSeparatorWidth + 4 + gridSeparatorWidth + 1 + 1,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{4, 4, 1},
+		},
+		// Shifted start: first-visible index 1 of four columns leaves three
+		// visible columns (cd, ef, gh), exact fit 2+sep+2+sep+2 = 12.
+		{
+			name:       "shifted start one below exact fit excludes the final visible column",
+			names:      []string{"ab", "cd", "ef", "gh"},
+			cells:      [][]string{{"x", "y", "z", "w"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 - 1,
+			first:      1,
+			wantFirst:  1,
+			wantWidths: []int{2, 2},
+		},
+		{
+			name:       "shifted start exact fit keeps all three visible columns",
+			names:      []string{"ab", "cd", "ef", "gh"},
+			cells:      [][]string{{"x", "y", "z", "w"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2,
+			first:      1,
+			wantFirst:  1,
+			wantWidths: []int{2, 2, 2},
+		},
+		// Oversized first column caps to the available cell area with no follower.
+		{
+			name:       "oversized first column caps and excludes every follower",
+			names:      []string{"very-long-header", "ab", "cd"},
+			cells:      [][]string{{"very-long-cell-value", "x", "y"}},
+			availWidth: 10,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{10},
+		},
+		// One-column control: no separators.
+		{
+			name:       "one column control has no separator",
+			names:      []string{"ab"},
+			cells:      [][]string{{"x"}},
+			availWidth: 5,
+			first:      0,
+			wantFirst:  0,
+			wantWidths: []int{2},
+		},
+		// Empty control.
+		{
+			name:       "empty results control yields a zero layout",
+			names:      nil,
+			cells:      nil,
+			availWidth: 40,
+			first:      7,
+			wantFirst:  0,
+			wantWidths: nil,
+		},
+		// Invalid first index below zero clamps to the first column.
+		{
+			name:       "negative first index clamps to first column and packs three columns",
+			names:      []string{"ab", "cd", "ef"},
+			cells:      [][]string{{"x", "y", "z"}},
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2,
+			first:      -3,
+			wantFirst:  0,
+			wantWidths: []int{2, 2, 2},
+		},
+		// First index beyond the last column clamps to it.
+		{
+			name:       "first index beyond last clamps to the last column",
+			names:      []string{"ab", "cd", "ef"},
+			cells:      [][]string{{"x", "y", "z"}},
+			availWidth: 40,
+			first:      9,
+			wantFirst:  2,
+			wantWidths: []int{2},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			l := visibleGridLayout(tc.names, tc.cells, tc.availWidth, tc.first)
+			if l.First != tc.wantFirst {
+				t.Errorf("First = %d, want %d", l.First, tc.wantFirst)
+			}
+			if l.Total != len(tc.names) {
+				t.Errorf("Total = %d, want %d", l.Total, len(tc.names))
+			}
+			if len(l.Widths) != len(tc.wantWidths) {
+				t.Fatalf("Widths = %v, want %v", l.Widths, tc.wantWidths)
+			}
+			for i, w := range tc.wantWidths {
+				if l.Widths[i] != w {
+					t.Errorf("Widths[%d] = %d, want %d", i, l.Widths[i], w)
+				}
+			}
+			// The cumulative rendered-width invariant: the sum of returned
+			// cell widths plus one gridSeparatorWidth per adjacent pair never
+			// exceeds the available width. Empty results and a single column
+			// have no separators.
+			if len(l.Widths) > 0 {
+				rendered := 0
+				for _, w := range l.Widths {
+					rendered += w
+				}
+				rendered += (len(l.Widths) - 1) * gridSeparatorWidth
+				if rendered > tc.availWidth {
+					t.Errorf("cumulative rendered width = %d, exceeds availWidth %d (widths %v)",
+						rendered, tc.availWidth, l.Widths)
+				}
+			}
+		})
+	}
+}
+
 // TestVisibleGridLayoutExposesNoIntraCellOffset requires the capped oversized
 // column to occupy exactly the available cell area with nothing left over:
 // there is no character or byte offset in the layout through which content

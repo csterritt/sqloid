@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/chris/sqloid/internal/result"
 )
 
@@ -231,4 +233,184 @@ func TestResultErrorReplacesIdleContent(t *testing.T) {
 	if strings.Contains(view, "rows 1-") {
 		t.Errorf("error state shows a data range:\n%s", view)
 	}
+}
+
+// renderGridLines renders the visible header and one line per data row through
+// visibleGridLayout and renderGridRow, returning the header line and data
+// lines. It mirrors the composition in renderResultPage without snapshotting
+// the surrounding shell borders or status line.
+func renderGridLines(t *testing.T, names []string, cells [][]string, availWidth, first int) (string, []string) {
+	t.Helper()
+	layout := visibleGridLayout(names, cells, availWidth, first)
+	if len(layout.Widths) == 0 {
+		return "", nil
+	}
+	visibleNames := names[layout.First : layout.First+len(layout.Widths)]
+	header := renderGridRow(visibleNames, layout.Widths)
+	lines := []string{header}
+	for _, row := range cells {
+		visible := row[layout.First : layout.First+len(layout.Widths)]
+		lines = append(lines, renderGridRow(visible, layout.Widths))
+	}
+	return header, lines[1:]
+}
+
+// assertRenderedFits requires the header and every data row rendered for the
+// given layout to have a terminal display width no greater than the supplied
+// grid row width, with header and data column counts aligned to the layout.
+func assertRenderedFits(t *testing.T, names []string, cells [][]string, availWidth, first int) {
+	t.Helper()
+	header, dataLines := renderGridLines(t, names, cells, availWidth, first)
+	layout := visibleGridLayout(names, cells, availWidth, first)
+	if len(layout.Widths) == 0 {
+		if header != "" || len(dataLines) != 0 {
+			t.Fatalf("empty layout rendered header %q or %d data lines", header, len(dataLines))
+		}
+		return
+	}
+	if hw := runewidth.StringWidth(header); hw > availWidth {
+		t.Errorf("header display width = %d, exceeds grid row width %d: %q", hw, availWidth, header)
+	}
+	for i, line := range dataLines {
+		if dw := runewidth.StringWidth(line); dw > availWidth {
+			t.Errorf("data row %d display width = %d, exceeds grid row width %d: %q", i, dw, availWidth, line)
+		}
+	}
+	// Header and data column counts stay aligned to the layout: each rendered
+	// line joins exactly len(layout.Widths) cells padded to their widths.
+	wantCells := len(layout.Widths)
+	if parts := strings.Split(header, " | "); len(parts) != wantCells {
+		t.Errorf("header has %d joined cells, want %d: %q", len(parts), wantCells, header)
+	}
+	for i, line := range dataLines {
+		if parts := strings.Split(line, " | "); len(parts) != wantCells {
+			t.Errorf("data row %d has %d joined cells, want %d: %q", i, len(parts), wantCells, line)
+		}
+	}
+}
+
+// TestResultGridRenderedWidthFits proves joined headers and data rows rendered
+// through visibleGridLayout and renderGridRow fit the supplied grid row width
+// across scrolling and oversized-column cases, using terminal display width
+// rather than byte length. Multiple narrow columns are rendered at exact-fit
+// and overflow boundaries; the first-visible index is moved one column at a
+// time; a single oversized first column is capped and ellipsized; and a
+// regression proves a column whose width plus its separator fits exactly is
+// not unnecessarily omitted.
+func TestResultGridRenderedWidthFits(t *testing.T) {
+	// Three width-2 columns: exact fit is 2+sep+2+sep+2 = 12.
+	threeNames := []string{"ab", "cd", "ef"}
+	threeCells := [][]string{{"x", "y", "z"}, {"1", "2", "3"}}
+	// Four width-2 columns: exact fit is 2+sep+2+sep+2+sep+2 = 17.
+	fourNames := []string{"ab", "cd", "ef", "gh"}
+	fourCells := [][]string{{"x", "y", "z", "w"}, {"1", "2", "3", "4"}}
+
+	tests := []struct {
+		name       string
+		names      []string
+		cells      [][]string
+		availWidth int
+		first      int
+		wantCols   int
+	}{
+		{
+			name:       "three columns exact fit renders all columns within width",
+			names:      threeNames,
+			cells:      threeCells,
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2,
+			first:      0,
+			wantCols:   3,
+		},
+		{
+			name:       "three columns one cell below excludes the overflowing column",
+			names:      threeNames,
+			cells:      threeCells,
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 - 1,
+			first:      0,
+			wantCols:   2,
+		},
+		{
+			name:       "four columns exact fit renders all columns within width",
+			names:      fourNames,
+			cells:      fourCells,
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2,
+			first:      0,
+			wantCols:   4,
+		},
+		{
+			name:       "four columns one cell below excludes the overflowing column",
+			names:      fourNames,
+			cells:      fourCells,
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2 - 1,
+			first:      0,
+			wantCols:   3,
+		},
+		{
+			name:       "oversized first column is capped and ellipsized within width",
+			names:      []string{"very-long-header", "ab", "cd"},
+			cells:      [][]string{{"very-long-cell-value", "x", "y"}},
+			availWidth: 10,
+			first:      0,
+			wantCols:   1,
+		},
+		{
+			name:       "column whose width plus separator fits exactly is not omitted",
+			names:      threeNames,
+			cells:      threeCells,
+			availWidth: 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2, // exact fit
+			first:      0,
+			wantCols:   3,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			layout := visibleGridLayout(tc.names, tc.cells, tc.availWidth, tc.first)
+			if len(layout.Widths) != tc.wantCols {
+				t.Fatalf("visible column count = %d, want %d (widths %v)",
+					len(layout.Widths), tc.wantCols, layout.Widths)
+			}
+			assertRenderedFits(t, tc.names, tc.cells, tc.availWidth, tc.first)
+		})
+	}
+
+	// Move the first-visible index one column at a time across four columns
+	// at a width that fits three columns from index 0 (2+sep+2+sep+2 = 12).
+	// Every shifted start must render header and data within the grid row
+	// width with aligned column counts.
+	t.Run("shifted first-visible index one column at a time", func(t *testing.T) {
+		availWidth := 2 + gridSeparatorWidth + 2 + gridSeparatorWidth + 2
+		for first := 0; first < len(fourNames); first++ {
+			layout := visibleGridLayout(fourNames, fourCells, availWidth, first)
+			if first == len(fourNames)-1 {
+				if len(layout.Widths) != 1 {
+					t.Fatalf("first=%d visible column count = %d, want 1 (last column only)",
+						first, len(layout.Widths))
+				}
+			} else if len(layout.Widths) > 3 {
+				t.Fatalf("first=%d visible column count = %d, want at most 3",
+					first, len(layout.Widths))
+			}
+			assertRenderedFits(t, fourNames, fourCells, availWidth, first)
+		}
+	})
+
+	// The oversized capped first column ellipsizes to exactly the available
+	// cell area with no follower and no off-screen content.
+	t.Run("oversized first column ellipsizes to the available cell area", func(t *testing.T) {
+		names := []string{"very-long-header", "ab", "cd"}
+		cells := [][]string{{"very-long-cell-value", "x", "y"}}
+		header, dataLines := renderGridLines(t, names, cells, 10, 0)
+		if hw := runewidth.StringWidth(header); hw != 10 {
+			t.Errorf("header display width = %d, want exactly 10: %q", hw, header)
+		}
+		if dw := runewidth.StringWidth(dataLines[0]); dw != 10 {
+			t.Errorf("data row display width = %d, want exactly 10: %q", dw, dataLines[0])
+		}
+		if !strings.HasSuffix(header, gridEllipsis) {
+			t.Errorf("header not ellipsized: %q", header)
+		}
+		if !strings.HasSuffix(dataLines[0], gridEllipsis) {
+			t.Errorf("data row not ellipsized: %q", dataLines[0])
+		}
+	})
 }

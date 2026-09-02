@@ -36,7 +36,10 @@ type gridVisibleLayout struct {
 // invalid index is clamped; the first visible column is always included with
 // its width capped to the available cell area (its oversized cells ellipsize
 // during rendering), and every later column joins only when it fits
-// completely, grid separator included.
+// completely, grid separator included. The cumulative rendered-width
+// invariant holds for every accepted column: sum(widths) +
+// (visible column count - 1) * gridSeparatorWidth <= availWidth, with no
+// separator counted before the first column.
 func visibleGridLayout(names []string, cells [][]string, availWidth int, first int) gridVisibleLayout {
 	total := len(names)
 	l := gridVisibleLayout{First: clampFirstColumn(first, total), Total: total}
@@ -61,7 +64,15 @@ func visibleGridLayout(names []string, cells [][]string, availWidth int, first i
 			break
 		}
 		l.Widths = append(l.Widths, w)
-		used += w
+		// After the first visible column, every accepted column contributes
+		// both its grid separator and its own width to the cumulative used
+		// width, preserving the rendered-width invariant across all accepted
+		// columns. No separator is counted before the first column.
+		if i == l.First {
+			used += w
+		} else {
+			used += gridSeparatorWidth + w
+		}
 	}
 	return l
 }
