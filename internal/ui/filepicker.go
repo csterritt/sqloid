@@ -209,7 +209,10 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // applyPickerFilenameKey routes one key into the filename buffer. Printable
 // rune keys insert literally — including `?` and `q` — and editing keys
-// affect only the input.
+// affect only the input. Left and Right are not reached here: handlePickerKey
+// consumes them at picker scope to toggle export format before filename
+// dispatch, so the reachable editing set is printable runes, KeySpace,
+// Backspace/Ctrl+H, Delete, Home/Ctrl+A, End/Ctrl+E, and Ctrl+U.
 func (m *Model) applyPickerFilenameKey(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyRunes:
@@ -224,10 +227,6 @@ func (m *Model) applyPickerFilenameKey(msg tea.KeyMsg) {
 		m.picker.Backspace()
 	case tea.KeyDelete:
 		m.picker.Delete()
-	case tea.KeyLeft:
-		m.picker.Left()
-	case tea.KeyRight:
-		m.picker.Right()
 	case tea.KeyHome, tea.KeyCtrlA:
 		m.picker.Home()
 	case tea.KeyEnd, tea.KeyCtrlE:
