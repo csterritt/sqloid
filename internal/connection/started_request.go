@@ -140,10 +140,15 @@ func (db *DB) StartFirstPage(parent context.Context, statement string, params []
 			db.beforeFirstPage(ctx, conn) // test-only barrier seam (see DB doc)
 		}
 		p, err := runFirstPage(ctx, conn, statement, params, 0)
+		// Issue #31: a typed value-limit failure still returns the complete
+		// leading rows of this page alongside the failure, so the partial page
+		// is kept even when the request failed.
+		if p != nil {
+			s.page = p
+		}
 		if err != nil {
 			return err
 		}
-		s.page = p
 		return nil
 	})
 	return s
@@ -151,15 +156,25 @@ func (db *DB) StartFirstPage(parent context.Context, statement string, params []
 
 // StartPage runs one later-page SELECT exactly like StartFirstPage: one
 // complete page statement from QueryBuilder's page API on a dedicated
-// cancellable leased connection.
-func (db *DB) StartPage(parent context.Context, statement string, params []any) *StartedPageRequest {
+// cancellable leased connection. offset is the count of absolute logical
+// result rows before this page (the requested OFFSET), so Issue #31
+// value-limit failures report the one-based absolute logical position. It is
+// the same offset QueryBuilder rendered into the statement's LIMIT/OFFSET
+// range, passed explicitly here rather than parsed from the SQL text.
+// StartFirstPage stays fixed at offset zero.
+func (db *DB) StartPage(parent context.Context, statement string, params []any, offset int64) *StartedPageRequest {
 	s := &StartedPageRequest{}
 	s.started = db.startRequest(parent, func(ctx context.Context, conn *sql.Conn) error {
-		p, err := runFirstPage(ctx, conn, statement, params, 0)
+		p, err := runFirstPage(ctx, conn, statement, params, offset)
+		// Issue #31: a typed value-limit failure still returns the complete
+		// leading rows of this page alongside the failure, so the partial page
+		// is kept even when the request failed.
+		if p != nil {
+			s.page = p
+		}
 		if err != nil {
 			return err
 		}
-		s.page = p
 		return nil
 	})
 	return s

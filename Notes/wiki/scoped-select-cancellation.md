@@ -13,7 +13,7 @@ Ctrl+W applies only to cancellable active database requests/phases. Issue #28 ow
 
 ## Connection layer: started-request handles
 
-`internal/connection/started_request.go` adds the `StartedRequest`/`StartedPageRequest`/`StartedCountRequest` handles on top of Issue #6's `Request` lifecycle. Each `StartFirstPage`/`StartPage`/`StartCount` call leases a dedicated connection, begins a `Request`, and runs the statement in a separate goroutine — so a caller (the UI) can request cancellation from another goroutine while the work runs. Contracts:
+`internal/connection/started_request.go` adds the `StartedRequest`/`StartedPageRequest`/`StartedCountRequest` handles on top of Issue #6's `Request` lifecycle. Each `StartFirstPage`/`StartPage`/`StartCount` call leases a dedicated connection, begins a `Request`, and runs the statement in a separate goroutine — so a caller (the UI) can request cancellation from another goroutine while the work runs. Issue #71 extends `StartPage` to accept the logical offset explicitly (`StartPage(parent, statement, params, offset)`) and pass it unchanged to the shared `runFirstPage` scanner, so oversized-value failures on later pages report the one-based absolute logical position; `StartFirstPage` stays fixed at offset zero. Contracts:
 
 - **Independent identities** — each started request owns its own lease and its own derived cancellable context; cancelling the page never disturbs the count's context or state.
 - **Cancel is a request, not settlement** — `Cancel` is idempotent and connection-scoped; the work settles only when the in-flight statement actually ends (interrupted mid-execution for CPU-bound work, busy-timeout expiry for lock waits).

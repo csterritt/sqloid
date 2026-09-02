@@ -25,10 +25,14 @@ import (
 
 // PageExecutor performs one cancellable paged-page SELECT execution for the
 // given safely rendered page statement (QueryBuilder's PageSQL, whose exact
-// LIMIT/OFFSET range replaces the user's Limit clause) and ordered bound
-// parameters, mapping the Connection boundary's outcomes onto the returned
-// FirstPageResult. It always runs inside a tea.Cmd — never in Update or View.
-type PageExecutor func(ctx context.Context, sql string, params []any) FirstPageResult
+// LIMIT/OFFSET range replaces the user's Limit clause), ordered bound
+// parameters, and the logical offset (the count of absolute logical result
+// rows before this page, identical to the OFFSET rendered into the
+// statement). The offset is passed explicitly so Issue #31 value-limit
+// failures report the one-based absolute logical position; it is never parsed
+// from the statement text. It always runs inside a tea.Cmd — never in Update
+// or View.
+type PageExecutor func(ctx context.Context, sql string, params []any, offset int64) FirstPageResult
 
 // PageSettledMsg carries one settled paged-page execution back through
 // Update with the full identity (Issues #25 and #26) that guards it: the
@@ -97,7 +101,7 @@ func (m *Model) handlePageKey(up bool) tea.Cmd {
 			ExecutionID: execution,
 			RequestID:   requestID,
 			Generation:  generation,
-			Result:      exec(pageCtx, statement, params),
+			Result:      exec(pageCtx, statement, params, offset),
 		}
 	}
 }
@@ -146,7 +150,11 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 	m.pageRequestExecution = 0
 	m.pageRequestGeneration = 0
 	m.pageRequestCancel = nil // Issue #28: the handle retires with the request
-	if msg.Result.Err != nil {
+	// Issue #71: a typed limit failure from the new page carries its exact
+	// absolute row-N message into the view even when the ordinary error
+	// boundary (Err) is also set, as the real adapter does. The previous
+	// page's rows stay displayed; only the failure message updates.
+	if msg.Result.Err != nil && msg.Result.LimitFailure == nil {
 		return m // ordinary failure keeps the previous page displayed
 	}
 	if msg.Result.Cancelled ||
@@ -163,15 +171,38 @@ func (m Model) applyPageSettled(msg PageSettledMsg) Model {
 	if m.Result != nil {
 		prevFailure = m.Result.LimitFailure
 	}
+	// Issue #71: the new page's typed limit failure takes precedence over
+	// the previous page's, so the view shows the exact absolute row-N
+	// message from the page that produced it.
+	limitFailure := prevFailure
+	if msg.Result.LimitFailure != nil {
+		limitFailure = msg.Result.LimitFailure
+	}
 	// Issue #32: the accepted response merges into the authoritative
 	// contiguous dual-cap cache by absolute logical position before it
 	// becomes display state; the direction follows the serialized request
 	// so eviction happens at the standard opposite end.
 	forward := requested >= m.pageOffset
-	if m.mergePageIntoCache(msg.Result.Page, requested, forward) {
+	if msg.Result.Page != nil && m.mergePageIntoCache(msg.Result.Page, requested, forward) {
 		byteTruncated = byteTruncated || m.viewportCache.TruncatedByByteCap()
 	}
-	m.Result = &ResultView{Page: msg.Result.Page, Offset: requested, ByteTruncated: byteTruncated, LimitFailure: prevFailure}
+	// Issue #71: when the result carries a typed limit failure with Err
+	// set (the real adapter's behavior), keep the previous page's rows
+	// displayed but update the failure message to the new page's absolute
+	// position.
+	if msg.Result.Err != nil && msg.Result.LimitFailure != nil {
+		if m.Result != nil {
+			m.Result = &ResultView{
+				Page:          m.Result.Page,
+				Err:           m.Result.Err,
+				Offset:        m.Result.Offset,
+				ByteTruncated: byteTruncated,
+				LimitFailure:  limitFailure,
+			}
+		}
+		return m
+	}
+	m.Result = &ResultView{Page: msg.Result.Page, Offset: requested, ByteTruncated: byteTruncated, LimitFailure: limitFailure}
 	m.pageOffset = requested // the displayed start moves to the requested range
 	if int64(len(msg.Result.Page.Rows)) < requestedSize {
 		m.pageExhausted = true

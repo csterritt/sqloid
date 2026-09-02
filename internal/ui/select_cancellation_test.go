@@ -86,7 +86,7 @@ func newBlockingPage(result FirstPageResult) *blockingPageExecutor {
 	return &blockingPageExecutor{started: make(chan context.Context, 8), hold: make(chan struct{}), result: result}
 }
 
-func (f *blockingPageExecutor) page(ctx context.Context, sql string, params []any) FirstPageResult {
+func (f *blockingPageExecutor) page(ctx context.Context, sql string, params []any, offset int64) FirstPageResult {
 	f.calls++
 	f.started <- ctx
 	<-ctx.Done()

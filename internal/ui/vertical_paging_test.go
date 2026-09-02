@@ -28,22 +28,46 @@ import (
 // outcome. issued counts requests whose command was invoked; settled counts
 // outcomes actually applied to the model, so tests can hold a response
 // behind a barrier simply by deferring the Update of the settled message.
+// offsets records the structured logical offset passed to each request
+// (Issue #71), in addition to SQL and parameters.
 type fakePageExecutor struct {
 	issued     int
 	settled    int
 	sqls       []string
 	params     [][]any
+	offsets    []int64
 	rowsShown  int64 // rows in each returned page
 	honorLimit bool  // parse the statement's LIMIT and return exactly that many rows
 	err        error
+	// limitFailure, when non-nil, is returned as the typed FirstPageResult
+	// LimitFailure at the given page-relative index (Issue #71) — but only
+	// when the request's offset matches limitFailureOffset. The fake
+	// computes the absolute position from offset + relativeIdx + 1.
+	limitFailure       *result.LimitFailure
+	limitFailureAt     int64 // 0-based page-relative index of the failing row
+	limitFailureOffset int64 // absolute offset at which to return the failure
 }
 
-func (f *fakePageExecutor) page(ctx context.Context, sql string, params []any) FirstPageResult {
+func (f *fakePageExecutor) page(ctx context.Context, sql string, params []any, offset int64) FirstPageResult {
 	f.issued++
 	f.sqls = append(f.sqls, sql)
 	f.params = append(f.params, params)
+	f.offsets = append(f.offsets, offset)
 	if f.err != nil {
 		return FirstPageResult{Err: f.err}
+	}
+	if f.limitFailure != nil && offset == f.limitFailureOffset {
+		// Issue #71: the fake mirrors the connection scanner's contract —
+		// the absolute position is offset + page-relative index + 1 — so the
+		// UI-visible message names the exact absolute row N.
+		absPos := offset + f.limitFailureAt + 1
+		lf := &result.LimitFailure{Kind: f.limitFailure.Kind, Position: absPos}
+		// Return the complete leading rows before the failing row.
+		out := make([][]result.Value, f.limitFailureAt)
+		for i := range out {
+			out[i] = []result.Value{result.NewInteger(int64(i+1) + offset)}
+		}
+		return FirstPageResult{Page: &result.Page{Columns: []string{"id"}, Rows: out}, LimitFailure: lf}
 	}
 	rows := f.rowsShown
 	if f.honorLimit {
@@ -393,5 +417,232 @@ func TestPageSizeAfterResizeUsesNewValue(t *testing.T) {
 	want := `SELECT * FROM "users" WHERE "email" = ? ORDER BY rowid LIMIT 15 OFFSET 3`
 	if pageExec.sqls[len(pageExec.sqls)-1] != want {
 		t.Errorf("page SQL = %q, want the resized 15 complete visible rows", pageExec.sqls[len(pageExec.sqls)-1])
+	}
+}
+
+// pageSQLOffset extracts the integer OFFSET value from a rendered PageSQL
+// statement, matching QueryBuilder's exact `LIMIT N OFFSET O` range.
+func pageSQLOffset(sql string) int64 {
+	i := strings.Index(sql, "OFFSET ")
+	if i < 0 {
+		return 0
+	}
+	v, err := strconv.ParseInt(strings.Fields(sql[i+7:])[0], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// collapseWhitespace replaces all runs of whitespace (including newlines from
+// terminal line wrapping) with single spaces, so a message wrapped across
+// rendered lines can be checked with strings.Contains. Border box-drawing
+// characters are removed first so a message split at a border joins cleanly.
+func collapseWhitespace(s string) string {
+	for _, ch := range []string{"│", "╭", "╮", "╰", "╯", "─"} {
+		s = strings.ReplaceAll(s, ch, " ")
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// TestPageExecutorReceivesOffsetMatchingPageSQL proves Issue #71's contract:
+// the logical offset passed to the page executor equals the OFFSET rendered
+// into QueryBuilder's PageSQL, for forward, backward, and Limit-clamped
+// ranges, nonzero current pages, and the resize/refetch path. The executor
+// fake records the structured offset alongside SQL and parameters.
+func TestPageExecutorReceivesOffsetMatchingPageSQL(t *testing.T) {
+	t.Run("forward from first page", func(t *testing.T) {
+		exec := &fakeSelectExecutor{page: threeRowPage()}
+		pageExec := &fakePageExecutor{rowsShown: 11}
+		m := settledFirstPage(t, exec, pageExec)
+
+		_, cmd := pageDown(m)
+		cmd()
+		if len(pageExec.offsets) != 1 {
+			t.Fatalf("recorded offsets = %v, want one", pageExec.offsets)
+		}
+		sqlOffset := pageSQLOffset(pageExec.sqls[0])
+		if pageExec.offsets[0] != sqlOffset {
+			t.Fatalf("executor offset = %d, want PageSQL OFFSET %d", pageExec.offsets[0], sqlOffset)
+		}
+		if pageExec.offsets[0] != 3 {
+			t.Fatalf("forward offset = %d, want 3 (after 3 displayed rows)", pageExec.offsets[0])
+		}
+	})
+
+	t.Run("backward from nonzero page", func(t *testing.T) {
+		exec := &fakeSelectExecutor{page: threeRowPage()}
+		pageExec := &fakePageExecutor{rowsShown: 11, honorLimit: true}
+		m := settledFirstPage(t, exec, pageExec)
+
+		// Page forward to offset 3, then back.
+		m, fwdCmd := pageDown(m)
+		settled := settlePage(t, m, fwdCmd)
+
+		_, cmd := pageUp(settled)
+		cmd()
+		if len(pageExec.offsets) < 2 {
+			t.Fatalf("recorded offsets = %v, want at least two", pageExec.offsets)
+		}
+		sqlOffset := pageSQLOffset(pageExec.sqls[1])
+		if pageExec.offsets[1] != sqlOffset {
+			t.Fatalf("backward executor offset = %d, want PageSQL OFFSET %d", pageExec.offsets[1], sqlOffset)
+		}
+		if pageExec.offsets[1] != 0 {
+			t.Fatalf("backward offset = %d, want 0 (clamped to low boundary)", pageExec.offsets[1])
+		}
+	})
+
+	t.Run("forward from nonzero page", func(t *testing.T) {
+		exec := &fakeSelectExecutor{page: threeRowPage()}
+		pageExec := &fakePageExecutor{rowsShown: 11, honorLimit: true}
+		m := settledFirstPage(t, exec, pageExec)
+
+		// Page forward twice: first to offset 3, then to offset 14.
+		m, fwdCmd := pageDown(m)
+		settled := settlePage(t, m, fwdCmd)
+
+		_, cmd := pageDown(settled)
+		cmd()
+		if len(pageExec.offsets) < 2 {
+			t.Fatalf("recorded offsets = %v, want at least two", pageExec.offsets)
+		}
+		sqlOffset := pageSQLOffset(pageExec.sqls[len(pageExec.sqls)-1])
+		if pageExec.offsets[len(pageExec.offsets)-1] != sqlOffset {
+			t.Fatalf("second forward executor offset = %d, want PageSQL OFFSET %d",
+				pageExec.offsets[len(pageExec.offsets)-1], sqlOffset)
+		}
+		if pageExec.offsets[len(pageExec.offsets)-1] != 14 {
+			t.Fatalf("second forward offset = %d, want 14 (3 + 11 displayed)", pageExec.offsets[len(pageExec.offsets)-1])
+		}
+	})
+
+	t.Run("resize refetch uses new offset", func(t *testing.T) {
+		exec := &fakeSelectExecutor{page: threeRowPage()}
+		pageExec := &fakePageExecutor{rowsShown: 11}
+		m := settledFirstPage(t, exec, pageExec)
+
+		// Page forward to offset 3, then resize triggers a refetch.
+		m, fwdCmd := pageDown(m)
+		settled := settlePage(t, m, fwdCmd)
+
+		resized, _ := pressKey(settled, tea.WindowSizeMsg{Width: 100, Height: 30})
+		// After resize, page down should use the current displayed offset.
+		_, cmd := pageDown(resized)
+		if cmd == nil {
+			t.Fatal("Page Down after resize issued no command")
+		}
+		cmd()
+		last := len(pageExec.offsets) - 1
+		sqlOffset := pageSQLOffset(pageExec.sqls[last])
+		if pageExec.offsets[last] != sqlOffset {
+			t.Fatalf("resize refetch executor offset = %d, want PageSQL OFFSET %d", pageExec.offsets[last], sqlOffset)
+		}
+	})
+}
+
+// TestPageExecutorValueLimitFailureShowsAbsoluteRow proves Issue #71's
+// UI-visible contract: when the page executor returns a typed value
+// LimitFailure at a known page-relative index on a request with a nonzero
+// offset, the rendered view shows the exact absolute row-N message where
+// N = offset + relativeIdx + 1.
+func TestPageExecutorValueLimitFailureShowsAbsoluteRow(t *testing.T) {
+	cases := []struct {
+		name        string
+		offset      int64
+		relativeIdx int64
+	}{
+		{"first relative row at offset 3", 3, 0},
+		{"second relative row at offset 3", 3, 1},
+		{"third relative row at offset 14", 14, 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &fakeSelectExecutor{page: threeRowPage()}
+			pageExec := &fakePageExecutor{
+				rowsShown:          11,
+				honorLimit:         true,
+				limitFailure:       &result.LimitFailure{Kind: result.KindValue},
+				limitFailureAt:     tc.relativeIdx,
+				limitFailureOffset: tc.offset,
+			}
+			m := settledFirstPage(t, exec, pageExec)
+
+			// Page forward to the target offset. The first page shows 3 rows
+			// (offset 0); one page down reaches offset 3, and a second
+			// reaches offset 14. The fake returns the limit failure when the
+			// offset matches limitFailureOffset, so the final page down
+			// produces the failure.
+			cur := m
+			pageDowns := 1 // always at least one to reach offset 3
+			if tc.offset > 3 {
+				pageDowns = 2 // second page down reaches offset 14
+			}
+			for i := 0; i < pageDowns; i++ {
+				next, cmd := pageDown(cur)
+				if cmd == nil {
+					t.Fatalf("page down %d issued no command", i+1)
+				}
+				cur = settlePage(t, next, cmd)
+			}
+
+			// The executor recorded the offset it received on the last call.
+			last := len(pageExec.offsets) - 1
+			if pageExec.offsets[last] != tc.offset {
+				t.Fatalf("executor offset = %d, want %d", pageExec.offsets[last], tc.offset)
+			}
+
+			// The view shows the exact absolute row-N message. The terminal
+			// renderer may wrap the message across lines, so collapse
+			// whitespace before checking.
+			wantPos := tc.offset + tc.relativeIdx + 1
+			wantMsg := "result value exceeds the 64 MiB v1 limit at row " + strconv.FormatInt(wantPos, 10)
+			if got := collapseWhitespace(cur.View()); !strings.Contains(got, wantMsg) {
+				t.Fatalf("view missing exact absolute message %q:\n%s", wantMsg, cur.View())
+			}
+		})
+	}
+}
+
+// TestPageExecutorPageLimitFailureShowsAbsoluteRow proves Issue #71's
+// UI-visible contract for page-envelope failures: when the page executor
+// returns a typed page LimitFailure at a known page-relative index on a
+// request with a nonzero offset, the rendered view shows the exact absolute
+// row-N message where N = offset + relativeIdx + 1.
+func TestPageExecutorPageLimitFailureShowsAbsoluteRow(t *testing.T) {
+	exec := &fakeSelectExecutor{page: threeRowPage()}
+	pageExec := &fakePageExecutor{
+		rowsShown:          11,
+		honorLimit:         true,
+		limitFailure:       &result.LimitFailure{Kind: result.KindPage},
+		limitFailureAt:     2,  // third page-relative row
+		limitFailureOffset: 14, // after paging forward twice from offset 3
+	}
+	m := settledFirstPage(t, exec, pageExec)
+
+	// Page forward to offset 3 (first page shows 3 rows).
+	next, cmd := pageDown(m)
+	settled := settlePage(t, next, cmd)
+
+	// Page forward to offset 14 — the fake returns the page-envelope failure.
+	next, cmd = pageDown(settled)
+	if cmd == nil {
+		t.Fatal("page key issued no command")
+	}
+	failSettled := settlePage(t, next, cmd)
+
+	// The executor recorded offset 14 (3 + 11 displayed rows).
+	last := len(pageExec.offsets) - 1
+	if pageExec.offsets[last] != 14 {
+		t.Fatalf("executor offset = %d, want 14", pageExec.offsets[last])
+	}
+
+	// The view shows the exact absolute row-N message: 14 + 2 + 1 = 17.
+	// The terminal renderer may wrap the message across lines, so collapse
+	// whitespace before checking.
+	wantMsg := "result page exceeds the 64 MiB v1 limit at row 17"
+	if got := collapseWhitespace(failSettled.View()); !strings.Contains(got, wantMsg) {
+		t.Fatalf("view missing exact absolute page-limit message %q:\n%s", wantMsg, failSettled.View())
 	}
 }

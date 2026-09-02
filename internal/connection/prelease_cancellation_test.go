@@ -179,7 +179,7 @@ func TestStartedPageCancelledBeforeLeaseAcquisition(t *testing.T) {
 	handleCh := make(chan *StartedPageRequest, 1)
 	go func() {
 		close(started)
-		handleCh <- db.StartPage(reqCtx, `SELECT id FROM "mix"`, nil)
+		handleCh <- db.StartPage(reqCtx, `SELECT id FROM "mix"`, nil, 0)
 	}()
 
 	<-started

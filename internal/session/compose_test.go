@@ -31,6 +31,7 @@ import (
 	"github.com/chris/sqloid/internal/connection"
 	"github.com/chris/sqloid/internal/export"
 	"github.com/chris/sqloid/internal/filepicker"
+	"github.com/chris/sqloid/internal/result"
 	"github.com/chris/sqloid/internal/schema"
 	"github.com/chris/sqloid/internal/session"
 	"github.com/chris/sqloid/internal/ui"
@@ -230,7 +231,7 @@ func TestComposePageExecutorRunsRealPagedPage(t *testing.T) {
 	}
 	defer s.Close()
 
-	res := s.Model().Page(context.Background(), "SELECT id, name FROM t ORDER BY id LIMIT 1 OFFSET 1", nil)
+	res := s.Model().Page(context.Background(), "SELECT id, name FROM t ORDER BY id LIMIT 1 OFFSET 1", nil, 1)
 	if res.Err != nil || res.Cancelled {
 		t.Fatalf("Page: err=%v cancelled=%v", res.Err, res.Cancelled)
 	}
@@ -239,6 +240,63 @@ func TestComposePageExecutorRunsRealPagedPage(t *testing.T) {
 	}
 	if got := res.Page.Rows[0][1].Display(); got != "beta" {
 		t.Errorf("paged row name = %q, want %q", got, "beta")
+	}
+}
+
+// TestComposePageExecutorPassesOffsetToConnection proves Issue #71's adapter
+// contract: the wired Page seam passes the supplied logical offset to
+// connection.DB.StartPage (via ExecutePage) so an oversized value on a later
+// page fails at the one-based absolute logical position, not a page-relative
+// position. The fixture has three small rows followed by one oversized BLOB
+// at absolute position 4; a page request with offset 3 and limit 1 hits the
+// oversized row at page-relative index 0, so the failure must name row 4.
+func TestComposePageExecutorPassesOffsetToConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.db")
+	// Build the fixture through a separate unlimited session.
+	fixture, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("fixture open: %v", err)
+	}
+	defer fixture.Close()
+	for _, stmt := range []string{
+		"CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
+		"INSERT INTO t (id, name) VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')",
+	} {
+		if _, err := fixture.Exec(stmt); err != nil {
+			t.Fatalf("exec %q: %v", stmt, err)
+		}
+	}
+	oversized := make([]byte, 64*1024*1024+1)
+	if _, err := fixture.Exec("INSERT INTO t (id, name) VALUES (4, ?)", oversized); err != nil {
+		t.Fatalf("insert oversized row: %v", err)
+	}
+
+	db, err := connection.Open(path)
+	if err != nil {
+		t.Fatalf("connection.Open: %v", err)
+	}
+	defer db.Close()
+
+	s, err := session.Compose(db)
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	defer s.Close()
+
+	res := s.Model().Page(context.Background(),
+		"SELECT id, name FROM t ORDER BY id LIMIT 1 OFFSET 3", nil, 3)
+	if res.Err == nil {
+		t.Fatal("Page: expected a typed value-limit failure, got nil err")
+	}
+	if res.LimitFailure == nil {
+		t.Fatalf("Page: err = %v, want a typed *result.LimitFailure", res.Err)
+	}
+	if res.LimitFailure.Kind != result.KindValue || res.LimitFailure.Position != 4 {
+		t.Fatalf("LimitFailure = %+v, want {KindValue, position 4 (offset 3 + relative 0 + 1)}", res.LimitFailure)
+	}
+	wantMsg := "result value exceeds the 64 MiB v1 limit at row 4"
+	if got := res.LimitFailure.Error(); got != wantMsg {
+		t.Fatalf("LimitFailure message = %q, want %q", got, wantMsg)
 	}
 }
 

@@ -166,7 +166,7 @@ func (m *Model) requestRecoveryPage(firstRow, size int64) tea.Cmd {
 			ExecutionID: execution,
 			RequestID:   requestID,
 			Generation:  generation,
-			Result:      exec(pageCtx, statement, params),
+			Result:      exec(pageCtx, statement, params, offset),
 		}
 	}
 }

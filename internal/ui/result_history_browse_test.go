@@ -184,7 +184,7 @@ func (c *countingExecutors) selectPage(_ context.Context, _ string, _ []any) Fir
 	c.selects++
 	return FirstPageResult{Err: errors.New("no database work may happen while browsing")}
 }
-func (c *countingExecutors) page(_ context.Context, _ string, _ []any) FirstPageResult {
+func (c *countingExecutors) page(_ context.Context, _ string, _ []any, _ int64) FirstPageResult {
 	c.pages++
 	return FirstPageResult{Err: errors.New("no database work may happen while browsing")}
 }

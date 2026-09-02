@@ -135,16 +135,15 @@ func selectAdapter(db *connection.DB) ui.SelectExecutor {
 
 // pageAdapter returns the paged-page SELECT executor that runs one
 // ExecutePage through db and maps the typed connection.RequestResult onto
-// ui.FirstPageResult. offset is supplied by the QueryBuilder page API and is
-// already encoded in the statement's LIMIT/OFFSET, so the adapter passes
-// through the requested offset only for Issue #31 value-limit position
-// reporting.
+// ui.FirstPageResult. offset is the count of absolute logical result rows
+// before this page (the requested OFFSET), identical to the OFFSET encoded in
+// the statement's LIMIT/OFFSET range by QueryBuilder's page API. It is passed
+// explicitly to ExecutePage for Issue #31 value-limit position reporting so
+// the scanner reports the one-based absolute logical position; it is never
+// parsed from the statement text.
 func pageAdapter(db *connection.DB) ui.PageExecutor {
-	return func(ctx context.Context, sql string, params []any) ui.FirstPageResult {
-		// The page SQL already carries the exact LIMIT/OFFSET range; offset
-		// is informational for value-limit position reporting and is read
-		// from the statement by the connection layer.
-		page, res := db.ExecutePage(ctx, sql, params, 0)
+	return func(ctx context.Context, sql string, params []any, offset int64) ui.FirstPageResult {
+		page, res := db.ExecutePage(ctx, sql, params, offset)
 		return mapFirstPage(page, res)
 	}
 }

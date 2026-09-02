@@ -332,7 +332,7 @@ func TestCapabilityLaterPageCancelInterruptsWithinOneSecond(t *testing.T) {
 	defer db.Close()
 
 	pageQB := probeQB("page_t", "p", false)
-	page := db.StartPage(ctx, pageQB.PageSQL(probeTableRows, probeTableRows/2), pageQB.PageParams())
+	page := db.StartPage(ctx, pageQB.PageSQL(probeTableRows, probeTableRows/2), pageQB.PageParams(), int64(probeTableRows/2))
 	mustReach(t, pageStarted, "later-page probe work")
 
 	pageCancelAt := time.Now()
