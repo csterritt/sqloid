@@ -214,6 +214,12 @@ func (m *Model) applyPickerFilenameKey(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyRunes:
 		m.picker.InsertRunes(msg.Runes)
+	case tea.KeySpace:
+		// Issue #68: KeySpace inserts exactly one U+0020 into the filename
+		// buffer through the same insertion path as KeyRunes, so spaces in
+		// basenames complete through the existing validation, required-
+		// extension, and path-join logic verbatim.
+		m.picker.InsertRunes([]rune{' '})
 	case tea.KeyBackspace, tea.KeyCtrlH:
 		m.picker.Backspace()
 	case tea.KeyDelete:

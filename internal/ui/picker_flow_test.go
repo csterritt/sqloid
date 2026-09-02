@@ -521,3 +521,214 @@ func TestPickerPerformsNoDatabaseWork(t *testing.T) {
 			sel.calls, count.calls, page.issued, refresh.calls)
 	}
 }
+
+// pickerSpaceKey is one tea.KeySpace press for the picker space tests.
+func pickerSpaceKey() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeySpace} }
+
+// typeFilenameWithSpaces types s into the focused filename buffer one rune at
+// a time, sending tea.KeySpace for each U+0020 and tea.KeyRunes for every
+// other rune. This is the Issue #68 contract: filename spaces reach the
+// picker through KeySpace, not a synthetic KeyRunes carrying a space.
+func typeFilenameWithSpaces(t *testing.T, m Model, s string) Model {
+	t.Helper()
+	for _, r := range s {
+		var msg tea.Msg
+		if r == ' ' {
+			msg = pickerSpaceKey()
+		} else {
+			msg = runeKey(string(r))
+		}
+		next, _ := pressKey(m, msg)
+		m = next
+	}
+	return m
+}
+
+// TestPickerFilenameKeySpaceInsertsAtEveryCursorPosition requires
+// tea.KeySpace to insert exactly one U+0020 at the filename cursor's start,
+// middle, and end for ASCII and Unicode filenames, advancing the rune cursor
+// by one and leaving every surrounding rune unchanged. The seed is typed in
+// parts around the space because the picker's Left/Right keys toggle the
+// save format rather than moving the filename cursor; Home/End position the
+// cursor at the buffer boundaries.
+func TestPickerFilenameKeySpaceInsertsAtEveryCursorPosition(t *testing.T) {
+	cases := []struct {
+		name       string
+		before     string // text typed before the space
+		after      string // text typed after the space
+		wantCursor int    // expected cursor after the space press
+		want       string
+	}{
+		{"ascii/start", "", "abc", 1, " abc"},
+		{"ascii/mid", "a", "bc", 2, "a bc"},
+		{"ascii/end", "abc", "", 4, "abc "},
+		{"unicode/start", "", "世界", 1, " 世界"},
+		{"unicode/mid", "世", "界", 2, "世 界"},
+		{"unicode/end", "世界", "", 3, "世界 "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := pickerNewFakeFS()
+			f.dirs["/work"] = []pickerFakeEntry{{"out", true}}
+			_, p := savePickerModel(t, f)
+			p, _ = pressKey(p, tea.KeyMsg{Type: tea.KeyTab}) // filename focus
+			if tc.before != "" {
+				p, _ = pressKey(p, runeKey(tc.before))
+			}
+			p, _ = pressKey(p, pickerSpaceKey())
+			wantAfterSpace := tc.before + " "
+			if got := p.picker.Filename(); got != wantAfterSpace {
+				t.Fatalf("filename after space = %q, want %q", got, wantAfterSpace)
+			}
+			if got := p.picker.Cursor(); got != tc.wantCursor {
+				t.Fatalf("cursor after space = %d, want %d", got, tc.wantCursor)
+			}
+			if tc.after != "" {
+				p, _ = pressKey(p, runeKey(tc.after))
+			}
+			wantFull := tc.before + " " + tc.after
+			if got := p.picker.Filename(); got != wantFull {
+				t.Fatalf("filename after rest = %q, want %q", got, wantFull)
+			}
+			if got := p.picker.Cursor(); got != len([]rune(wantFull)) {
+				t.Fatalf("cursor after rest = %d, want %d", got, len([]rune(wantFull)))
+			}
+		})
+	}
+}
+
+// TestPickerFilenameKeySpaceMatchesKeyRunesSpace requires tea.KeySpace to
+// behave identically to one tea.KeyRunes carrying a single space rune in the
+// filename buffer, for the same seed typed in parts around the space.
+func TestPickerFilenameKeySpaceMatchesKeyRunesSpace(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{"start", "", "abc"},
+		{"mid", "a", "bc"},
+		{"end", "abc", ""},
+		{"unicode-mid", "世", "界"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f1 := pickerNewFakeFS()
+			f1.dirs["/work"] = []pickerFakeEntry{{"out", true}}
+			f2 := pickerNewFakeFS()
+			f2.dirs["/work"] = []pickerFakeEntry{{"out", true}}
+			_, p1 := savePickerModel(t, f1)
+			_, p2 := savePickerModel(t, f2)
+			p1, _ = pressKey(p1, tea.KeyMsg{Type: tea.KeyTab})
+			p2, _ = pressKey(p2, tea.KeyMsg{Type: tea.KeyTab})
+			if tc.before != "" {
+				p1, _ = pressKey(p1, runeKey(tc.before))
+				p2, _ = pressKey(p2, runeKey(tc.before))
+			}
+			p1, _ = pressKey(p1, pickerSpaceKey())
+			p2, _ = pressKey(p2, runeKey(" "))
+			if p1.picker.Filename() != p2.picker.Filename() {
+				t.Fatalf("filename differs: KeySpace=%q KeyRunes=%q", p1.picker.Filename(), p2.picker.Filename())
+			}
+			if p1.picker.Cursor() != p2.picker.Cursor() {
+				t.Fatalf("cursor differs: KeySpace=%d KeyRunes=%d", p1.picker.Cursor(), p2.picker.Cursor())
+			}
+		})
+	}
+}
+
+// TestPickerCompletesSpacedBasenamesThroughEveryFormat requires valid
+// filenames containing spaces — typed through tea.KeySpace — to complete
+// through the SQL, CSV, and JSON extension/path construction for both ASCII
+// and Unicode basenames.
+func TestPickerCompletesSpacedBasenamesThroughEveryFormat(t *testing.T) {
+	cases := []struct {
+		name     string
+		basename string
+		format   filepicker.Format
+		want     string
+	}{
+		{"sql/ascii", "my report", filepicker.FormatSQL, "/work/my report.sql"},
+		{"csv/ascii", "export data", filepicker.FormatCSV, "/work/export data.csv"},
+		{"json/ascii", "result set", filepicker.FormatJSON, "/work/result set.json"},
+		{"sql/unicode", "世界 报告", filepicker.FormatSQL, "/work/世界 报告.sql"},
+		{"csv/unicode", "数据 导出", filepicker.FormatCSV, "/work/数据 导出.csv"},
+		{"json/unicode", "结果 集", filepicker.FormatJSON, "/work/结果 集.json"},
+		{"sql/leading-space", " lead", filepicker.FormatSQL, "/work/ lead.sql"},
+		{"sql/trailing-space", "trail ", filepicker.FormatSQL, "/work/trail .sql"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := pickerNewFakeFS()
+			f.dirs["/work"] = []pickerFakeEntry{{"out", true}}
+			m := New()
+			m.PickerFS = f
+			m.PickerStart = "/work"
+			m.SaveFS = newSaveFlowFakeFS()
+			if tc.format != filepicker.FormatSQL {
+				m.exportPrepared = &export.Capture{Payload: export.Payload{Names: []string{"c"}}}
+				m.exportFormat = tc.format
+				m.exportWarnings = []string{"Result is complete"}
+				m.exportWarningsOpen = true
+				opened, cmd := pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+				m = opened
+				m, _ = runList(t, m, cmd)
+			} else {
+				m.savePrepared = &export.SQLSaveTarget{State: validSelectState()}
+				cmd := m.openPicker(pickerFlowSave, filepicker.FormatSQL)
+				m, _ = runList(t, m, cmd)
+			}
+			if !m.pickerOpen {
+				t.Fatal("picker did not open")
+			}
+			m, _ = pressKey(m, tea.KeyMsg{Type: tea.KeyTab}) // filename focus
+			m = typeFilenameWithSpaces(t, m, tc.basename)
+			if got := m.picker.Filename(); got != tc.basename {
+				t.Fatalf("filename = %q, want %q", got, tc.basename)
+			}
+			m, cmd := pressKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+			settled, msgs := runSaveCmds(t, m, cmd)
+			if len(msgs) == 0 {
+				t.Fatal("completion ran no save-flow messages")
+			}
+			verifyMsg, ok := msgs[0].(PickerVerifyMsg)
+			if !ok || verifyMsg.Path != tc.want {
+				t.Fatalf("verify = %+v ok=%v, want %q", msgs[0], ok, tc.want)
+			}
+			if settled.pickerOpen {
+				t.Fatal("picker still open after completion")
+			}
+			var gotPath string
+			if tc.format == filepicker.FormatSQL {
+				gotPath = settled.saveCompletedPath
+			} else {
+				gotPath = settled.exportCompletedPath
+			}
+			if gotPath != tc.want {
+				t.Fatalf("completed path = %q, want %q", gotPath, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickerDirectoryFocusSpaceDoesNotBecomeFilename is a control proving
+// that tea.KeySpace while the directory pane owns focus does not insert into
+// the filename buffer or navigate the listing; it is consumed as a no-op.
+func TestPickerDirectoryFocusSpaceDoesNotBecomeFilename(t *testing.T) {
+	f := pickerNewFakeFS()
+	f.dirs["/work"] = []pickerFakeEntry{{"out", true}}
+	_, p := savePickerModel(t, f)
+	// Directory focus is the default.
+	if p.picker.Focus() != filepicker.FocusDir {
+		t.Fatal("picker did not start with directory focus")
+	}
+	p, _ = pressKey(p, pickerSpaceKey())
+	if got := p.picker.Filename(); got != "" {
+		t.Fatalf("directory-focus space inserted into filename: %q", got)
+	}
+	if got := p.picker.Highlight(); got != 0 {
+		t.Fatalf("directory-focus space moved highlight to %d", got)
+	}
+	if got := p.picker.CurrentDir(); got != "/work" {
+		t.Fatalf("directory-focus space changed directory to %q", got)
+	}
+}

@@ -40,18 +40,33 @@ func (p *ValuePrompt) Buffer() string { return string(p.runes) }
 // Cursor returns the current insertion index as an offset in runes.
 func (p *ValuePrompt) Cursor() int { return p.cursor }
 
+// insertRunes inserts runes at the rune cursor, advancing the cursor by the
+// number of inserted runes and preserving every surrounding rune verbatim.
+// KeyRunes and KeySpace share this path so space uses the ordinary
+// rune-aware editing model.
+func (p *ValuePrompt) insertRunes(runes []rune) {
+	s := make([]rune, 0, len(p.runes)+len(runes))
+	s = append(s, p.runes[:p.cursor]...)
+	s = append(s, runes...)
+	s = append(s, p.runes[p.cursor:]...)
+	p.runes = s
+	p.cursor += len(runes)
+}
+
 // HandleKey applies one key message to the entry buffer, reporting whether
 // anything changed. Enter and Esc are intentionally not handled here: they are
 // commit/cancel decisions owned by the model's hook plumbing.
 func (p *ValuePrompt) HandleKey(msg tea.KeyMsg) bool {
 	switch msg.Type {
 	case tea.KeyRunes:
-		s := make([]rune, 0, len(p.runes)+len(msg.Runes))
-		s = append(s, p.runes[:p.cursor]...)
-		s = append(s, msg.Runes...)
-		s = append(s, p.runes[p.cursor:]...)
-		p.runes = s
-		p.cursor += len(msg.Runes)
+		p.insertRunes(msg.Runes)
+		return true
+	case tea.KeySpace:
+		// Issue #68: KeySpace inserts exactly one U+0020 at the rune cursor
+		// through the same insertion path as KeyRunes, so the ordinary
+		// rune-aware editing model — Left/Right, Backspace/Delete,
+		// Home/End, Ctrl+A/Ctrl+E, Ctrl+U — keeps working unchanged.
+		p.insertRunes([]rune{' '})
 		return true
 	case tea.KeyBackspace, tea.KeyCtrlH:
 		if p.cursor > 0 {
