@@ -16,7 +16,25 @@ Obtaining the names never mutates anything: the original driver labels in `Page.
 
 `internal/result.DecodeText` is the sole normalization site: each maximal invalid byte sequence (per Unicode's maximal-subpart rule — isolated continuation bytes, truncated multibyte prefixes, overlong encodings such as `C0 80`, surrogate encodings such as `ED A0 80`, and adjacent invalid runs) becomes exactly one U+FFFD. `FromDriver` applies it once to TEXT only and sets the structured `Page.InvalidUTF` metadata (surfaced as the persistent `result.UTFWarning` status text); row and column counts are unchanged and exporters can aggregate the warning without reparsing text.
 
-- **BLOBs** holding the same bytes stay byte-for-byte unchanged — including empty payloads, NUL, high bytes, and invalid UTF-8 — and never set the warning. `Value.Bytes` are safe immutable copies; mutating caller storage never affects the retained payload.
+### Unicode maximal-subpart rule (Issue #74)
+
+`maximalSubpart` in `internal/result/result.go` implements Unicode Table 3-7 for all lead-byte classes:
+
+- **Two-byte leads (C2–DF)**: second byte must be 80–BF. An invalid or missing second byte is a one-byte subpart; a valid second byte with no following byte is a two-byte subpart.
+- **Three-byte leads (E0–EF)**: each lead class has a constrained second-byte range — E0 requires A0–BF (excludes overlong U+0000), E1–EC requires 80–BF, ED requires 80–9F (excludes surrogates U+D800–U+DFFF), EE–EF requires 80–BF. An invalid or missing second byte is a one-byte subpart; a valid second byte with an invalid or missing third byte is a two-byte subpart. Boundary second-byte constraints (A0/BF for E0, 80/9F for ED, 80/BF for E1–EC/EE–EF) are enforced so overlong encodings and surrogates are never accepted as valid prefixes.
+- **Four-byte leads (F0–F4)**: each lead class has a constrained second-byte range — F0 requires 90–BF (excludes overlong U+0000), F1–F3 requires 80–BF, F4 requires 80–8F (excludes code points above U+10FFFF). An invalid or missing second byte is a one-byte subpart; a valid second byte with an invalid or missing third byte is a two-byte subpart; a valid second and third byte with an invalid or missing fourth byte is a three-byte subpart. Boundary second-byte constraints (90/BF for F0, 80/8F for F4) are enforced.
+
+### Valid U+FFFD preservation (Issue #74)
+
+A valid encoded U+FFFD (the three-byte sequence EF BF BD) is preserved unchanged and never sets the replacement signal. `utf8.DecodeRuneInString` returns `RuneError` (which IS U+FFFD) for both invalid sequences and valid U+FFFD, so `DecodeText` distinguishes them by size: size 1 means invalid (one-byte subpart), size > 1 means a valid rune including U+FFFD. A valid U+FFFD before, after, or between malformed bytes survives intact; the `replaced` boolean is set only for actual malformed input, never for a valid U+FFFD passing through.
+
+### Shared consumer behavior
+
+Grid (`internal/ui`), CSV (`internal/export.CSV`), and JSON (`internal/export.JSON`) all consume the same corrected TEXT value and invalid-UTF metadata from `DecodeText`/`FromDriver`. No consumer re-decodes, re-normalizes, or post-processes replacement-rune bytes. The `Page.InvalidUTF` flag and `result.UTFWarning` text are metadata only — they never become rows, columns, fields, keys, or records in any export format.
+
+### BLOB exclusion
+
+- **BLOBs** holding the same bytes stay byte-for-byte unchanged — including empty payloads, NUL, high bytes, invalid UTF-8, overlong encodings, surrogates, and adjacent invalid runs — and never set the warning. `Value.Bytes` are safe immutable copies; mutating caller storage never affects the retained payload. BLOB bytes are neither decoded nor transformed; the maximal-subpart rule applies to TEXT only.
 - **NULL/empty distinctions**: SQL NULL (`KindNull`, grid `(NULL)`), empty TEXT (`KindText`, `Str == ""`, exports as an empty field), and empty BLOB (`KindBlob`, zero bytes, `[BLOB 0 bytes]`) are three distinct typed values.
 - **Controls**: normalized TEXT retains tabs, newlines, carriage returns, NUL, and every other control verbatim. Issue #22's visible grid rendering (`GridText`: `⇥`/`⏎` symbols, `[BLOB n bytes]` placeholders, `(NULL)`) is display-only; exporters receive the raw typed policy inputs and must not infer type from display text.
 
@@ -32,4 +50,11 @@ Single definition sites (all in `internal/result`): name deduplication (`Dedupli
 
 - `internal/export/export_test.go` — full-set collision cases with metadata-mutation checks, exporter/grid name equivalence in column order, exact finite-REAL tokens with bit-exact round-trip and locale-independence assertions, REAL identity retention versus identical-looking INTEGER/TEXT, maximal-invalid-UTF replacement with warning metadata, exact BLOB bytes, controls in normalized TEXT, and NULL/empty-TEXT/empty-BLOB distinctions.
 - `internal/ui/export_seam_test.go` — grid/exporter name equivalence rendered through the real model route with driver metadata unchanged.
-- `internal/result/result_test.go`, `internal/result/architecture_test.go`, and `internal/ui/results_grid_test.go` — the pre-existing Issue #22/#23 contract pins, retained.
+- `internal/result/result_test.go` — the pre-existing Issue #22/#23 contract pins, retained; Issue #74 adds `TestDecodeTextMaximalSubpartsE0EF` (exhaustive E0–EF lead-byte classes with boundary second-byte constraints, valid second bytes with invalid/missing third bytes, and invalid second bytes), `TestDecodeTextMaximalSubpartsF0F4` (exhaustive F0–F4 lead-byte classes with one/two/three valid continuation-prefix bytes followed by invalid/missing later bytes, boundary second-byte constraints, and F4 above-U+10FFFF exclusion), `TestDecodeTextPreservesValidFFFD` (valid encoded U+FFFD before, after, and between malformed bytes with replacement signal only for malformed input), `TestDecodeTextAdjacentMalformedSubparts` (adjacent E0/F0 subparts and malformed sequences followed by valid text), `TestDecodeTextFullyValidControls` (NUL, DEL, tab, newline, CR, valid U+FFFD, valid multibyte, valid four-byte U+10000 and U+10FFFF), `TestFromDriverInvalidUTFMetadataOnlyOnReplacement` (metadata set only for malformed TEXT, never for valid UTF-8 TEXT, BLOBs with invalid UTF-8, or non-TEXT types), and `TestBlobBytesUnchangedWithInvalidUTFPatterns` (BLOB payloads with E0–EF/F0–F4 maximal-subpart patterns, overlong, surrogates, adjacent invalid runs, NUL/high bytes, valid U+FFFD bytes, and mixed valid/invalid — all byte-for-byte unchanged with no text warnings).
+- `internal/result/architecture_test.go` and `internal/ui/results_grid_test.go` — the pre-existing architecture and grid contract pins, retained.
+
+## References
+
+- Issues #22 (shared typed result seam), #23 (REAL/non-finite tokens), #47 (exporter-facing boundary), #74 (corrected maximal-subpart decoding and valid U+FFFD preservation).
+- `Notes/PRD-sqloid.md`: Invalid UTF-8 TEXT (maximal-subpart rule, BLOB exclusion, warning metadata), Grid rendering/cache, Export formats and values, Export warnings, Module Design, Testing Decisions; user story 75.
+- Related pages: [csv-export.md](csv-export.md), [json-export.md](json-export.md), [non-finite-real-grid.md](non-finite-real-grid.md), [first-select-result-grid.md](first-select-result-grid.md), [byte-cap-oversized-values.md](byte-cap-oversized-values.md), [snapshot-metadata.md](snapshot-metadata.md).

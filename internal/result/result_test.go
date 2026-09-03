@@ -9,6 +9,7 @@
 package result
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -217,6 +218,533 @@ func TestDecodeTextMaximalInvalidSequences(t *testing.T) {
 			}
 			if replaced != tt.wantReplac {
 				t.Errorf("DecodeText(%q) replaced = %v, want %v", tt.input, replaced, tt.wantReplac)
+			}
+		})
+	}
+}
+
+// TestDecodeTextMaximalSubpartsE0EF exhausts the E0–EF three-byte lead-byte
+// classes: each lead class is tested with a valid constrained second byte at
+// its boundaries followed by an invalid or missing third byte, and with an
+// invalid second byte below and above the constrained range. Per Unicode
+// Table 3-7, a valid second byte followed by an invalid or missing third
+// byte is a two-byte maximal subpart (one U+FFFD); an invalid second byte
+// is a one-byte maximal subpart (one U+FFFD for the lead, then the second
+// byte is processed independently).
+func TestDecodeTextMaximalSubpartsE0EF(t *testing.T) {
+	const fffd = string(rune(0xFFFD))
+	tests := []struct {
+		name       string
+		input      string
+		want       string
+		wantReplac bool
+	}{
+		// E0: second byte constrained to A0–BF (excludes overlong U+0000).
+		{
+			name:       "E0 valid second byte at lower bound truncated",
+			input:      "\xE0\xA0",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E0 valid second byte at upper bound truncated",
+			input:      "\xE0\xBF",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E0 valid second byte invalid third byte above range",
+			input:      "\xE0\xA0\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E0 valid second byte invalid third byte below range",
+			input:      "\xE0\xA0\x7F",
+			want:       fffd + "\x7f",
+			wantReplac: true,
+		},
+		{
+			name:       "E0 second byte below range is one-byte subpart then lone continuation",
+			input:      "\xE0\x9F",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E0 second byte above range is one-byte subpart then C0 default",
+			input:      "\xE0\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		// E1–EC: second byte constrained to 80–BF.
+		{
+			name:       "E1 valid second byte at lower bound truncated",
+			input:      "\xE1\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "EC valid second byte at upper bound truncated",
+			input:      "\xEC\xBF",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E1 valid second byte invalid third byte",
+			input:      "\xE1\x80\xFF",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E1 second byte below range is one-byte subpart then valid ASCII",
+			input:      "\xE1\x7F",
+			want:       fffd + "\x7f",
+			wantReplac: true,
+		},
+		// ED: second byte constrained to 80–9F (excludes surrogates U+D800–U+DFFF).
+		{
+			name:       "ED valid second byte at lower bound truncated",
+			input:      "\xED\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "ED valid second byte at upper bound truncated",
+			input:      "\xED\x9F",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "ED valid second byte invalid third byte",
+			input:      "\xED\x9F\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "ED second byte above range (surrogate) is one-byte subpart then two lone continuations",
+			input:      "\xED\xA0\x80",
+			want:       fffd + fffd + fffd,
+			wantReplac: true,
+		},
+		// EE–EF: second byte constrained to 80–BF.
+		{
+			name:       "EE valid second byte truncated",
+			input:      "\xEE\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "EF valid second byte at upper bound truncated",
+			input:      "\xEF\xBF",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "EF valid second byte invalid third byte",
+			input:      "\xEF\x80\xFF",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, replaced := DecodeText(tt.input)
+			if got != tt.want {
+				t.Errorf("DecodeText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if replaced != tt.wantReplac {
+				t.Errorf("DecodeText(%q) replaced = %v, want %v", tt.input, replaced, tt.wantReplac)
+			}
+		})
+	}
+}
+
+// TestDecodeTextMaximalSubpartsF0F4 exhausts the F0–F4 four-byte lead-byte
+// classes: each lead class is tested with one, two, or three valid
+// continuation-prefix bytes followed by an invalid or missing later byte,
+// and with an invalid second byte below and above the constrained range.
+// Per Unicode Table 3-7, a valid second byte with a missing third byte is a
+// two-byte maximal subpart; a valid second and third byte with a missing or
+// invalid fourth byte is a three-byte maximal subpart. Each produces exactly
+// one U+FFFD.
+func TestDecodeTextMaximalSubpartsF0F4(t *testing.T) {
+	const fffd = string(rune(0xFFFD))
+	tests := []struct {
+		name       string
+		input      string
+		want       string
+		wantReplac bool
+	}{
+		// F0: second byte constrained to 90–BF (excludes overlong U+0000).
+		{
+			name:       "F0 valid second byte at lower bound truncated after two bytes",
+			input:      "\xF0\x90",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F0 valid second byte at upper bound truncated after two bytes",
+			input:      "\xF0\xBF",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F0 valid second and third bytes truncated after three bytes",
+			input:      "\xF0\x90\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F0 valid second and third bytes invalid fourth byte above range",
+			input:      "\xF0\x90\x80\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F0 valid second and third bytes invalid fourth byte below range",
+			input:      "\xF0\x90\x80\x7F",
+			want:       fffd + "\x7f",
+			wantReplac: true,
+		},
+		{
+			name:       "F0 valid second byte invalid third byte",
+			input:      "\xF0\x90\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F0 second byte below range is one-byte subpart then lone continuation",
+			input:      "\xF0\x8F",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F0 second byte above range is one-byte subpart then C0 default",
+			input:      "\xF0\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		// F1–F3: second byte constrained to 80–BF.
+		{
+			name:       "F1 valid second byte at lower bound truncated after two bytes",
+			input:      "\xF1\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F2 valid second byte at upper bound truncated after two bytes",
+			input:      "\xF2\xBF",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F3 valid second and third bytes truncated after three bytes",
+			input:      "\xF3\x80\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F1 valid second and third bytes invalid fourth byte",
+			input:      "\xF1\x80\x80\xFF",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F2 valid second byte invalid third byte",
+			input:      "\xF2\x80\xFF",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F1 second byte below range is one-byte subpart then valid ASCII",
+			input:      "\xF1\x7F",
+			want:       fffd + "\x7f",
+			wantReplac: true,
+		},
+		// F4: second byte constrained to 80–8F (excludes code points above U+10FFFF).
+		{
+			name:       "F4 valid second byte at lower bound truncated after two bytes",
+			input:      "\xF4\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F4 valid second byte at upper bound truncated after two bytes",
+			input:      "\xF4\x8F",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F4 valid second and third bytes truncated after three bytes",
+			input:      "\xF4\x80\x80",
+			want:       fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F4 valid second and third bytes invalid fourth byte",
+			input:      "\xF4\x80\x80\xFF",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F4 second byte above range (above U+10FFFF) is one-byte subpart then lone continuation",
+			input:      "\xF4\x90",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "F4 valid second byte at upper bound with valid third byte and invalid fourth",
+			input:      "\xF4\x8F\x80\xC0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, replaced := DecodeText(tt.input)
+			if got != tt.want {
+				t.Errorf("DecodeText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if replaced != tt.wantReplac {
+				t.Errorf("DecodeText(%q) replaced = %v, want %v", tt.input, replaced, tt.wantReplac)
+			}
+		})
+	}
+}
+
+// TestDecodeTextPreservesValidFFFD proves that a valid encoded U+FFFD
+// (EF BF BD) survives decoding unchanged beside malformed input, and that
+// the replacement boolean is set only for actual malformed input — never
+// for a valid U+FFFD passing through.
+func TestDecodeTextPreservesValidFFFD(t *testing.T) {
+	const fffd = string(rune(0xFFFD))
+	tests := []struct {
+		name       string
+		input      string
+		want       string
+		wantReplac bool
+	}{
+		{
+			name:       "valid U+FFFD alone is unchanged with no replacement",
+			input:      "\xEF\xBF\xBD",
+			want:       fffd,
+			wantReplac: false,
+		},
+		{
+			name:       "valid U+FFFD before malformed bytes",
+			input:      "\xEF\xBF\xBD\xE0\xA0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "valid U+FFFD after malformed bytes",
+			input:      "\xE0\xA0\xEF\xBF\xBD",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "valid U+FFFD before and after malformed bytes",
+			input:      "\xEF\xBF\xBD\xC0\x80\xEF\xBF\xBD",
+			want:       fffd + fffd + fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "valid U+FFFD between two malformed subparts",
+			input:      "\xE0\xA0\xEF\xBF\xBD\xF0\x90",
+			want:       fffd + fffd + fffd,
+			wantReplac: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, replaced := DecodeText(tt.input)
+			if got != tt.want {
+				t.Errorf("DecodeText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if replaced != tt.wantReplac {
+				t.Errorf("DecodeText(%q) replaced = %v, want %v", tt.input, replaced, tt.wantReplac)
+			}
+		})
+	}
+}
+
+// TestDecodeTextAdjacentMalformedSubparts verifies that adjacent maximal
+// invalid subparts each produce exactly one U+FFFD, and that malformed
+// sequences followed by valid text preserve the valid tail.
+func TestDecodeTextAdjacentMalformedSubparts(t *testing.T) {
+	const fffd = string(rune(0xFFFD))
+	tests := []struct {
+		name       string
+		input      string
+		want       string
+		wantReplac bool
+	}{
+		{
+			name:       "adjacent E0 subparts",
+			input:      "\xE0\xA0\xE0\xA0",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "adjacent F0 two-byte subparts",
+			input:      "\xF0\x90\xF0\x90",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "adjacent F0 three-byte subparts",
+			input:      "\xF0\x90\x80\xF0\x90\x80",
+			want:       fffd + fffd,
+			wantReplac: true,
+		},
+		{
+			name:       "E0 subpart followed by valid text",
+			input:      "\xE0\xA0ok",
+			want:       fffd + "ok",
+			wantReplac: true,
+		},
+		{
+			name:       "F0 two-byte subpart followed by valid text",
+			input:      "\xF0\x90ok",
+			want:       fffd + "ok",
+			wantReplac: true,
+		},
+		{
+			name:       "F0 three-byte subpart followed by valid text",
+			input:      "\xF0\x90\x80ok",
+			want:       fffd + "ok",
+			wantReplac: true,
+		},
+		{
+			name:       "F4 three-byte subpart followed by valid multibyte text",
+			input:      "\xF4\x80\x80héllo",
+			want:       fffd + "héllo",
+			wantReplac: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, replaced := DecodeText(tt.input)
+			if got != tt.want {
+				t.Errorf("DecodeText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if replaced != tt.wantReplac {
+				t.Errorf("DecodeText(%q) replaced = %v, want %v", tt.input, replaced, tt.wantReplac)
+			}
+		})
+	}
+}
+
+// TestDecodeTextFullyValidControls verifies that fully valid control
+// characters and valid multibyte sequences pass through unchanged with no
+// replacement signal.
+func TestDecodeTextFullyValidControls(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "NUL is valid UTF-8", input: "a\x00b"},
+		{name: "DEL is valid UTF-8", input: "a\x7fb"},
+		{name: "tab and newline are valid UTF-8", input: "a\tb\nc"},
+		{name: "carriage return is valid UTF-8", input: "a\rb"},
+		{name: "valid U+FFFD is valid UTF-8", input: "\xEF\xBF\xBD"},
+		{name: "valid multibyte mixed", input: "héllo世日本"},
+		{name: "valid four-byte U+10000", input: "\xF0\x90\x80\x80"},
+		{name: "valid four-byte U+10FFFF", input: "\xF4\x8F\xBF\xBF"},
+		{name: "controls and multibyte mixed", input: "a\x00\tb\nhéllo\x7F"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, replaced := DecodeText(tt.input)
+			if got != tt.input {
+				t.Errorf("DecodeText(%q) = %q, want unchanged input", tt.input, got)
+			}
+			if replaced {
+				t.Errorf("DecodeText(%q) replaced = true, want false for valid input", tt.input)
+			}
+		})
+	}
+}
+
+// TestFromDriverInvalidUTFMetadataOnlyOnReplacement verifies that
+// Page.InvalidUTF is set only when at least one TEXT value actually
+// required replacement — never for valid UTF-8 TEXT, BLOBs with invalid
+// UTF-8, or non-TEXT types.
+func TestFromDriverInvalidUTFMetadataOnlyOnReplacement(t *testing.T) {
+	t.Run("valid UTF-8 TEXT does not set metadata", func(t *testing.T) {
+		page := FromDriver([]string{"t"}, [][]any{{"héllo世"}, {"a\x00b"}, {"\xEF\xBF\xBD"}})
+		if page.InvalidUTF {
+			t.Error("valid UTF-8 TEXT set InvalidUTF metadata")
+		}
+	})
+	t.Run("malformed TEXT sets metadata", func(t *testing.T) {
+		page := FromDriver([]string{"t"}, [][]any{{"\xE0\xA0"}})
+		if !page.InvalidUTF {
+			t.Error("malformed TEXT did not set InvalidUTF metadata")
+		}
+	})
+	t.Run("BLOB with invalid UTF-8 does not set metadata", func(t *testing.T) {
+		page := FromDriver([]string{"b"}, [][]any{{[]byte{0xE0, 0xA0, 0xF0, 0x90}}})
+		if page.InvalidUTF {
+			t.Error("BLOB with invalid UTF-8 set InvalidUTF metadata")
+		}
+	})
+	t.Run("mixed valid TEXT and BLOB with invalid UTF-8 does not set metadata", func(t *testing.T) {
+		page := FromDriver([]string{"t", "b"}, [][]any{{"ok", []byte{0xE0, 0xA0}}})
+		if page.InvalidUTF {
+			t.Error("valid TEXT and invalid-UTF BLOB set InvalidUTF metadata")
+		}
+	})
+	t.Run("one malformed TEXT among valid rows sets metadata", func(t *testing.T) {
+		page := FromDriver([]string{"t"}, [][]any{{"ok"}, {"\xF0\x90"}, {"fine"}})
+		if !page.InvalidUTF {
+			t.Error("one malformed TEXT row did not set InvalidUTF metadata")
+		}
+	})
+}
+
+// TestBlobBytesUnchangedWithInvalidUTFPatterns proves that BLOB payloads
+// containing the same byte patterns that would be replaced in TEXT remain
+// byte-for-byte unchanged and never set text warnings, covering E0–EF and
+// F0–F4 maximal-subpart patterns, overlong encodings, surrogates, and
+// adjacent invalid runs.
+func TestBlobBytesUnchangedWithInvalidUTFPatterns(t *testing.T) {
+	patterns := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "E0 valid second byte truncated", payload: []byte{0xE0, 0xA0}},
+		{name: "E0 surrogate lead", payload: []byte{0xED, 0xA0, 0x80}},
+		{name: "F0 valid second byte truncated", payload: []byte{0xF0, 0x90}},
+		{name: "F0 valid second and third bytes truncated", payload: []byte{0xF0, 0x90, 0x80}},
+		{name: "F4 above U+10FFFF", payload: []byte{0xF4, 0x90}},
+		{name: "overlong pair", payload: []byte{0xC0, 0x80}},
+		{name: "adjacent invalid run", payload: []byte{0xE0, 0xA0, 0xF0, 0x90, 0x80}},
+		{name: "NUL and high bytes", payload: []byte{0x00, 0xFF, 0xFE}},
+		{name: "valid U+FFFD bytes in BLOB", payload: []byte{0xEF, 0xBF, 0xBD}},
+		{name: "mixed valid and invalid", payload: []byte{'o', 'k', 0xE0, 0xA0, 0xF0, 0x90, 'e', 'n', 'd'}},
+	}
+	for _, tt := range patterns {
+		t.Run(tt.name, func(t *testing.T) {
+			page := FromDriver([]string{"b"}, [][]any{{tt.payload}})
+			if page.InvalidUTF {
+				t.Error("BLOB with invalid UTF-8 pattern set InvalidUTF metadata")
+			}
+			v := page.Rows[0][0]
+			if v.Kind != KindBlob {
+				t.Fatalf("kind = %d, want KindBlob", v.Kind)
+			}
+			if len(v.Bytes) != len(tt.payload) {
+				t.Fatalf("blob length = %d, want %d", len(v.Bytes), len(tt.payload))
+			}
+			for i := range tt.payload {
+				if v.Bytes[i] != tt.payload[i] {
+					t.Errorf("blob byte %d = %#x, want %#x", i, v.Bytes[i], tt.payload[i])
+				}
+			}
+			wantDisplay := fmt.Sprintf("[BLOB %d bytes]", len(tt.payload))
+			if got := v.Display(); got != wantDisplay {
+				t.Errorf("blob display = %q, want %q", got, wantDisplay)
 			}
 		})
 	}

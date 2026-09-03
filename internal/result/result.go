@@ -186,6 +186,10 @@ func GridText(s string) string {
 // becomes exactly one U+FFFD, and the boolean reports whether any
 // replacement occurred so callers can set warning metadata without touching
 // row order or count. Valid UTF-8 returns the input unchanged with false.
+// A valid encoded U+FFFD (EF BF BD) is preserved unchanged and never sets
+// the replacement signal: utf8.DecodeRuneInString returns RuneError for
+// both invalid sequences and valid U+FFFD, so the size distinguishes them
+// — size 1 means invalid, size > 1 means a valid rune including U+FFFD.
 func DecodeText(s string) (string, bool) {
 	if utf8.ValidString(s) {
 		return s, false
@@ -195,7 +199,7 @@ func DecodeText(s string) (string, bool) {
 	replaced := false
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
-		if r != utf8.RuneError {
+		if r != utf8.RuneError || size > 1 {
 			b.WriteString(s[i : i+size])
 			i += size
 			continue
@@ -214,7 +218,6 @@ func DecodeText(s string) (string, bool) {
 func maximalSubpart(s string) int {
 	c := s[0]
 	var lo, hi byte
-	size := 2
 	switch {
 	case c >= 0xC2 && c <= 0xDF:
 		lo, hi = 0x80, 0xBF
@@ -228,27 +231,35 @@ func maximalSubpart(s string) int {
 		lo, hi = 0x80, 0xBF
 	case c == 0xF0:
 		lo, hi = 0x90, 0xBF
-		size = 3
 	case c >= 0xF1 && c <= 0xF3:
 		lo, hi = 0x80, 0xBF
-		size = 3
 	case c == 0xF4:
 		lo, hi = 0x80, 0x8F
-		size = 3
 	default:
 		// Continuation bytes, C0/C1, and F5–FF: a one-byte ill-formed
 		// subpart.
 		return 1
 	}
-	if len(s) < size || s[1] < lo || s[1] > hi {
+	// A missing or invalid second byte makes the lead byte alone the
+	// maximal subpart (length 1).
+	if len(s) < 2 || s[1] < lo || s[1] > hi {
 		return 1
 	}
-	if size == 2 {
+	// Two-byte lead classes (C2–DF) and three-byte leads with a valid
+	// second byte but a missing or invalid third byte: the maximal
+	// subpart is the lead plus the valid second byte (length 2).
+	if c <= 0xDF {
 		return 2
 	}
 	if len(s) < 3 || s[2] < 0x80 || s[2] > 0xBF {
 		return 2
 	}
+	// Three-byte lead classes (E0–EF) with a valid second and third byte
+	// form a full valid sequence — maximalSubpart is only called on
+	// invalid input, so reaching here for E0–EF means the sequence was
+	// valid and should not have been called. For four-byte leads (F0–F4),
+	// a valid second and third byte with a missing or invalid fourth byte
+	// is a three-byte maximal subpart.
 	return 3
 }
 

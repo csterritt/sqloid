@@ -13,7 +13,7 @@ Issue #51 implements the JSON half of the export format boundary: a deterministi
 
 ## String escaping
 
-`writeJSONString` is one standards-compliant escaper used for both keys and string values: the double quote and reverse solidus escape with a reverse solidus; controls U+0000–U+001F use the short forms `\b`, `\f`, `\n`, `\r`, `\t` and the `\u00XX` form for the rest; the solidus is emitted verbatim (JSON does not require escaping it); every other byte passes through unchanged. TEXT is already valid UTF-8 — invalid sequences were normalized once upstream by the shared `result.DecodeText` policy (exactly one U+FFFD per maximal invalid byte sequence) — and keys are driver labels or deduplicated suffixes, so the escaper never produces invalid JSON.
+`writeJSONString` is one standards-compliant escaper used for both keys and string values: the double quote and reverse solidus escape with a reverse solidus; controls U+0000–U+001F use the short forms `\b`, `\f`, `\n`, `\r`, `\t` and the `\u00XX` form for the rest; the solidus is emitted verbatim (JSON does not require escaping it); every other byte passes through unchanged. TEXT is already valid UTF-8 — invalid sequences were normalized once upstream by the shared `result.DecodeText` policy (exactly one U+FFFD per maximal invalid byte sequence per Unicode Table 3-7, with corrected E0–EF and F0–F4 maximal-subpart handling and valid U+FFFD preservation per Issue #74) — and keys are driver labels or deduplicated suffixes, so the escaper never produces invalid JSON.
 
 ## Typed value policies
 
@@ -38,6 +38,6 @@ Issue #51 implements the JSON half of the export format boundary: a deterministi
 
 ## References
 
-- Issues #14 (typed literals, downstream of write/SQL paths), #22/#47 (shared typed result seam and output names), #23 (REAL/non-finite tokens), #33/#49 (snapshot metadata, immutable capture, warning exclusion), #50 (CSV counterpart), #51.
+- Issues #14 (typed literals, downstream of write/SQL paths), #22/#47 (shared typed result seam and output names), #23 (REAL/non-finite tokens), #33/#49 (snapshot metadata, immutable capture, warning exclusion), #50 (CSV counterpart), #51, #74 (corrected maximal-subpart decoding and valid U+FFFD preservation).
 - `Notes/PRD-sqloid.md`: Numeric value parsing and rendering, Invalid UTF-8 TEXT, Export formats and values, Output names, Result export scope, Export Module Design, and Testing Decisions.
 - Related pages: [csv-export.md](csv-export.md), [shared-typed-result-rendering.md](shared-typed-result-rendering.md), [immutable-export-capture.md](immutable-export-capture.md), [non-finite-real-grid.md](non-finite-real-grid.md), [first-select-result-grid.md](first-select-result-grid.md), [byte-cap-oversized-values.md](byte-cap-oversized-values.md), [snapshot-metadata.md](snapshot-metadata.md), [sql-save-targeting-serialization.md](sql-save-targeting-serialization.md).
