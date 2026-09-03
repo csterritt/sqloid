@@ -43,6 +43,66 @@ type Finalization struct {
 	CountCacheInconsistent bool
 }
 
+// authoritativeFacts holds the endpoint observations and traversal facts
+// derived from one shared helper for both active export and finalization
+// (Issue #80). Identical active model state produces equivalent facts
+// through this single seam: the retained-cache low evidence, the successful
+// limited-result count or observed short/empty page high evidence, the
+// count/page work state, and the count/cache contradiction without clamping.
+// The terminal outcome is not derived here: active capture carries none and
+// finalization supplies it separately through Finalization.
+type authoritativeFacts struct {
+	ReachedLow  bool
+	ReachedHigh bool
+	Traversal   history.TraversalFacts
+}
+
+// deriveAuthoritativeFacts derives the endpoint observations and traversal
+// facts from the authoritative cache facts, count state, page pending state,
+// and the accepted pageExhausted observation. Both active export and
+// finalization call this single helper so identical active state produces
+// equivalent endpoint/traversal facts and matching completeness labels.
+//
+// ReachedLow derives from the retained low boundary (position 1 retained) or
+// truthful row-cap eviction evidence; an empty observed page (pageExhausted
+// with no retained range) establishes both endpoints at position 0.
+// ReachedHigh derives from a successful limited-result count relative to the
+// retained range (total at or below the retained end) or the accepted
+// pageExhausted observation. CountCacheInconsistent derives exactly as
+// Issue #78 specifies: a successful count whose total falls below the
+// retained cache end contradicts the cache, and the contradiction is
+// preserved without clamping either the total or the retained range.
+func deriveAuthoritativeFacts(facts history.CacheFacts, count result.CountState, pagePending, pageExhausted bool) authoritativeFacts {
+	af := authoritativeFacts{
+		Traversal: history.TraversalFacts{
+			CountWorkFinished:      count.Status != result.CountPending,
+			PageWorkFinished:       !pagePending,
+			ObservedShortFinalPage: pageExhausted,
+		},
+	}
+	if facts.HasRetainedRange {
+		af.ReachedLow = facts.Start == 1 || facts.RowCapEvictions > 0
+		if count.Status == result.CountSuccess && count.Total <= int64(facts.End) {
+			af.ReachedHigh = true
+		}
+	}
+	if pageExhausted {
+		af.ReachedHigh = true
+		if !facts.HasRetainedRange {
+			af.ReachedLow = true
+		}
+	}
+	// Issue #78: a successful limited-result count whose total falls below
+	// the retained cache end contradicts the cache. The contradiction is
+	// recorded without rewriting the total, retained range, endpoint
+	// observations, or count state; the corrected history.Classify from
+	// Issue #77 then rejects complete.
+	if count.Status == result.CountSuccess && facts.HasRetainedRange && int64(facts.End) > count.Total {
+		af.Traversal.CountCacheInconsistent = true
+	}
+	return af
+}
+
 // SnapshotFacts finalizes this model's authoritative facts into an immutable
 // history.SnapshotMetadata value together with the traversal facts captured
 // at the same instant for history.Classify. The known total comes from the

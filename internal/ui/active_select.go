@@ -135,43 +135,18 @@ func (m *Model) appendFinalizedResultEntry() {
 		columns = m.Result.Page.Columns
 	}
 
-	// Endpoint observations: the low end is reached when position 1 was
-	// retained or the low end was evicted by cap traversal; the high end is
-	// reached through a short/empty observed final page or a settled count
-	// not exceeding the retained end. Issue #73: an observed short or empty
-	// first page (pageExhausted) establishes the high endpoint even when the
-	// cache retained no rows; an empty observed page also establishes the
-	// low endpoint because the result is empty and both endpoints sit at
-	// position 0.
-	reachedLow, reachedHigh := false, false
+	// Issue #80: derive endpoint observations and traversal facts through
+	// the same shared helper as active export, so identical active state
+	// produces equivalent facts and matching completeness labels. The
+	// retained-cache low evidence, successful limited-result count or
+	// observed short/empty page high evidence, count/page work state, and
+	// count/cache contradiction (Issue #78, preserved without clamping) all
+	// derive from this single seam.
+	cacheFacts := history.CacheFacts{}
 	if m.viewportCache != nil {
-		if start, ok := m.viewportCache.Start(); ok {
-			reachedLow = start == 1 || m.viewportCache.RowCapEvictions() > 0
-		}
-		if end, ok := m.viewportCache.End(); ok {
-			reachedHigh = m.pageExhausted ||
-				(m.countState.Status == result.CountSuccess && m.countState.Total <= int64(end))
-		}
+		cacheFacts = history.FactsFromCache(m.viewportCache)
 	}
-	if m.pageExhausted {
-		reachedHigh = true
-		if !hasRows {
-			reachedLow = true
-		}
-	}
-	// Issue #78: derive count/cache inconsistency from the same authoritative
-	// cache snapshot used for rows and range, before SnapshotFacts. Count and
-	// cache are independent autocommit facts: a successful limited-result
-	// count whose total falls below the retained cache end contradicts the
-	// cache. The contradiction is recorded without rewriting the total,
-	// retained range, endpoint observations, rows, or count state; the
-	// corrected history.Classify from Issue #77 then rejects complete.
-	countCacheInconsistent := false
-	if m.countState.Status == result.CountSuccess && m.viewportCache != nil {
-		if end, ok := m.viewportCache.End(); ok && int64(end) > m.countState.Total {
-			countCacheInconsistent = true
-		}
-	}
+	af := deriveAuthoritativeFacts(cacheFacts, m.countState, m.pagePending, m.pageExhausted)
 	// Issue #75: source invalid-UTF truth from the accepted active page so
 	// it enters the immutable snapshot through Finalization. The persistent
 	// byte-cap truth is already sourced from the authoritative cache via
@@ -192,15 +167,15 @@ func (m *Model) appendFinalizedResultEntry() {
 	final := Finalization{
 		Outcome:                outcome,
 		Reason:                 reason,
-		ReachedLow:             reachedLow,
-		ReachedHigh:            reachedHigh,
+		ReachedLow:             af.ReachedLow,
+		ReachedHigh:            af.ReachedHigh,
 		InvalidUTF:             invalidUTF,
 		LimitFailureKind:       limitKind,
 		LimitFailurePosition:   limitPos,
-		CountWorkFinished:      m.countState.Status != result.CountPending,
-		PageWorkFinished:       !m.pagePending,
-		ObservedShortFinalPage: m.pageExhausted,
-		CountCacheInconsistent: countCacheInconsistent,
+		CountWorkFinished:      af.Traversal.CountWorkFinished,
+		PageWorkFinished:       af.Traversal.PageWorkFinished,
+		ObservedShortFinalPage: af.Traversal.ObservedShortFinalPage,
+		CountCacheInconsistent: af.Traversal.CountCacheInconsistent,
 	}
 	meta, traversal, err := m.SnapshotFacts(final)
 	if err != nil {

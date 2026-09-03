@@ -117,12 +117,11 @@ func (m Model) exportSelection() exportSelection {
 // including the user's Limit, so classification needs no raw builder Limit),
 // and invalid-UTF from the page. The terminal outcome stays undecided (an
 // active SELECT is not finalized), so no terminal-outcome warning can ever
-// derive from it. Issue #73: endpoint observations mirror the finalized
-// path — the cache's retained range supplies the low endpoint,
-// pageExhausted supplies the high endpoint via ObservedShortFinalPage, and
-// an empty observed page establishes both endpoints at position 0 — so a
-// count-unavailable short or empty fully retained first page classifies
-// complete in the active export path too.
+// derive from it. Issue #80: endpoint observations and traversal facts
+// derive through the same shared helper as finalization, so identical active
+// state produces equivalent facts and matching completeness labels —
+// including the count/cache contradiction from Issue #78, which the active
+// path preserves without clamping exactly as finalization does.
 func (m Model) activeExportFacts(page *result.Page) (history.SnapshotMetadata, history.Completeness) {
 	facts := history.CacheFacts{}
 	if c := m.viewportCache; c != nil {
@@ -131,6 +130,7 @@ func (m Model) activeExportFacts(page *result.Page) (history.SnapshotMetadata, h
 	if m.Result.ByteTruncated {
 		facts.TruncatedByByteCap = true
 	}
+	af := deriveAuthoritativeFacts(facts, m.countState, m.pagePending, m.pageExhausted)
 	meta := history.SnapshotMetadata{
 		HasRetainedRange:   facts.HasRetainedRange,
 		RetainedStart:      facts.Start,
@@ -141,29 +141,10 @@ func (m Model) activeExportFacts(page *result.Page) (history.SnapshotMetadata, h
 		RowCapEvictions:    facts.RowCapEvictions,
 		TruncatedByByteCap: facts.TruncatedByByteCap,
 		InvalidUTF:         page.InvalidUTF,
+		ReachedLow:         af.ReachedLow,
+		ReachedHigh:        af.ReachedHigh,
 	}
-	// Issue #73: endpoint observations mirror the finalized path. The
-	// cache's retained range supplies the low endpoint; pageExhausted
-	// supplies the high endpoint; an empty observed page (pageExhausted
-	// with no retained rows) establishes both endpoints at position 0.
-	if facts.HasRetainedRange {
-		meta.ReachedLow = facts.Start == 1 || facts.RowCapEvictions > 0
-		if m.countState.Status == result.CountSuccess && m.countState.Total <= int64(facts.End) {
-			meta.ReachedHigh = true
-		}
-	}
-	if m.pageExhausted {
-		meta.ReachedHigh = true
-		if !facts.HasRetainedRange {
-			meta.ReachedLow = true
-		}
-	}
-	traversal := history.TraversalFacts{
-		CountWorkFinished:      m.countState.Status != result.CountPending,
-		PageWorkFinished:       !m.pagePending,
-		ObservedShortFinalPage: m.pageExhausted,
-	}
-	return meta, history.Classify(meta, traversal)
+	return meta, history.Classify(meta, af.Traversal)
 }
 
 // handleExportKey resolves one Ctrl+X press in memory. Any request still
