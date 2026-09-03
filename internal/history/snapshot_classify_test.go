@@ -45,17 +45,17 @@ func TestClassificationMatrix(t *testing.T) {
 		// --- complete (exclusive) ---
 		completeCase("complete: known total, full retention", 10),
 		{
-			name:       "complete: limit at observation",
+			name:       "complete: limited known total equals retained range (Issue #79: equivalent to unbounded)",
 			fact:       CacheFacts{HasRetainedRange: true, Start: 1, End: 5},
 			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 5, ReachedLow: true, ReachedHigh: true},
-			traversal:  TraversalFacts{HasLimit: true, Limit: 5, CountWorkFinished: true, PageWorkFinished: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
 			wantLabels: Completeness{Complete: true},
 		},
 		{
-			name: "complete: limit above observations, rows beyond Limit irrelevant",
+			name: "complete: limited known total above retained range, rows beyond Limit irrelevant (Issue #79: equivalent to unbounded)",
 			fact: CacheFacts{HasRetainedRange: true, Start: 1, End: 10},
 			life: Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 10, ReachedLow: true, ReachedHigh: true},
-			traversal: TraversalFacts{HasLimit: true, Limit: 500, CountWorkFinished: true,
+			traversal: TraversalFacts{CountWorkFinished: true,
 				PageWorkFinished: true},
 			wantLabels: Completeness{Complete: true},
 		},
@@ -438,6 +438,67 @@ func TestCancellationAndFailureAroundRows(t *testing.T) {
 			}
 			if got := Classify(meta, tc.traversal); got != tc.wantLabels {
 				t.Errorf("Classify = %+v, want %+v", got, tc.wantLabels)
+			}
+		})
+	}
+}
+
+// TestLimitedKnownTotalEquivalentToUnbounded (Issue #79) pins the
+// classification boundary after removing the dead HasLimit/Limit traversal
+// inputs: a successful known total already counts the complete SELECT
+// including the user's Limit, so a limited known-total case produces labels
+// identical to the equivalent unbounded fact set with the same total,
+// retained range, and endpoint observations. The raw builder Limit is no
+// longer a traversal fact, so classification must not depend on it.
+func TestLimitedKnownTotalEquivalentToUnbounded(t *testing.T) {
+	cases := []struct {
+		name       string
+		fact       CacheFacts
+		life       Lifecycle
+		traversal  TraversalFacts
+		wantLabels Completeness
+	}{
+		{
+			name:       "complete: limited total equals unbounded total of same size",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 1, End: 5},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 5, ReachedLow: true, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Complete: true},
+		},
+		{
+			name:       "truncated: limited total above retained range matches unbounded",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 1, End: 10, RowCapEvictions: 90},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 100, ReachedLow: true, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Truncated: true},
+		},
+		{
+			name:       "partial+truncated: limited total with unseen low endpoint matches unbounded",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 11, End: 20},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 100, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Partial: true, Truncated: true},
+		},
+		{
+			name:       "partial: limited total with count/cache inconsistency matches unbounded",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 1, End: 10},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 5, ReachedLow: true, ReachedHigh: true},
+			traversal:  TraversalFacts{CountCacheInconsistent: true, CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Partial: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			meta, err := NewSnapshotMetadata(tc.fact, tc.life)
+			if err != nil {
+				t.Fatalf("NewSnapshotMetadata(%+v, %+v): %v", tc.fact, tc.life, err)
+			}
+			// The traversal facts carry no Limit field: the same set
+			// applies to both the limited and unbounded interpretation,
+			// so a single Classify call covers both.
+			got := Classify(meta, tc.traversal)
+			if got != tc.wantLabels {
+				t.Errorf("Classify = %+v, want %+v (limited known total must match unbounded equivalent)", got, tc.wantLabels)
 			}
 		})
 	}

@@ -45,12 +45,13 @@ type Finalization struct {
 
 // SnapshotFacts finalizes this model's authoritative facts into an immutable
 // history.SnapshotMetadata value together with the traversal facts captured
-// at the same instant for history.Classify. The known total and the executed
-// Limit come from the settled count state (the count of the complete limited
-// SELECT result), the retained range and eviction facts come from the
-// viewport cache, and every other fact comes from the Finalization inputs.
-// The returned values are independent of the model: later navigation,
-// eviction, or count settlement cannot change them.
+// at the same instant for history.Classify. The known total comes from the
+// settled count state (the count of the complete SELECT including the user's
+// Limit, so rows beyond that limited logical result are irrelevant and
+// classification needs no raw builder Limit), the retained range and
+// eviction facts come from the viewport cache, and every other fact comes
+// from the Finalization inputs. The returned values are independent of the
+// model: later navigation, eviction, or count settlement cannot change them.
 func (m *Model) SnapshotFacts(f Finalization) (history.SnapshotMetadata, history.TraversalFacts, error) {
 	countWorkFinished := f.CountWorkFinished || m.countState.Status != result.CountPending
 	facts := history.FactsFromCache(m.viewportCacheOf())
@@ -71,8 +72,6 @@ func (m *Model) SnapshotFacts(f Finalization) (history.SnapshotMetadata, history
 		return history.SnapshotMetadata{}, history.TraversalFacts{}, fmt.Errorf("ui: finalize snapshot facts: %w", err)
 	}
 	traversal := history.TraversalFacts{
-		HasLimit:               m.countState.HasLimit,
-		Limit:                  m.countState.Limit,
 		CountWorkFinished:      countWorkFinished,
 		PageWorkFinished:       f.PageWorkFinished,
 		ObservedShortFinalPage: f.ObservedShortFinalPage,

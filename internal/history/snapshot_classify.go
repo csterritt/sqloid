@@ -37,7 +37,7 @@ func (c Completeness) String() string {
 	}
 }
 
-// TraversalFacts carries the count, Limit, and observed-page lifecycle facts
+// TraversalFacts carries the count and observed-page lifecycle facts
 // supplied by internal/ui at finalization time. CountWorkFinished reports
 // that the count request settled (success or failure) or was never issued;
 // PageWorkFinished reports that no page work was outstanding or deferred.
@@ -45,10 +45,12 @@ func (c Completeness) String() string {
 // return fewer rows than requested (including an empty page), which alone —
 // when the count is unavailable or failed — establishes the high endpoint.
 // CountCacheInconsistent records contradictory count/cache evidence, which
-// classification preserves without clamping any observed fact.
+// classification preserves without clamping any observed fact. The executed
+// builder Limit is intentionally absent: a successful known total already
+// counts the complete SELECT including the user's Limit, so rows beyond
+// that limited logical result are irrelevant and classification needs no
+// raw builder Limit.
 type TraversalFacts struct {
-	HasLimit               bool
-	Limit                  int64
 	CountWorkFinished      bool
 	PageWorkFinished       bool
 	ObservedShortFinalPage bool
@@ -63,8 +65,9 @@ type TraversalFacts struct {
 // result is retained, no eviction occurred, all count and page work finished,
 // and the low-endpoint condition holds: an empty logical result (high == 0)
 // is vacuously complete without a low row to observe, while a nonempty result
-// requires ReachedLow. Rows beyond the user's Limit are irrelevant because
-// the known total already counts only the limited result.
+// requires ReachedLow. A successful known total already counts the complete
+// SELECT including the user's Limit, so rows beyond that limited logical
+// result are irrelevant and classification consumes no raw builder Limit.
 func Classify(meta SnapshotMetadata, t TraversalFacts) Completeness {
 	// The high endpoint is established either by a known total (the count of
 	// the SELECT including the user's Limit) or by an actually observed
