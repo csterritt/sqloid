@@ -297,15 +297,90 @@ func TestObjectKindStrings(t *testing.T) {
 }
 
 // TestRowidCapabilityStrings pins the exact rowid capability names from the
-// PRD's Schema metadata decision.
+// PRD's Schema metadata decision for the three meaningful values, plus the
+// diagnostic form of the zero (unset) sentinel and a representative unknown
+// value. The zero value is reserved as an unset/unknown sentinel and never
+// produced by BuildCatalog; an unknown value is likewise not produced but its
+// diagnostic shape is locked so a future renumbering cannot silently change
+// user-facing diagnostics.
 func TestRowidCapabilityStrings(t *testing.T) {
-	for cap, want := range map[RowidCapability]string{
-		RowidHas:           "has-rowid",
-		RowidWithout:       "without-rowid",
-		RowidNotApplicable: "not-applicable",
-	} {
-		if got := cap.String(); got != want {
-			t.Errorf("capability %d String() = %q, want %q", int(cap), got, want)
+	cases := []struct {
+		cap  RowidCapability
+		want string
+	}{
+		{RowidHas, "has-rowid"},
+		{RowidWithout, "without-rowid"},
+		{RowidNotApplicable, "not-applicable"},
+		{0, "RowidCapability(0)"},
+		{RowidCapability(99), "RowidCapability(99)"},
+	}
+	for _, tc := range cases {
+		if got := tc.cap.String(); got != tc.want {
+			t.Errorf("capability %d String() = %q, want %q", int(tc.cap), got, tc.want)
 		}
+	}
+}
+
+// TestBuildCatalogRowidClassificationsLocked pins that the four object shapes
+// Sqloid catalogs — ordinary rowid table, WITHOUT ROWID table, virtual table,
+// and view — keep their current kind, write eligibility, and rowid capability
+// classifications. This is the behavioral safety net run before the
+// RowidApplicable cleanup so the enum edit cannot move a classification.
+func TestBuildCatalogRowidClassificationsLocked(t *testing.T) {
+	cases := []struct {
+		name              string
+		row               MasterRow
+		cols              []ColumnRow
+		wantKind          ObjectKind
+		wantWriteEligible bool
+		wantRowid         RowidCapability
+	}{
+		{
+			name:              "ordinary rowid table",
+			row:               MasterRow{Name: "albums", Type: "table", SQL: "CREATE TABLE albums (id INTEGER PRIMARY KEY, title TEXT)"},
+			cols:              []ColumnRow{{Name: "id", DeclaredType: "INTEGER"}, {Name: "title", DeclaredType: "TEXT"}},
+			wantKind:          KindOrdinaryTable,
+			wantWriteEligible: true,
+			wantRowid:         RowidHas,
+		},
+		{
+			name:              "WITHOUT ROWID table",
+			row:               MasterRow{Name: "kv", Type: "table", SQL: "CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT) WITHOUT ROWID"},
+			cols:              []ColumnRow{{Name: "k", DeclaredType: "TEXT"}, {Name: "v", DeclaredType: "TEXT"}},
+			wantKind:          KindOrdinaryTable,
+			wantWriteEligible: true,
+			wantRowid:         RowidWithout,
+		},
+		{
+			name:              "virtual table",
+			row:               MasterRow{Name: "notes_fts", Type: "table", SQL: "CREATE VIRTUAL TABLE notes_fts USING fts5(body)"},
+			cols:              []ColumnRow{{Name: "body"}, {Name: "notes_fts", Hidden: 1}, {Name: "rank", Hidden: 1}},
+			wantKind:          KindVirtualTable,
+			wantWriteEligible: true,
+			wantRowid:         RowidNotApplicable,
+		},
+		{
+			name:              "view",
+			row:               MasterRow{Name: "recent", Type: "view", SQL: "CREATE VIEW recent AS SELECT id, title FROM albums"},
+			cols:              []ColumnRow{{Name: "id", DeclaredType: "INTEGER"}, {Name: "title", DeclaredType: "TEXT"}},
+			wantKind:          KindView,
+			wantWriteEligible: false,
+			wantRowid:         RowidNotApplicable,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cat := BuildCatalog(Input{Version: 1, Master: []MasterRow{tc.row}, Columns: map[string][]ColumnRow{tc.row.Name: tc.cols}})
+			obj := cat.Objects[0]
+			if obj.Kind != tc.wantKind {
+				t.Errorf("kind = %s, want %s", obj.Kind, tc.wantKind)
+			}
+			if obj.WriteEligible != tc.wantWriteEligible {
+				t.Errorf("write eligible = %v, want %v", obj.WriteEligible, tc.wantWriteEligible)
+			}
+			if obj.Rowid != tc.wantRowid {
+				t.Errorf("rowid capability = %s, want %s", obj.Rowid, tc.wantRowid)
+			}
+		})
 	}
 }

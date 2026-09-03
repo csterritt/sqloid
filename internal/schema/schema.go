@@ -45,16 +45,14 @@ func (k ObjectKind) String() string {
 
 // RowidCapability classifies whether a rowid column may be addressed on an
 // object, per the Schema metadata decision {has-rowid, without-rowid,
-// not-applicable}.
+// not-applicable}. The zero value is not a meaningful capability: it is an
+// unset/unknown sentinel that BuildCatalog never assigns.
 type RowidCapability int
 
 const (
-	// RowidApplicable has no zero-value meaning: every object receives an
-	// explicit capability. It exists to keep the iota alignment explicit.
-	RowidApplicable = iota
 	// RowidHas means the object supports ORDER BY / addressing by rowid,
 	// including the case of an undeclared alias column.
-	RowidHas
+	RowidHas RowidCapability = iota + 1
 	// RowidWithout means the object is a WITHOUT ROWID table or otherwise
 	// cannot be ordered by rowid but still accepts writes.
 	RowidWithout
