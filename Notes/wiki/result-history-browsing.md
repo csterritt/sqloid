@@ -60,7 +60,15 @@ evicts, or reorders.
   absolute displayed offset derived from the entry's retained-range metadata
   (`RetainedStart`). Resizing while browsing reprojects locally from the
   same stored snapshot — the stored entry is never rewritten and
-  `internal/resultcache` is never consulted as live backing state.
+  `internal/resultcache` is never consulted as live backing state. Issue #75
+  adds that the projection restores the immutable snapshot's warning
+  metadata onto the projected view: `Metadata.InvalidUTF` is restored onto
+  the new `result.Page` (the grid's invalid-UTF truth source) and
+  `Metadata.TruncatedByByteCap` onto `ResultView.ByteTruncated` (the
+  persistent byte-cap disclosure), so the shared `result.UTFWarning` and
+  `result.ByteCapWarning` render truthfully at every terminal page size.
+  Offset, rows, columns, and BLOB copies are preserved; the stored entry is
+  never touched.
 - **Zero refetch**: entering, stepping, resizing, and rendering while
   browsing issue zero database, page, or count requests; no Bubble Tea
   command touches the executors. The only fresh-data path remains an actual
@@ -144,8 +152,13 @@ stable ID before any visible rows or metadata are derived:
   eviction: new-oldest fallback with the exact notice, kind-aware fallback
   projections, empty-history base return, and no evicted data in any frame
   after resize, navigation, or dismissal, with zero requests.
+- `internal/ui/snapshot_warning_roundtrip_test.go` (Issue #75) — invalid-UTF
+  and byte-cap warning metadata restored through local historical projection
+  at multiple terminal page sizes, rendered in browsing, and excluded from
+  export payloads; immutability after mutating live pages, projected views,
+  source BLOBs, and cache state.
 
-Cross-referenced Issues #20, #33, #34, and #36 and the Execution and Result
+Cross-referenced Issues #20, #31, #33, #34, #36, #49, #72, #74, and #75 and the Execution and Result
 Lifecycle, SELECT lifecycle, errors/cancellation
 implementation decision, Global Key Precedence and context/action matrix,
 UI/History Module Design, and history Testing Decisions in

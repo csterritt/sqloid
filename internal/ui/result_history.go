@@ -39,7 +39,22 @@ func projectHistoryEntry(e history.ResultEntry, pageRows int) *ResultView {
 		if e.Metadata.HasRetainedRange {
 			offset = int64(e.Metadata.RetainedStart) - 1
 		}
-		return &ResultView{Page: &result.Page{Columns: e.Columns, Rows: rows}, Offset: offset}
+		// Issue #75: restore the immutable snapshot's warning metadata onto
+		// the projected view so the shared UTF and byte-cap warnings render
+		// truthfully at every terminal page size. InvalidUTF is restored
+		// onto the new result.Page (the grid's invalid-UTF truth source)
+		// and TruncatedByByteCap onto ResultView.ByteTruncated (the
+		// persistent byte-cap disclosure). Offset, rows, columns, and BLOB
+		// copies are preserved; the stored entry is never touched.
+		return &ResultView{
+			Page: &result.Page{
+				Columns:    e.Columns,
+				Rows:       rows,
+				InvalidUTF: e.Metadata.InvalidUTF,
+			},
+			Offset:        offset,
+			ByteTruncated: e.Metadata.TruncatedByByteCap,
+		}
 	default:
 		// KindError and KindCancelled display through the ordinary
 		// result-error boundary exactly as recorded at finalization.

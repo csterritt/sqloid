@@ -30,7 +30,7 @@ A valid encoded U+FFFD (the three-byte sequence EF BF BD) is preserved unchanged
 
 ### Shared consumer behavior
 
-Grid (`internal/ui`), CSV (`internal/export.CSV`), and JSON (`internal/export.JSON`) all consume the same corrected TEXT value and invalid-UTF metadata from `DecodeText`/`FromDriver`. No consumer re-decodes, re-normalizes, or post-processes replacement-rune bytes. The `Page.InvalidUTF` flag and `result.UTFWarning` text are metadata only — they never become rows, columns, fields, keys, or records in any export format.
+Grid (`internal/ui`), CSV (`internal/export.CSV`), and JSON (`internal/export.JSON`) all consume the same corrected TEXT value and invalid-UTF metadata from `DecodeText`/`FromDriver`. No consumer re-decodes, re-normalizes, or post-processes replacement-rune bytes. The `Page.InvalidUTF` flag and `result.UTFWarning` text are metadata only — they never become rows, columns, fields, keys, or records in any export format. Issue #75 adds that the active page's `InvalidUTF` truth is sourced into immutable `history.SnapshotMetadata.InvalidUTF` at finalization and restored onto the projected `result.Page` by `projectHistoryEntry` when browsing the finalized snapshot at any terminal page size, so the shared `result.UTFWarning` renders truthfully in historical browsing and pre-destination export exactly as it did during execution; the warning fact never alters rows or logical positions and never becomes a CSV record, JSON property, or synthetic value.
 
 ### BLOB exclusion
 
@@ -55,6 +55,6 @@ Single definition sites (all in `internal/result`): name deduplication (`Dedupli
 
 ## References
 
-- Issues #22 (shared typed result seam), #23 (REAL/non-finite tokens), #47 (exporter-facing boundary), #74 (corrected maximal-subpart decoding and valid U+FFFD preservation).
+- Issues #22 (shared typed result seam), #23 (REAL/non-finite tokens), #47 (exporter-facing boundary), #74 (corrected maximal-subpart decoding and valid U+FFFD preservation), #75 (historical warning preservation).
 - `Notes/PRD-sqloid.md`: Invalid UTF-8 TEXT (maximal-subpart rule, BLOB exclusion, warning metadata), Grid rendering/cache, Export formats and values, Export warnings, Module Design, Testing Decisions; user story 75.
 - Related pages: [csv-export.md](csv-export.md), [json-export.md](json-export.md), [non-finite-real-grid.md](non-finite-real-grid.md), [first-select-result-grid.md](first-select-result-grid.md), [byte-cap-oversized-values.md](byte-cap-oversized-values.md), [snapshot-metadata.md](snapshot-metadata.md).

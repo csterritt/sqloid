@@ -159,11 +159,20 @@ func (m *Model) appendFinalizedResultEntry() {
 			reachedLow = true
 		}
 	}
+	// Issue #75: source invalid-UTF truth from the accepted active page so
+	// it enters the immutable snapshot through Finalization. The persistent
+	// byte-cap truth is already sourced from the authoritative cache via
+	// FactsFromCache in SnapshotFacts, never re-derived from payload size.
+	invalidUTF := false
+	if m.Result != nil && m.Result.Page != nil {
+		invalidUTF = m.Result.Page.InvalidUTF
+	}
 	final := Finalization{
 		Outcome:                outcome,
 		Reason:                 reason,
 		ReachedLow:             reachedLow,
 		ReachedHigh:            reachedHigh,
+		InvalidUTF:             invalidUTF,
 		CountWorkFinished:      m.countState.Status != result.CountPending,
 		PageWorkFinished:       !m.pagePending,
 		ObservedShortFinalPage: m.pageExhausted,
