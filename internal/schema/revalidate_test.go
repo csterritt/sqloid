@@ -110,6 +110,73 @@ func TestRevalidateTerminalHealthClassifications(t *testing.T) {
 	}
 }
 
+func TestRevalidateMalformedAttemptSettlesAsRefreshFailed(t *testing.T) {
+	prior := BuildCatalog(Input{Version: 3})
+
+	cases := []struct {
+		name    string
+		attempt Attempt
+	}{
+		{
+			name:    "zero status empty payload",
+			attempt: Attempt{},
+		},
+		{
+			name: "zero status with contradictory catalog",
+			attempt: Attempt{
+				Status:  0,
+				Catalog: BuildCatalog(Input{Version: 4}),
+			},
+		},
+		{
+			name: "zero status with contradictory cause",
+			attempt: Attempt{
+				Status: 0,
+				Cause:  errors.New("should be ignored"),
+			},
+		},
+		{
+			name:    "unknown status empty payload",
+			attempt: Attempt{Status: RefreshStatus(99)},
+		},
+		{
+			name: "unknown status with contradictory catalog and cause",
+			attempt: Attempt{
+				Status:  RefreshStatus(99),
+				Catalog: BuildCatalog(Input{Version: 4}),
+				Cause:   errors.New("should be ignored"),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refreshCalls := 0
+			var got Revalidation
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("Revalidate panicked on malformed attempt: %v", r)
+				}
+				if got.Status != RevalidateRefreshFailed {
+					t.Errorf("Revalidate status = %v, want RevalidateRefreshFailed for malformed attempt", got.Status)
+				}
+				if got.Catalog != nil {
+					t.Errorf("malformed revalidation catalog = %v, want nil so the caller retains the prior cache", got.Catalog)
+				}
+				if got.Cause == nil {
+					t.Fatal("malformed revalidation cause = nil, want a non-nil diagnostic identifying the malformed attempt status")
+				}
+				if refreshCalls != 1 {
+					t.Errorf("refresh issued %d times on changed version, want exactly 1", refreshCalls)
+				}
+			}()
+			got = Revalidate(prior, 4, func() Attempt {
+				refreshCalls++
+				return tc.attempt
+			})
+		})
+	}
+}
+
 func TestRevalidateStatusString(t *testing.T) {
 	cases := []struct {
 		status RevalidateStatus

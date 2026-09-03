@@ -119,8 +119,14 @@ func Revalidate(prior *Catalog, currentVersion int64, refresh func() Attempt) Re
 	case RefreshReplaced:
 		return Revalidation{Status: RevalidateReplaced}
 	default:
-		// Defensive against an unsettled Attempt payload; never produced by
-		// the constructors in refresh.go.
-		return Revalidation{}
+		// Defensive against an unsettled or out-of-range Attempt payload;
+		// never produced by the constructors in refresh.go. Settle as an
+		// ordinary refresh failure with a concrete diagnostic cause and no
+		// catalog so the stale-refresh workflow retains the prior cache
+		// rather than leaking an unset status to consumers (Issue #82).
+		return Revalidation{
+			Status: RevalidateRefreshFailed,
+			Cause:  fmt.Errorf("schema revalidate: unsettled refresh attempt status %s", att.Status),
+		}
 	}
 }
