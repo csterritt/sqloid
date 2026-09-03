@@ -177,6 +177,106 @@ func TestRevalidateMalformedAttemptSettlesAsRefreshFailed(t *testing.T) {
 	}
 }
 
+// TestRevalidationValidity pins the settled payload contract for every
+// Revalidation outcome, mirroring the Attempt.Valid() truth table in
+// refresh_test.go: each accepted status carries exactly its required fields,
+// every missing-required-field and forbidden-extra-field combination is
+// rejected, and zero or unknown statuses are never valid. The matrix is the
+// authoritative reference for the Revalidation.Valid() guard added in Issue
+// #83 Task 2.
+func TestRevalidationValidity(t *testing.T) {
+	catalog := catalogWith("users")
+	cause := errors.New("database is locked")
+	for _, tc := range []struct {
+		name         string
+		revalidation Revalidation
+		want         bool
+	}{
+		// Accepted status/payload combinations: exactly the required fields.
+		{"unchanged carries the prior catalog", Revalidation{Status: RevalidateUnchanged, Catalog: catalog}, true},
+		{"refreshed carries the refreshed catalog", Revalidation{Status: RevalidateRefreshed, Catalog: catalog}, true},
+		{"refresh failed carries only a cause", Revalidation{Status: RevalidateRefreshFailed, Cause: cause}, true},
+		{"deleted terminal carries neither", Revalidation{Status: RevalidateDeleted}, true},
+		{"replaced terminal carries neither", Revalidation{Status: RevalidateReplaced}, true},
+
+		// Missing required fields on accepted statuses.
+		{"unchanged without a catalog is inconsistent", Revalidation{Status: RevalidateUnchanged}, false},
+		{"refreshed without a catalog is inconsistent", Revalidation{Status: RevalidateRefreshed}, false},
+		{"refresh failed without a cause is inconsistent", Revalidation{Status: RevalidateRefreshFailed}, false},
+
+		// Forbidden extra fields on accepted statuses.
+		{"unchanged carrying a cause is inconsistent", Revalidation{Status: RevalidateUnchanged, Catalog: catalog, Cause: cause}, false},
+		{"refreshed carrying a cause is inconsistent", Revalidation{Status: RevalidateRefreshed, Catalog: catalog, Cause: cause}, false},
+		{"refresh failed carrying a catalog would leak partial replacement", Revalidation{Status: RevalidateRefreshFailed, Catalog: catalog, Cause: cause}, false},
+		{"deleted carrying a catalog is inconsistent", Revalidation{Status: RevalidateDeleted, Catalog: catalog}, false},
+		{"deleted carrying a cause is inconsistent", Revalidation{Status: RevalidateDeleted, Cause: cause}, false},
+		{"replaced carrying a catalog is inconsistent", Revalidation{Status: RevalidateReplaced, Catalog: catalog}, false},
+		{"replaced carrying a cause is inconsistent", Revalidation{Status: RevalidateReplaced, Cause: cause}, false},
+
+		// Zero and unknown statuses are never settled outcomes.
+		{"unsettled zero status is not a valid outcome", Revalidation{}, false},
+		{"unknown status is not a valid outcome", Revalidation{Status: RevalidateStatus(99)}, false},
+		{"unknown status with a catalog is not a valid outcome", Revalidation{Status: RevalidateStatus(99), Catalog: catalog}, false},
+		{"unknown status with a cause is not a valid outcome", Revalidation{Status: RevalidateStatus(99), Cause: cause}, false},
+	} {
+		if got := tc.revalidation.Valid(); got != tc.want {
+			t.Errorf("%s: Valid()=%v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestRevalidateProductionOutputsAreValid requires every Revalidate path —
+// unchanged, changed-success, ordinary failure, terminal deletion/replacement,
+// and the Issue #82 malformed-attempt defensive fallback — to settle into a
+// Revalidation accepted by Valid(). This is the production-side half of the
+// Issue #83 invariant: no Revalidate output may escape the seam in an
+// unsettled or contradictory payload state.
+func TestRevalidateProductionOutputsAreValid(t *testing.T) {
+	prior := BuildCatalog(Input{Version: 3})
+	refreshed := BuildCatalog(Input{
+		Version: 4,
+		Master:  []MasterRow{{Name: "t", Type: "table", SQL: "CREATE TABLE t (a INTEGER)"}},
+	})
+	cause := errors.New("database is locked")
+
+	for _, tc := range []struct {
+		name    string
+		refresh func() Attempt
+		version int64
+	}{
+		{"unchanged reuses prior cache", func() Attempt {
+			t.Fatal("refresh must not be invoked on unchanged version")
+			return Attempt{}
+		}, 3},
+		{"changed success installs refreshed catalog", func() Attempt { return NewSuccess(refreshed) }, 4},
+		{"ordinary failure carries only cause", func() Attempt { return NewFailure(cause) }, 4},
+		{"terminal deletion carries neither", func() Attempt { return NewTerminal(RefreshDeleted) }, 4},
+		{"terminal replacement carries neither", func() Attempt { return NewTerminal(RefreshReplaced) }, 4},
+		// Issue #82 malformed-attempt defensive fallbacks all settle as a
+		// valid refresh-failed value with a non-nil diagnostic cause.
+		{"malformed zero-status attempt settles valid", func() Attempt { return Attempt{} }, 4},
+		{"malformed zero-status attempt with stray catalog settles valid", func() Attempt {
+			return Attempt{Status: 0, Catalog: refreshed}
+		}, 4},
+		{"malformed zero-status attempt with stray cause settles valid", func() Attempt {
+			return Attempt{Status: 0, Cause: errors.New("should be ignored")}
+		}, 4},
+		{"malformed unknown-status attempt settles valid", func() Attempt {
+			return Attempt{Status: RefreshStatus(99)}
+		}, 4},
+		{"malformed unknown-status attempt with stray payload settles valid", func() Attempt {
+			return Attempt{Status: RefreshStatus(99), Catalog: refreshed, Cause: errors.New("ignored")}
+		}, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Revalidate(prior, tc.version, tc.refresh)
+			if !got.Valid() {
+				t.Errorf("Revalidate produced invalid Revalidation %+v for %s", got, tc.name)
+			}
+		})
+	}
+}
+
 func TestRevalidateStatusString(t *testing.T) {
 	cases := []struct {
 		status RevalidateStatus

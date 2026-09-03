@@ -70,6 +70,24 @@ type Revalidation struct {
 	Cause   error            // underlying failure, non-nil exactly when Status is RevalidateRefreshFailed
 }
 
+// Valid reports whether the settled revalidation obeys the payload rules
+// above: each status carries exactly its required fields, which lets consumers
+// rely on a nil-Catalog refresh-failed outcome alone meaning "retain the prior
+// cache". The matrix mirrors Attempt.Valid() and rejects zero or unknown
+// statuses, missing required fields, and any contradictory extra payload.
+func (r Revalidation) Valid() bool {
+	switch r.Status {
+	case RevalidateUnchanged, RevalidateRefreshed:
+		return r.Catalog != nil && r.Cause == nil
+	case RevalidateRefreshFailed:
+		return r.Cause != nil && r.Catalog == nil
+	case RevalidateDeleted, RevalidateReplaced:
+		return r.Catalog == nil && r.Cause == nil
+	default:
+		return false
+	}
+}
+
 // VersionAttempt is one settled PRAGMA schema_version read (Issue #21): the
 // transport step that precedes Revalidate. RefreshOK carries Version;
 // RefreshFailed carries Cause; RefreshDeleted and RefreshReplaced carry
