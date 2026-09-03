@@ -145,10 +145,15 @@ func (c *Cache) PayloadBytes() int64 { return c.payloadBytes }
 func (c *Cache) TruncatedByByteCap() bool { return c.byteTruncated }
 
 // Rows returns the retained rows in ascending absolute-position order as a
-// fresh slice; mutating it does not affect the cache.
+// fresh, caller-owned slice: mutating it, including any BLOB byte slice it
+// carries, does not affect the cache or any later Rows() result. Each
+// retained BLOB payload is deep-copied into the returned row so the cache's
+// own owned bytes are never aliased by a retrieval.
 func (c *Cache) Rows() []Row {
 	out := make([]Row, len(c.rows))
-	copy(out, c.rows)
+	for i, row := range c.rows {
+		out[i] = Row{Position: row.Position, Values: copyValues(row.Values)}
+	}
 	return out
 }
 
@@ -334,9 +339,19 @@ func (c *Cache) drop(dir Direction, n int) {
 }
 
 // copyValues copies one row's payload so the cache never aliases caller
-// storage.
+// storage. Only BLOB values carry mutable backing storage (result.Value.Bytes
+// for KindBlob), so those bytes are deep-copied via the established
+// result.NewBlob idiom; NULL, INTEGER, REAL, and TEXT keep their by-value
+// fields unchanged. The returned slice has the same length and value order
+// as the input.
 func copyValues(values []result.Value) []result.Value {
 	out := make([]result.Value, len(values))
-	copy(out, values)
+	for i, v := range values {
+		if v.Kind == result.KindBlob {
+			out[i] = result.NewBlob(v.Bytes)
+			continue
+		}
+		out[i] = v
+	}
 	return out
 }
