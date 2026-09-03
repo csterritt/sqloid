@@ -163,9 +163,18 @@ func (m *Model) appendFinalizedResultEntry() {
 	// it enters the immutable snapshot through Finalization. The persistent
 	// byte-cap truth is already sourced from the authoritative cache via
 	// FactsFromCache in SnapshotFacts, never re-derived from payload size.
+	// Issue #76: source the typed limit-failure kind and one-based position
+	// from the accepted active ResultView so they enter the immutable
+	// snapshot as typed facts independent of the terminal outcome.
 	invalidUTF := false
 	if m.Result != nil && m.Result.Page != nil {
 		invalidUTF = m.Result.Page.InvalidUTF
+	}
+	var limitKind result.LimitKind
+	var limitPos int64
+	if m.Result != nil && m.Result.LimitFailure != nil {
+		limitKind = m.Result.LimitFailure.Kind
+		limitPos = m.Result.LimitFailure.Position
 	}
 	final := Finalization{
 		Outcome:                outcome,
@@ -173,6 +182,8 @@ func (m *Model) appendFinalizedResultEntry() {
 		ReachedLow:             reachedLow,
 		ReachedHigh:            reachedHigh,
 		InvalidUTF:             invalidUTF,
+		LimitFailureKind:       limitKind,
+		LimitFailurePosition:   limitPos,
 		CountWorkFinished:      m.countState.Status != result.CountPending,
 		PageWorkFinished:       !m.pagePending,
 		ObservedShortFinalPage: m.pageExhausted,

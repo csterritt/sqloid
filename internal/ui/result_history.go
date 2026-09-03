@@ -46,7 +46,12 @@ func projectHistoryEntry(e history.ResultEntry, pageRows int) *ResultView {
 		// and TruncatedByByteCap onto ResultView.ByteTruncated (the
 		// persistent byte-cap disclosure). Offset, rows, columns, and BLOB
 		// copies are preserved; the stored entry is never touched.
-		return &ResultView{
+		// Issue #76: restore the typed limit-failure kind and one-based
+		// position onto ResultView.LimitFailure so results_grid.go renders
+		// the exact shared result.LimitFailure.Error line. The restored
+		// value is a fresh copy so later mutation of the projected view
+		// cannot alter the stored metadata.
+		view := &ResultView{
 			Page: &result.Page{
 				Columns:    e.Columns,
 				Rows:       rows,
@@ -55,6 +60,13 @@ func projectHistoryEntry(e history.ResultEntry, pageRows int) *ResultView {
 			Offset:        offset,
 			ByteTruncated: e.Metadata.TruncatedByByteCap,
 		}
+		if e.Metadata.LimitFailureKind != 0 {
+			view.LimitFailure = &result.LimitFailure{
+				Kind:     e.Metadata.LimitFailureKind,
+				Position: e.Metadata.LimitFailurePosition,
+			}
+		}
+		return view
 	default:
 		// KindError and KindCancelled display through the ordinary
 		// result-error boundary exactly as recorded at finalization.

@@ -16,6 +16,7 @@ package history
 import (
 	"fmt"
 
+	"github.com/chris/sqloid/internal/result"
 	"github.com/chris/sqloid/internal/resultcache"
 )
 
@@ -95,20 +96,29 @@ func FactsFromCache(c *resultcache.Cache) CacheFacts {
 
 // Lifecycle carries the non-cache inputs to snapshot finalization: the
 // terminal outcome and its reason and optional one-based last failure
+// position, the typed Issue #76 over-limit failure kind and one-based
 // position, the invalid-UTF-8 status, the reached-low/reached-high endpoint
 // observations, and the optional known total of the limited logical result.
 // Every field is a value; Reason is an immutable string, so the metadata
 // value constructed from a Lifecycle can never alias mutable caller state.
+// The typed limit failure is independent of the terminal outcome: a snapshot
+// may carry a limit failure with any outcome, and a no-failure snapshot
+// keeps LimitFailureKind at its zero value.
 type Lifecycle struct {
 	Outcome            TerminalOutcome
 	Reason             string
 	HasFailurePosition bool
 	FailurePosition    int64 // one-based; meaningful only with HasFailurePosition
-	InvalidUTF         bool
-	ReachedLow         bool
-	ReachedHigh        bool
-	HasKnownTotal      bool
-	KnownTotal         int64
+	// LimitFailureKind carries the typed Issue #31 over-limit failure kind
+	// (result.KindPage or result.KindValue) preserved from the accepted
+	// active ResultView; the zero value means no limit failure was recorded.
+	LimitFailureKind     result.LimitKind
+	LimitFailurePosition int64 // one-based; meaningful only when LimitFailureKind is nonzero
+	InvalidUTF           bool
+	ReachedLow           bool
+	ReachedHigh          bool
+	HasKnownTotal        bool
+	KnownTotal           int64
 }
 
 // SnapshotMetadata is one immutable, typed snapshot metadata value. Every
@@ -156,6 +166,15 @@ type SnapshotMetadata struct {
 	// applicable only to cancellation and failure outcomes.
 	HasFailurePosition bool
 	FailurePosition    int64
+	// LimitFailureKind carries the typed Issue #31 over-limit failure kind
+	// (result.KindPage or result.KindValue) preserved from the accepted
+	// active ResultView through finalization; the zero value means no limit
+	// failure was recorded. This fact is independent of the terminal outcome
+	// and of byte-cap eviction disclosure: a snapshot may carry a limit
+	// failure with any outcome, and rendering reuses the exact
+	// result.LimitFailure.Error line from this typed kind and position.
+	LimitFailureKind     result.LimitKind
+	LimitFailurePosition int64 // one-based; meaningful only when LimitFailureKind is nonzero
 }
 
 // NewSnapshotMetadata constructs an immutable metadata value from cache
@@ -180,21 +199,33 @@ func NewSnapshotMetadata(facts CacheFacts, life Lifecycle) (SnapshotMetadata, er
 	default:
 		return SnapshotMetadata{}, fmt.Errorf("history: unknown terminal outcome %d", int(life.Outcome))
 	}
+	// Issue #76: the typed limit-failure kind and one-based position are
+	// preserved as immutable facts independent of the terminal outcome. A
+	// nonzero kind requires a one-based position; a zero kind means no
+	// limit failure was recorded and the position must be zero too.
+	if life.LimitFailureKind != 0 && life.LimitFailurePosition < 1 {
+		return SnapshotMetadata{}, fmt.Errorf("history: limit failure position %d is not one-based", life.LimitFailurePosition)
+	}
+	if life.LimitFailureKind == 0 && life.LimitFailurePosition != 0 {
+		return SnapshotMetadata{}, fmt.Errorf("history: limit failure position %d without a kind", life.LimitFailurePosition)
+	}
 	return SnapshotMetadata{
-		HasRetainedRange:   facts.HasRetainedRange,
-		RetainedStart:      facts.Start,
-		RetainedEnd:        facts.End,
-		HasKnownTotal:      life.HasKnownTotal,
-		KnownTotal:         life.KnownTotal,
-		ReachedLow:         life.ReachedLow,
-		ReachedHigh:        life.ReachedHigh,
-		RowCapEvicted:      facts.RowCapEvictions > 0,
-		RowCapEvictions:    facts.RowCapEvictions,
-		TruncatedByByteCap: facts.TruncatedByByteCap,
-		InvalidUTF:         life.InvalidUTF,
-		Outcome:            life.Outcome,
-		Reason:             life.Reason,
-		HasFailurePosition: life.HasFailurePosition,
-		FailurePosition:    life.FailurePosition,
+		HasRetainedRange:     facts.HasRetainedRange,
+		RetainedStart:        facts.Start,
+		RetainedEnd:          facts.End,
+		HasKnownTotal:        life.HasKnownTotal,
+		KnownTotal:           life.KnownTotal,
+		ReachedLow:           life.ReachedLow,
+		ReachedHigh:          life.ReachedHigh,
+		RowCapEvicted:        facts.RowCapEvictions > 0,
+		RowCapEvictions:      facts.RowCapEvictions,
+		TruncatedByByteCap:   facts.TruncatedByByteCap,
+		InvalidUTF:           life.InvalidUTF,
+		Outcome:              life.Outcome,
+		Reason:               life.Reason,
+		HasFailurePosition:   life.HasFailurePosition,
+		FailurePosition:      life.FailurePosition,
+		LimitFailureKind:     life.LimitFailureKind,
+		LimitFailurePosition: life.LimitFailurePosition,
 	}, nil
 }

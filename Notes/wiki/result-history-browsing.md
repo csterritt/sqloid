@@ -67,8 +67,16 @@ evicts, or reorders.
   `Metadata.TruncatedByByteCap` onto `ResultView.ByteTruncated` (the
   persistent byte-cap disclosure), so the shared `result.UTFWarning` and
   `result.ByteCapWarning` render truthfully at every terminal page size.
-  Offset, rows, columns, and BLOB copies are preserved; the stored entry is
-  never touched.
+  Issue #76 adds that the projection restores the typed limit-failure kind
+  and one-based position from `Metadata.LimitFailureKind`/
+  `Metadata.LimitFailurePosition` onto a fresh `ResultView.LimitFailure`
+  copy, so `results_grid.go` renders the exact shared
+  `result.LimitFailure.Error` line for page versus value failures at every
+  terminal page size. The restored value is a fresh copy so later mutation
+  of the projected view cannot alter the stored metadata. A snapshot with
+  no limit failure keeps `LimitFailure` nil on the projected view — no
+  failure is synthesized. Offset, rows, columns, and BLOB copies are
+  preserved; the stored entry is never touched.
 - **Zero refetch**: entering, stepping, resizing, and rendering while
   browsing issue zero database, page, or count requests; no Bubble Tea
   command touches the executors. The only fresh-data path remains an actual
@@ -157,8 +165,16 @@ stable ID before any visible rows or metadata are derived:
   at multiple terminal page sizes, rendered in browsing, and excluded from
   export payloads; immutability after mutating live pages, projected views,
   source BLOBs, and cache state.
+- `internal/ui/limit_failure_history_test.go` (Issue #76) — typed page and
+  value limit failures restored onto `ResultView.LimitFailure` through local
+  historical projection at multiple terminal page sizes, rendering the exact
+  shared `result.LimitFailure.Error` line in browsing at multiple terminal
+  heights; retained leading rows, absolute positions, and typed cells
+  unchanged; immutability after mutating live result views, projected views,
+  and cache state; the no-failure control projects without synthesizing a
+  `LimitFailure`.
 
-Cross-referenced Issues #20, #31, #33, #34, #36, #49, #72, #74, and #75 and the Execution and Result
+Cross-referenced Issues #20, #31, #33, #34, #36, #49, #72, #74, #75, and #76 and the Execution and Result
 Lifecycle, SELECT lifecycle, errors/cancellation
 implementation decision, Global Key Precedence and context/action matrix,
 UI/History Module Design, and history Testing Decisions in

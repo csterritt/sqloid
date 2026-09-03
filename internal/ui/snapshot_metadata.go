@@ -23,12 +23,17 @@ import (
 // issued); ObservedShortFinalPage records that a final page was actually
 // observed to return fewer rows than requested, including an empty page;
 // CountCacheInconsistent records contradictory count/cache evidence, which
-// finalization preserves without clamping anything.
+// finalization preserves without clamping anything. Issue #76: the typed
+// limit-failure kind and one-based position are preserved from the accepted
+// active ResultView through finalization as immutable facts independent of
+// the terminal outcome and byte-cap eviction disclosure.
 type Finalization struct {
 	Outcome                history.TerminalOutcome
 	Reason                 string
 	HasFailurePosition     bool
 	FailurePosition        int64
+	LimitFailureKind       result.LimitKind
+	LimitFailurePosition   int64
 	InvalidUTF             bool
 	ReachedLow             bool
 	ReachedHigh            bool
@@ -50,15 +55,17 @@ func (m *Model) SnapshotFacts(f Finalization) (history.SnapshotMetadata, history
 	countWorkFinished := f.CountWorkFinished || m.countState.Status != result.CountPending
 	facts := history.FactsFromCache(m.viewportCacheOf())
 	meta, err := history.NewSnapshotMetadata(facts, history.Lifecycle{
-		Outcome:            f.Outcome,
-		Reason:             f.Reason,
-		HasFailurePosition: f.HasFailurePosition,
-		FailurePosition:    f.FailurePosition,
-		InvalidUTF:         f.InvalidUTF,
-		ReachedLow:         f.ReachedLow,
-		ReachedHigh:        f.ReachedHigh,
-		HasKnownTotal:      m.countState.Status == result.CountSuccess,
-		KnownTotal:         m.countState.Total,
+		Outcome:              f.Outcome,
+		Reason:               f.Reason,
+		HasFailurePosition:   f.HasFailurePosition,
+		FailurePosition:      f.FailurePosition,
+		LimitFailureKind:     f.LimitFailureKind,
+		LimitFailurePosition: f.LimitFailurePosition,
+		InvalidUTF:           f.InvalidUTF,
+		ReachedLow:           f.ReachedLow,
+		ReachedHigh:          f.ReachedHigh,
+		HasKnownTotal:        m.countState.Status == result.CountSuccess,
+		KnownTotal:           m.countState.Total,
 	})
 	if err != nil {
 		return history.SnapshotMetadata{}, history.TraversalFacts{}, fmt.Errorf("ui: finalize snapshot facts: %w", err)
