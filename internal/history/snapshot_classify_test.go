@@ -1,10 +1,11 @@
-// Truthful completeness and endpoint classification tests for Issue #33,
-// per the Cache and snapshot invariant of Notes/PRD-sqloid.md: exclusive
-// `complete`, coexisting `partial` and `truncated`, limited-result semantics
-// (rows beyond the user's Limit are irrelevant), count failure and
+// Truthful completeness and endpoint classification tests for Issues #33
+// and #77, per the Cache and snapshot invariant of Notes/PRD-sqloid.md:
+// exclusive `complete`, coexisting `partial` and `truncated`, limited-result
+// semantics (rows beyond the user's Limit are irrelevant), count failure and
 // short/empty observation behavior, unknown remainder, no clamping of
-// inconsistent count/cache evidence, and terminal outcome kept as an
-// independent axis in every matrix case.
+// inconsistent count/cache evidence, unseen low endpoints distinguished from
+// truncation (Issue #77), empty-result completion without ReachedLow, and
+// terminal outcome kept as an independent axis in every matrix case.
 
 package history
 
@@ -83,14 +84,30 @@ func TestClassificationMatrix(t *testing.T) {
 			wantLabels: Completeness{Complete: true},
 		},
 
+		// --- Issue #77: empty completion without ReachedLow ---
+		{
+			name:       "complete: empty known-total result, ReachedLow false, vacuous retention",
+			fact:       CacheFacts{},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 0, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Complete: true},
+		},
+		{
+			name:       "complete: observed empty final page, ReachedLow false, vacuous retention",
+			fact:       CacheFacts{},
+			life:       Lifecycle{Outcome: OutcomeSuccess, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{ObservedShortFinalPage: true, CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Complete: true},
+		},
+
 		// --- truncated (may coexist with partial) ---
 		{
-			name: "truncated only: row-cap eviction, all rows accounted",
+			name: "partial and truncated: low-side row-cap eviction with unseen low endpoint",
 			fact: CacheFacts{HasRetainedRange: true, Start: 91, End: 100, RowCapEvictions: 90},
 			life: Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 100, ReachedLow: false, ReachedHigh: true},
 			traversal: TraversalFacts{CountWorkFinished: true,
 				PageWorkFinished: true},
-			wantLabels: Completeness{Truncated: true},
+			wantLabels: Completeness{Partial: true, Truncated: true},
 		},
 		{
 			name: "truncated only: rows beyond retained range, high endpoint reached",
@@ -116,6 +133,13 @@ func TestClassificationMatrix(t *testing.T) {
 			life: Lifecycle{Outcome: OutcomeSuccess, ReachedLow: true},
 			traversal: TraversalFacts{CountWorkFinished: true,
 				PageWorkFinished: true},
+			wantLabels: Completeness{Partial: true},
+		},
+		{
+			name:       "partial only: settled nonempty range, unseen low endpoint, no eviction",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 11, End: 20},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 20, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
 			wantLabels: Completeness{Partial: true},
 		},
 		{
@@ -180,6 +204,27 @@ func TestClassificationMatrix(t *testing.T) {
 			life: Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 100, ReachedLow: true},
 			traversal: TraversalFacts{CountCacheInconsistent: true, CountWorkFinished: true,
 				PageWorkFinished: true},
+			wantLabels: Completeness{Partial: true, Truncated: true},
+		},
+		{
+			name:       "partial and truncated: unseen low endpoint plus row-cap eviction",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 11, End: 20, RowCapEvictions: 10},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 20, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Partial: true, Truncated: true},
+		},
+		{
+			name:       "partial and truncated: unseen low endpoint plus byte-cap eviction",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 11, End: 20, TruncatedByByteCap: true},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 20, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
+			wantLabels: Completeness{Partial: true, Truncated: true},
+		},
+		{
+			name:       "partial and truncated: unseen low endpoint plus known rows beyond range",
+			fact:       CacheFacts{HasRetainedRange: true, Start: 11, End: 20},
+			life:       Lifecycle{Outcome: OutcomeSuccess, HasKnownTotal: true, KnownTotal: 100, ReachedLow: false, ReachedHigh: true},
+			traversal:  TraversalFacts{CountWorkFinished: true, PageWorkFinished: true},
 			wantLabels: Completeness{Partial: true, Truncated: true},
 		},
 	}
