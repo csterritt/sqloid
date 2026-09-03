@@ -173,8 +173,18 @@ stable ID before any visible rows or metadata are derived:
   unchanged; immutability after mutating live result views, projected views,
   and cache state; the no-failure control projects without synthesizing a
   `LimitFailure`.
+- `internal/ui/snapshot_finalize_inconsistency_test.go` (Issue #78) — a
+  finalized snapshot whose successful count total falls below the retained
+  cache end carries `CountCacheInconsistent` into immutable history, preserves
+  both the known total and the retained range without clamping, and classifies
+  partial (never complete). The export selection over the finalized entry
+  carries the same metadata and completeness, so the contradiction's effect
+  reaches export. Equal and lower retained-end boundaries, pending, unavailable,
+  failed-outcome, and cancelled counts, and an empty cache with a successful
+  count never set the flag; the exact boundary finalizes complete, exactly-once,
+  and immutably.
 
-Cross-referenced Issues #20, #31, #33, #34, #36, #49, #72, #74, #75, and #76 and the Execution and Result
+Cross-referenced Issues #20, #31, #33, #34, #36, #49, #72, #74, #75, #76, #77, and #78 and the Execution and Result
 Lifecycle, SELECT lifecycle, errors/cancellation
 implementation decision, Global Key Precedence and context/action matrix,
 UI/History Module Design, and history Testing Decisions in

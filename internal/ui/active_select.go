@@ -159,6 +159,19 @@ func (m *Model) appendFinalizedResultEntry() {
 			reachedLow = true
 		}
 	}
+	// Issue #78: derive count/cache inconsistency from the same authoritative
+	// cache snapshot used for rows and range, before SnapshotFacts. Count and
+	// cache are independent autocommit facts: a successful limited-result
+	// count whose total falls below the retained cache end contradicts the
+	// cache. The contradiction is recorded without rewriting the total,
+	// retained range, endpoint observations, rows, or count state; the
+	// corrected history.Classify from Issue #77 then rejects complete.
+	countCacheInconsistent := false
+	if m.countState.Status == result.CountSuccess && m.viewportCache != nil {
+		if end, ok := m.viewportCache.End(); ok && int64(end) > m.countState.Total {
+			countCacheInconsistent = true
+		}
+	}
 	// Issue #75: source invalid-UTF truth from the accepted active page so
 	// it enters the immutable snapshot through Finalization. The persistent
 	// byte-cap truth is already sourced from the authoritative cache via
@@ -187,6 +200,7 @@ func (m *Model) appendFinalizedResultEntry() {
 		CountWorkFinished:      m.countState.Status != result.CountPending,
 		PageWorkFinished:       !m.pagePending,
 		ObservedShortFinalPage: m.pageExhausted,
+		CountCacheInconsistent: countCacheInconsistent,
 	}
 	meta, traversal, err := m.SnapshotFacts(final)
 	if err != nil {
