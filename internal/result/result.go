@@ -1,18 +1,36 @@
 // Package result is Sqloid's shared, UI-independent representation of one
-// SELECT result: typed SQLite values, original driver output labels, and the
-// deterministic presentation policies from Notes/PRD-sqloid.md — full-set
-// output-name deduplication, the exact finite REAL token, visible grid
-// control-character symbols, and maximal invalid UTF-8 replacement with
-// warning metadata. Both internal/ui's frozen-header grid and the future
-// CSV/JSON export packages must consume this one seam rather than copy
-// representation logic.
+// SELECT result. The shared representation consumed by both internal/ui's
+// frozen-header grid and the CSV/JSON exporters in internal/export is the
+// typed value set: result.Value together with Value.Kind and the
+// kind-specific fields Int (KindInteger), Float (KindReal), Str (KindText),
+// and Bytes (KindBlob), plus the original driver output labels and the
+// full-set output-name deduplication rule (DeduplicateNames). FromDriver
+// converts only the plain driver value set (nil, int64, float64, string,
+// []byte) once at the Connection boundary, applies maximal invalid UTF-8
+// replacement to TEXT only (DecodeText), and records the InvalidUTF warning
+// metadata; every other consumer works on the typed values here without
+// re-decoding or re-normalizing. Generated SQL and driver column metadata
+// are never altered; deduplication applies only to display and export names.
+//
+// The exact numeric tokens are shared across output formats because numeric
+// identity must not diverge: IntegerToken (strconv.FormatInt decimal) and
+// RealToken (shortest round-tripping finite 'g' token with .0 restoration,
+// plus the Issue #23 non-finite tokens Inf, -Inf, NaN) are consumed by the
+// grid and by exporters. The non-finite tokens are shared display tokens
+// whose format-specific encoding (raw number versus quoted string) is owned
+// by internal/export.
+//
+// The package also owns grid presentation policy that is NOT part of the
+// shared export contract: the visible tab/newline control-character symbols
+// applied by GridText, the (NULL) glyph (NullDisplay), and the
+// [BLOB n bytes] placeholder are grid-facing rendering decisions. CSV and
+// JSON serializers must not route TEXT, NULL, or BLOB values through these
+// transformed display strings; instead they inspect Kind and the typed
+// payload fields so TEXT bytes and format-specific NULL, BLOB, and
+// non-finite REAL policies remain under internal/export.
 //
 // The package is independent of Bubble Tea, database-driver concrete types,
-// and exporter formats: FromDriver converts only the plain driver value set
-// (nil, int64, float64, string, []byte) once at the boundary, and every other
-// consumer works on the typed values here. Generated SQL and driver column
-// metadata are never altered; deduplication applies only to display and
-// export names.
+// and exporter formats.
 package result
 
 import (
@@ -102,13 +120,18 @@ func NewBlob(payload []byte) Value {
 	return Value{Kind: KindBlob, Bytes: append([]byte(nil), payload...)}
 }
 
-// Display returns the shared presentation token for this value as used by
-// the frozen grid header's cells and by future exporters: INTEGER uses
-// IntegerToken, finite REAL uses RealToken, TEXT uses the decoded
-// string transformed through the visible control-character symbols, BLOB
-// renders exactly `[BLOB n bytes]`, and NULL renders NullDisplay. The render
-// seam never coerces a value into another type: numeric-looking TEXT stays
-// text and non-finite REALs keep the REAL kind.
+// Display returns the grid-facing presentation token for this value as
+// rendered by the frozen grid header's cells: INTEGER uses IntegerToken,
+// finite and non-finite REAL use RealToken, TEXT uses the decoded string
+// transformed through the visible control-character symbols (GridText), BLOB
+// renders exactly `[BLOB n bytes]`, and NULL renders NullDisplay. Display
+// serves grid rendering only; CSV and JSON serializers must not route values
+// through this transformed string. Format-specific serializers inspect Kind
+// and the typed payload fields (Int, Float, Str, Bytes) directly so TEXT
+// bytes and CSV/JSON NULL, BLOB, numeric, and non-finite REAL policies
+// remain under internal/export. The render seam never coerces a value into
+// another type: numeric-looking TEXT stays text and non-finite REALs keep
+// the REAL kind.
 func (v Value) Display() string {
 	switch v.Kind {
 	case KindNull:
