@@ -1,16 +1,32 @@
 name: capability-suite
 
 # Issue #56 Task 1: integrated release-verification gate.
+# Issue #88 Task 1: expanded into the full cross-platform release gate.
 #
-# Both supported platforms run the identical canonical capability-suite
-# command (scripts/capability-suite.sh) from a clean checkout with the
-# pinned module graph. Any modernc.org/sqlite dependency change lands in
-# go.mod/go.sum and therefore triggers both jobs on the pull request that
-# proposes it; the upgrade cannot merge as successful unless this same
-# gate passes on both Linux and macOS. There are no continue-on-error,
-# allowed failures, retries, platform exclusions, or conditional skips:
-# any setup, test, timeout, race, or cleanup failure fails the job and
-# blocks release.
+# Both supported platforms run the full definition of done from a clean
+# checkout with the pinned module graph:
+#
+#   1. modernc.org/sqlite exact-pin assertion (Issue #56, retained).
+#   2. Repository-wide `go test ./...` — every shipped package, including
+#      the Issue #57 PTY-driven built-binary integration test in
+#      cmd/sqloid that builds the real sqloid binary and drives it
+#      headlessly through github.com/creack/pty against a real temporary
+#      SQLite fixture. No package is skipped and no continue-on-error
+#      hides a failure.
+#   3. Repository-wide `go build ./...` — every shipped package compiles.
+#   4. Repository-wide `go vet ./...` — every shipped package is vet-clean.
+#   5. The targeted race/cancellation capability suite
+#      (scripts/capability-suite.sh, Issue #56) — retained as a separate
+#      gate for its specialized -race cancellation guarantees, not
+#      replaced by the ordinary repository tests above.
+#
+# Any modernc.org/sqlite dependency change lands in go.mod/go.sum and
+# therefore triggers both jobs on the pull request that proposes it; the
+# upgrade cannot merge as successful unless this same gate passes on both
+# Linux and macOS. There are no continue-on-error, allowed failures,
+# retries, platform exclusions, or conditional skips: any setup, test,
+# build, vet, capability, binary-integration, timeout, or cleanup failure
+# fails the job and blocks release.
 
 on:
   pull_request:
@@ -36,6 +52,12 @@ jobs:
             echo "modernc.org/sqlite pin is not the vetted v1.57.0 exact version" >&2
             exit 1
           }
+      - name: Repository-wide tests (includes Issue #57 PTY binary integration)
+        run: go test -count=1 -timeout 20m ./...
+      - name: Repository-wide build
+        run: go build ./...
+      - name: Repository-wide vet
+        run: go vet ./...
       - name: Canonical capability suite
         run: scripts/capability-suite.sh
 
@@ -57,5 +79,11 @@ jobs:
             echo "modernc.org/sqlite pin is not the vetted v1.57.0 exact version" >&2
             exit 1
           }
+      - name: Repository-wide tests (includes Issue #57 PTY binary integration)
+        run: go test -count=1 -timeout 20m ./...
+      - name: Repository-wide build
+        run: go build ./...
+      - name: Repository-wide vet
+        run: go vet ./...
       - name: Canonical capability suite
         run: scripts/capability-suite.sh

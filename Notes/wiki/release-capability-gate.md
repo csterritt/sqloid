@@ -1,6 +1,6 @@
-# Release capability suite and the modernc.org/sqlite pin/upgrade gate (Issue #56)
+# Release capability suite and the modernc.org/sqlite pin/upgrade gate (Issue #56, expanded by Issue #88)
 
-Issue #56 turns the PRD's mandatory release blockers (Testing Decisions items 2 and 3 in `Notes/PRD-sqloid.md`) into one executable gate: a single canonical capability-suite command, identical on Linux and macOS, that blocks every release and every `modernc.org/sqlite` dependency upgrade. There are no skips, `continue-on-error`, allowed failures, retries that hide reproducible failures, platform exclusions, or weakened assertions anywhere in the gate.
+Issue #56 turns the PRD's mandatory release blockers (Testing Decisions items 2 and 3 in `Notes/PRD-sqloid.md`) into one executable gate: a single canonical capability-suite command, identical on Linux and macOS, that blocks every release and every `modernc.org/sqlite` dependency upgrade. Issue #88 expands that sole workflow into the full cross-platform release gate: both jobs now also run repository-wide `go test ./...`, `go build ./...`, and `go vet ./...`, and the Issue #57 PTY-driven built-binary integration test runs unattended on both platforms through `go test ./...` (it lives in `cmd/sqloid`). The targeted race/capability suite from Issue #56 is retained as a separate gate for its specialized cancellation guarantees — it is not replaced by the ordinary repository tests. There are no skips, `continue-on-error`, allowed failures, retries that hide reproducible failures, platform exclusions, or weakened assertions anywhere in the gate.
 
 ## The vetted pin
 
@@ -26,14 +26,35 @@ CGO_ENABLED=1 go test -race -count=1 -timeout 20m ./internal/connection ./intern
 
 ## CI configuration
 
-`.github/workflows/capability-suite.yml` defines two jobs, `capability-suite (linux)` on `ubuntu-latest` and `capability-suite (macos)` on `macos-latest`, both:
+`.github/workflows/capability-suite.yml` defines two jobs, `capability-suite (linux)` on `ubuntu-latest` and `capability-suite (macos)` on `macos-latest`. Both jobs run the same seven steps in the same order:
 
 1. clean checkout (`actions/checkout@v4`);
 2. Go installed from `go-version-file: go.mod`;
 3. pin assertion: `go list -m modernc.org/sqlite` must equal `modernc.org/sqlite v1.57.0` or the job fails before testing;
-4. `scripts/capability-suite.sh` — the identical canonical command from a clean checkout with the pinned module graph.
+4. **repository-wide tests** — `go test -count=1 -timeout 20m ./...` exercises every shipped package, including the Issue #57 PTY-driven built-binary integration test in `cmd/sqloid` (`TestSqloidPTYEndToEndBuildsAndRunsRealBinary`). That test builds the real `sqloid` binary from `cmd/sqloid`, creates a real temporary SQLite database fixture, spawns the binary under `github.com/creack/pty.StartWithSize` with a 100×30 terminal, responds to Bubble Tea's `\x1b[6n` cursor-position-report request so the UI renders, waits for the builder's `Command` field to appear, sends `q` then `Enter` to confirm the universal quit, and asserts the process exits with status 0. No injected runners or fakes are used: this is the shipped binary through the shipped composition root through a real terminal. The test fails if the program launch, any real adapter, or the TUI run is bypassed even if package fake-seam tests pass;
+5. **repository-wide build** — `go build ./...` proves every shipped package compiles;
+6. **repository-wide vet** — `go vet ./...` proves every shipped package is vet-clean;
+7. **canonical capability suite** — `scripts/capability-suite.sh`, the identical targeted race/cancellation command from Issue #56, retained as a separate gate for its specialized `-race` cancellation guarantees rather than replaced by the ordinary repository tests above.
 
-The workflow runs on every `pull_request` and every push to `main`. A `modernc.org/sqlite` change is always a `go.mod`/`go.sum` change carried by a pull request, so **any dependency change triggers both jobs, and the upgrade cannot merge as successful unless the same gate passes on both platforms** (with branch protection treating `capability-suite (linux)` and `capability-suite (macos)` as required checks). `timeout-minutes: 45` bounds each job; there are no continue-on-error steps.
+The workflow runs on every `pull_request` and every push to `main`. A `modernc.org/sqlite` change is always a `go.mod`/`go.sum` change carried by a pull request, so **any dependency change triggers both jobs, and the upgrade cannot merge as successful unless the same gate passes on both platforms** (with branch protection treating `capability-suite (linux)` and `capability-suite (macos)` as required checks). `timeout-minutes: 45` bounds each job; there are no `continue-on-error` steps.
+
+### Ordering, timeouts, and fail-closed semantics
+
+Steps run sequentially within each job; the first failing step fails the job immediately — no later step runs. The per-test `-timeout 20m` flag bounds each package's test execution; the job-level `timeout-minutes: 45` bounds the whole job. The capability suite's own `set -eu` and `-timeout 20m` bound the targeted race gate. Any setup, test, build, vet, capability, binary-integration, timeout, or cleanup failure fails the job and blocks merging. There is no `|| true`, no retry, no platform-specific filter, and no conditional skip for any supported platform.
+
+### Captured diagnostics and temporary-fixture cleanup
+
+The PTY integration test captures all PTY output in a `bytes.Buffer` and includes it in `t.Fatalf` messages on failure, so CI logs show the rendered TUI state at the point of failure. The test uses `t.TempDir()` for both the built binary and the SQLite fixture, so Go's test framework removes them automatically when the test ends; `t.Cleanup` also removes the binary and closes/kills the PTY/process. The capability suite's fixtures are likewise temporary and cleaned up by Go's test framework. No goroutines, leases, temporary save artifacts, or open database handles are left behind on a green run.
+
+### Regression classes the expanded gate catches
+
+Before Issue #88 the gate ran only the targeted race/capability suite (`internal/connection`, `internal/ui`, `internal/history` under `-race`). The expanded gate now also catches:
+
+- **Build failures in any shipped package** — `go build ./...` covers `cmd/sqloid`, `internal/cli`, `internal/connection`, `internal/d1`, `internal/export`, `internal/filepicker`, `internal/history`, `internal/querybuilder`, `internal/result`, `internal/resultcache`, `internal/schema`, `internal/session`, and `internal/ui`. A compilation error in any of these blocks merging.
+- **Vet failures in any shipped package** — `go vet ./...` catches suspicious constructs (printf format mismatches, unreachable code, shadowed variables, struct tag issues) in every package.
+- **Test failures in any shipped package** — `go test ./...` runs every `*_test.go` file in every package, not just the three targeted by the capability suite. This catches regressions in `internal/cli`, `internal/d1`, `internal/export`, `internal/filepicker`, `internal/querybuilder`, `internal/result`, `internal/resultcache`, `internal/schema`, and `internal/session` that the capability suite alone did not cover.
+- **Production-composition regressions** — the PTY integration test in `cmd/sqloid` proves the shipped binary reaches and operates the real application composition root (`internal/session.Compose` → `tea.NewProgram` → real adapters → real SQLite). A regression that bypasses production composition — for example, a CLI handler that returns after validation without constructing the UI, or a broken adapter that leaks a driver type — fails this test even if every package-local fake-seam test passes.
+- **Cross-platform regressions** — both Linux and macOS run the identical gate, so a platform-specific failure (e.g., a syscall or PTY behavior difference) blocks merging on the failing platform.
 
 ## modernc.org/sqlite upgrade procedure
 
@@ -118,7 +139,9 @@ Fields to record per release:
 
 ## References
 
-- `scripts/capability-suite.sh` — the canonical command.
-- `.github/workflows/capability-suite.yml` — both platform jobs.
+- `scripts/capability-suite.sh` — the canonical targeted race/capability command (Issue #56, retained).
+- `.github/workflows/capability-suite.yml` — both platform jobs with the full seven-step gate (Issue #88).
+- `cmd/sqloid/pty_integration_test.go` — the Issue #57 PTY-driven built-binary integration test, invoked by `go test ./...`.
+- [production-tui-composition.md](production-tui-composition.md) — the Issue #57 composition root and PTY integration test the expanded gate exercises.
 - [concurrent-page-count.md](concurrent-page-count.md), [connection-pool.md](connection-pool.md), [scoped-select-cancellation.md](scoped-select-cancellation.md), [cancellation-infrastructure.md](cancellation-infrastructure.md), [select-request-identities.md](select-request-identities.md), [health-terminal.md](health-terminal.md), [commit-boundary-quit-cleanup.md](commit-boundary-quit-cleanup.md), [outcome-unknown-terminal.md](outcome-unknown-terminal.md), [schema-validation-workflow.md](schema-validation-workflow.md), [destructive-preparation.md](destructive-preparation.md), [transactional-writes.md](transactional-writes.md), [unit-tests.md](unit-tests.md).
-- Issues #5–#7, #21, #24, #28–#29, #32, #41–#43, #55–#56; the Implementation Decisions, Module Design, Testing Decisions, and Acceptance Criteria sections of `Notes/PRD-sqloid.md`.
+- Issues #5–#7, #21, #24, #28–#29, #32, #41–#43, #55–#57, #81–#88; the Language and stack, Connection pool, Session health, History, Module Design, Testing Decisions, and Acceptance Criteria sections of `Notes/PRD-sqloid.md`.

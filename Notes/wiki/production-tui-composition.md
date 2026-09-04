@@ -127,6 +127,21 @@ The cursor-position-report response is required because Bubble Tea sends
 never renders and the test times out. The response `\x1b[1;1R` (cursor at
 row 1, col 1) is the standard reply that lets rendering proceed.
 
+### CI integration (Issue #88)
+
+Issue #88's expanded release gate runs this test unattended on both Linux
+and macOS through `go test -count=1 -timeout 20m ./...`, which includes
+`cmd/sqloid`. The test's `t.TempDir()` fixtures (built binary and SQLite
+database) are cleaned up automatically by Go's test framework, and
+`t.Cleanup` closes the PTY master and kills any lingering process. The
+10-second deadlines for builder rendering and process exit are deterministic
+— no arbitrary sleeps. Captured PTY output appears in `t.Fatalf` messages
+on failure, so CI logs show the rendered TUI state at the point of failure.
+The test fails nonzero if the program launch, any real adapter, or the TUI
+run is bypassed, so a regression that replaces production composition with
+package-local fakes cannot merge behind a green partial workflow. See
+[release-capability-gate.md](release-capability-gate.md) for the full gate.
+
 ## Test coverage
 
 Three test files cover the composition root:
