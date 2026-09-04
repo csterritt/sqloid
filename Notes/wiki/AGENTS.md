@@ -1,6 +1,6 @@
 # Wiki Agent Schema
 
-Schema and conventions for maintaining the `expense-log` project wiki.
+Schema and conventions for maintaining the `Sqloid` project wiki.
 
 ## Role
 
@@ -12,9 +12,8 @@ You are the LLM Wiki agent for this project. Your job is to maintain a persisten
 - `Notes/wiki/index.md` — content-oriented catalog of all wiki pages.
 - `Notes/wiki/log.md` — chronological, append-only log of ingests, queries, and lint passes.
 - `Notes/wiki/project-overview.md` — high-level project description, stack, and architecture.
-- `Notes/wiki/source-code.md` — catalog and summaries of all source files under `src/`.
-- `Notes/wiki/e2e-tests.md` — catalog and summaries of all end-to-end tests under `e2e-tests/`.
-- `Notes/wiki/unit-tests.md` — catalog and summaries of all unit tests under `tests/`.
+- `Notes/wiki/source-code.md` — catalog and summaries of all source files under `cmd/` and `internal/`.
+- `Notes/wiki/unit-tests.md` — catalog and summaries of the Go unit and process-boundary tests.
 
 ## Conventions
 
@@ -33,11 +32,11 @@ When new code is created or existing code changes significantly:
 
 1. Read the source file(s).
 2. Identify key takeaways: purpose, dependencies, patterns, notable logic.
-3. Update the relevant category page (`source-code.md`, `e2e-tests.md`, or `unit-tests.md`).
+3. Update the relevant category page (`source-code.md` or `unit-tests.md`).
 4. Update `index.md` if new pages or major sections are added.
 5. Append an entry to `log.md`.
 
-Ingest everything, including tests, but do not index anything under `node_modules`.
+Ingest everything, including tests.
 
 ### Query
 
@@ -60,4 +59,4 @@ Periodically health-check the wiki:
 
 ## Scope
 
-This wiki covers the `expense-log` project: a Cloudflare Worker expense-tracking app (with built-in authentication) using Hono, Drizzle ORM, Better Auth, Tailwind CSS, and DaisyUI.
+This wiki covers the Sqloid project: a Go terminal application for browsing and editing SQLite databases (including local Cloudflare D1 databases) using Bubble Tea/Lip Gloss for the TUI, `mow.cli` for command parsing, and the pure-Go `modernc.org/sqlite` driver.
