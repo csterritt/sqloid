@@ -113,19 +113,6 @@ func (v Value) ParamValue() any {
 	}
 }
 
-// realToken renders one finite float64 using the PRD's locale-independent
-// shortest round-trip rule shared by grid, CSV, JSON, and literal output:
-// `strconv.FormatFloat(v, 'g', -1, 64)` with `.0` appended iff the token
-// contains none of `.`, `e`, or `E`, preserving REAL identity for integral
-// values such as 1.0 and negative zero such as -0.0.
-func realToken(v float64) string {
-	token := strconv.FormatFloat(v, 'g', -1, 64)
-	if !strings.ContainsAny(token, ".eE") {
-		token += ".0"
-	}
-	return token
-}
-
 // quoteTextLiteral encloses s in single quotes with every embedded single
 // quote doubled, per the SQL safety decision in Notes/PRD-sqloid.md.
 func quoteTextLiteral(s string) string {

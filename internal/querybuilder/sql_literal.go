@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/chris/sqloid/internal/result"
 )
 
 // LiteralKind classifies one typed standalone-SQL literal, extending the
@@ -78,8 +80,13 @@ func (v Value) Literal() Literal {
 // token per Notes/PRD-sqloid.md: INTEGER as canonical decimal, REAL via the
 // locale-independent shortest round-trip token with `.0` appended when it
 // contains none of `.`, `e`, or `E`, TEXT double-quoted inside single quotes,
-// exactly `NULL`, and BLOB as `X'hex'`. Non-finite REAL values return a typed
-// error rather than producing unsafe or nonportable SQL.
+// exactly `NULL`, and BLOB as `X'hex'`. Finite REAL tokens delegate to the
+// single canonical result.RealToken shared by grid, CSV, and JSON, so there
+// is one finite REAL formatting implementation across consumers. Non-finite
+// REAL values return a typed error rather than producing unsafe or
+// nonportable SQL; this rejection happens before the shared call because
+// result.RealToken intentionally returns display/export tokens (Inf, -Inf,
+// NaN) for non-finite database values rather than rejecting them.
 func RenderSQLLiteral(l Literal) (string, error) {
 	switch l.Kind {
 	case LiteralNull:
@@ -92,7 +99,7 @@ func RenderSQLLiteral(l Literal) (string, error) {
 		if isNonFinite(l.Real) {
 			return "", fmt.Errorf("cannot render non-finite REAL %v", l.Real)
 		}
-		return realToken(l.Real), nil
+		return result.RealToken(l.Real), nil
 	case LiteralBlob:
 		var b strings.Builder
 		b.Grow(4 + 2*len(l.Blob))

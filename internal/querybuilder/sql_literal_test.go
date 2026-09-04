@@ -12,7 +12,11 @@ package querybuilder
 
 import (
 	"math"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/chris/sqloid/internal/result"
 )
 
 // TestRenderIntegerLiterals pins exact canonical decimal INTEGER output at
@@ -155,5 +159,94 @@ func TestValueConvertsToLiteralWithoutReparsing(t *testing.T) {
 		if err != nil || got != tc.sql {
 			t.Errorf("RenderSQLLiteral(Value %q) = (%q, %v), want (%q, nil)", tc.input, got, err, tc.sql)
 		}
+	}
+}
+
+// TestRenderRealLiteralsMatchCanonicalRealToken is the Issue #85 Task 1
+// cross-package contract: every finite REAL rendered by RenderSQLLiteral
+// must equal the canonical result.RealToken used by grid, CSV, and JSON,
+// locking identical finite tokens across consumers before implementation
+// deduplication. Representative cases cover integral REAL identity,
+// negative zero, exponent output, the smallest subnormal, the maximum
+// finite float, and adjacent/precision-edge float64 values. Round-trip and
+// locale-independence are preserved, and query-literal serialization keeps
+// its explicit rejection of positive infinity, negative infinity, and NaN
+// while result formatting retains its existing non-finite policy.
+func TestRenderRealLiteralsMatchCanonicalRealToken(t *testing.T) {
+	cases := []struct {
+		name string
+		v    float64
+	}{
+		{name: "integral REAL 1.0", v: 1.0},
+		{name: "negative zero", v: math.Copysign(0, -1)},
+		{name: "exponent 1e+20", v: 1e20},
+		{name: "smallest subnormal", v: math.SmallestNonzeroFloat64},
+		{name: "maximum finite float", v: math.MaxFloat64},
+		{name: "precision edge 0.1+0.2", v: 0.1 + 0.2},
+		{name: "nextafter below 1", v: math.Nextafter(1, 0)},
+		{name: "nextafter above 1", v: math.Nextafter(1, 2)},
+		{name: "nextafter below MaxFloat64", v: math.Nextafter(math.MaxFloat64, 0)},
+		{name: "negative integral", v: -42.0},
+		{name: "fractional", v: 3.14},
+		{name: "large integral", v: 100000.0},
+		{name: "negative exponent", v: 1e-05},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := RenderSQLLiteral(Literal{Kind: LiteralReal, Real: tc.v})
+			if err != nil {
+				t.Fatalf("RenderSQLLiteral(REAL %v) error: %v", tc.v, err)
+			}
+			want := result.RealToken(tc.v)
+			if got != want {
+				t.Errorf("RenderSQLLiteral(REAL %v) = %q, want canonical result.RealToken %q", tc.v, got, want)
+			}
+			// Round-trip: the token must parse back to the identical float64 bits.
+			parsed, err := strconv.ParseFloat(got, 64)
+			if err != nil {
+				t.Errorf("RenderSQLLiteral token %q does not parse: %v", got, err)
+			}
+			if math.Float64bits(parsed) != math.Float64bits(tc.v) {
+				t.Errorf("RenderSQLLiteral token %q parses to %v, want bit-identical %v", got, parsed, tc.v)
+			}
+			// Locale-independence: no decimal comma or grouped digits.
+			if strings.ContainsAny(got, ",") {
+				t.Errorf("RenderSQLLiteral token %q contains a locale separator", got)
+			}
+			// REAL identity: a finite token without '.', 'e', or 'E' would
+			// lose REAL identity, so the canonical suffix rule must apply.
+			if !strings.ContainsAny(got, ".eE") {
+				t.Errorf("finite REAL token %q lacks REAL identity (.0)", got)
+			}
+		})
+	}
+}
+
+// TestRenderRealLiteralsRejectNonFiniteWhileResultRetainsPolicy pins the
+// Issue #85 separation: query-literal serialization explicitly rejects
+// positive infinity, negative infinity, and NaN with a typed error and an
+// empty token, while result.RealToken retains its existing non-finite
+// display/export policy (Inf, -Inf, NaN). The two policies stay distinct
+// even after finite formatting is delegated to the canonical token.
+func TestRenderRealLiteralsRejectNonFiniteWhileResultRetainsPolicy(t *testing.T) {
+	nonFinite := []struct {
+		name string
+		v    float64
+	}{
+		{name: "positive infinity", v: math.Inf(1)},
+		{name: "negative infinity", v: math.Inf(-1)},
+		{name: "not a number", v: math.NaN()},
+	}
+	for _, tc := range nonFinite {
+		t.Run(tc.name, func(t *testing.T) {
+			tok, err := RenderSQLLiteral(Literal{Kind: LiteralReal, Real: tc.v})
+			if err == nil || tok != "" {
+				t.Errorf("RenderSQLLiteral(REAL %v) = (%q, %v), want typed rejection with empty token", tc.v, tok, err)
+			}
+			// result.RealToken retains its non-finite display/export policy.
+			if got := result.RealToken(tc.v); got == "" {
+				t.Errorf("result.RealToken(REAL %v) = empty, want non-finite display token", tc.v)
+			}
+		})
 	}
 }

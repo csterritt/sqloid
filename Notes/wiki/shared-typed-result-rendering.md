@@ -12,6 +12,8 @@ Obtaining the names never mutates anything: the original driver labels in `Page.
 
 `internal/result.RealToken` is the sole numeric token site: finite values use the shortest round-tripping `strconv.FormatFloat(v, 'g', -1, 64)` token with `.0` appended exactly when the token contains none of `.`, `e`, or `E`, keeping REAL identity for `1.0`, `-0.0` (sign preserved), `1e+20`, subnormals such as `5e-324`, and adjacent precision edges (`math.Nextafter` neighbors of 1 and `MaxFloat64`). The token is locale-independent by construction of strconv — never a decimal comma or grouped digits. Non-finite tokens (`Inf`, `-Inf`, `NaN`, one token for every NaN payload) come from the same function per Issue #23. `Value.Display` routes REALs through `RealToken` and INTEGERs through `strconv.FormatInt`; a value's `Kind` is never inferred from or coerced by its token, so INTEGER `1`, REAL `1.0`, and TEXT `"1.0"` remain three distinct typed values even where tokens look alike.
 
+Issue #85 made `internal/querybuilder.RenderSQLLiteral`'s finite REAL branch delegate to `result.RealToken`, so the formatting-plus-suffix algorithm has exactly one implementation in the repository and query/saved-SQL literals share the identical finite token with grid, CSV, and JSON. Querybuilder keeps its typed non-finite rejection *before* the shared call (Inf/-Inf/NaN return a typed error and empty token), because `result.RealToken` returns display/export tokens for non-finite database values rather than rejecting them; the distinct non-finite rules are preserved.
+
 ## Maximal invalid UTF-8 normalization and warning metadata
 
 `internal/result.DecodeText` is the sole normalization site: each maximal invalid byte sequence (per Unicode's maximal-subpart rule — isolated continuation bytes, truncated multibyte prefixes, overlong encodings such as `C0 80`, surrogate encodings such as `ED A0 80`, and adjacent invalid runs) becomes exactly one U+FFFD. `FromDriver` applies it once to TEXT only and sets the structured `Page.InvalidUTF` metadata (surfaced as the persistent `result.UTFWarning` status text); row and column counts are unchanged and exporters can aggregate the warning without reparsing text.
@@ -55,6 +57,6 @@ Single definition sites (all in `internal/result`): name deduplication (`Dedupli
 
 ## References
 
-- Issues #22 (shared typed result seam), #23 (REAL/non-finite tokens), #47 (exporter-facing boundary), #74 (corrected maximal-subpart decoding and valid U+FFFD preservation), #75 (historical warning preservation).
+- Issues #22 (shared typed result seam), #23 (REAL/non-finite tokens), #47 (exporter-facing boundary), #74 (corrected maximal-subpart decoding and valid U+FFFD preservation), #75 (historical warning preservation), #85 (centralized finite REAL token authority — query-literal delegation to `result.RealToken`).
 - `Notes/PRD-sqloid.md`: Invalid UTF-8 TEXT (maximal-subpart rule, BLOB exclusion, warning metadata), Grid rendering/cache, Export formats and values, Export warnings, Module Design, Testing Decisions; user story 75.
 - Related pages: [csv-export.md](csv-export.md), [json-export.md](json-export.md), [non-finite-real-grid.md](non-finite-real-grid.md), [first-select-result-grid.md](first-select-result-grid.md), [byte-cap-oversized-values.md](byte-cap-oversized-values.md), [snapshot-metadata.md](snapshot-metadata.md).
